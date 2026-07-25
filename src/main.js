@@ -29,12 +29,6 @@ const OPTION_SCHEMA = [
       { key: "templateRepoFolder", type: "select", label: "Template folder",
         placeholder: "Loading folders…", hint: "Select one folder from the template repo." },
     ] },
-    { key: "templateSourceUrl", label: "Template folder URL", default: false,
-      hint: "Use a public GitHub folder containing template/config/style files.", children: [
-      { key: "templateSourceUrlValue", type: "url", label: "Template folder URL",
-        placeholder: "https://github.com/<owner>/<repo>/tree/<branch>/<folder>",
-        hint: "Downloads template/config/style from this folder." },
-    ] },
     { key: "styledPreview", label: "Upload template files", default: false,
       hint: "Off = the library's plain preview.", children: [
       { key: "configFile", type: "file", label: "Config (JSON)", accept: ".json,.css,.html,application/json,text/css,text/html",
@@ -119,36 +113,30 @@ function buildForm() {
 
 function setupTemplateSourceExclusivity() {
   const uploadOpt = $("opt_styledPreview");
-  const urlOpt = $("opt_templateSourceUrl");
   const repoOpt = $("opt_templateRepoPreset");
-  if (!uploadOpt || !urlOpt || !repoOpt) return;
+  if (!uploadOpt || !repoOpt) return;
 
   const sync = (changed) => {
     const active = [];
     if (uploadOpt.checked) active.push("upload");
-    if (urlOpt.checked) active.push("url");
     if (repoOpt.checked) active.push("repo");
     if (active.length <= 1) return;
 
-    if (changed === "upload") { urlOpt.checked = false; repoOpt.checked = false; }
-    else if (changed === "url") { uploadOpt.checked = false; repoOpt.checked = false; }
-    else if (changed === "repo") { uploadOpt.checked = false; urlOpt.checked = false; }
-    else { urlOpt.checked = false; repoOpt.checked = false; }
+    if (changed === "upload") { repoOpt.checked = false; }
+    else if (changed === "repo") { uploadOpt.checked = false; }
+    else { repoOpt.checked = false; }
 
     uploadOpt.dispatchEvent(new Event("change"));
-    urlOpt.dispatchEvent(new Event("change"));
     repoOpt.dispatchEvent(new Event("change"));
   };
 
   uploadOpt.addEventListener("change", () => sync("upload"));
-  urlOpt.addEventListener("change", () => sync("url"));
   repoOpt.addEventListener("change", () => sync("repo"));
 }
 
 function renderOptions(schema, parent) {
   for (const opt of schema) {
     if (opt.type === "file") { parent.appendChild(buildFileField(opt)); continue; }
-    if (opt.type === "url") { parent.appendChild(buildUrlField(opt)); continue; }
     if (opt.type === "select") { parent.appendChild(buildSelectField(opt)); continue; }
     if (opt.type === "mappingBuilder") { parent.appendChild(buildMappingBuilderField(opt)); continue; }
 
@@ -244,30 +232,6 @@ function buildFileField(opt) {
   clear.addEventListener("click", clearFile);
 
   wrap.append(drop, input, clear);
-  if (opt.hint) wrap.appendChild(hintEl(opt.hint));
-  return wrap;
-}
-
-function buildUrlField(opt) {
-  const wrap = document.createElement("div");
-  wrap.className = "field";
-  wrap.appendChild(Object.assign(document.createElement("div"), { className: "file-label", textContent: opt.label }));
-
-  const input = document.createElement("input");
-  input.type = "url";
-  input.id = "opt_" + opt.key;
-  input.placeholder = opt.placeholder || "https://";
-  input.autocomplete = "off";
-  input.style.width = "100%";
-  input.style.padding = "9px 10px";
-  input.style.borderRadius = "8px";
-  input.style.border = "1px solid var(--border)";
-  input.style.background = "var(--panel-2)";
-  input.style.color = "var(--text)";
-  input.style.fontFamily = "var(--mono)";
-  input.style.fontSize = "12px";
-
-  wrap.appendChild(input);
   if (opt.hint) wrap.appendChild(hintEl(opt.hint));
   return wrap;
 }
@@ -629,11 +593,6 @@ async function loadTemplateRepoFolderOptions() {
 function collectOptions(schema, o) {
   for (const opt of schema) {
     if (opt.type === "file") continue;
-    if (opt.type === "url") {
-      const el = $("opt_" + opt.key);
-      if (el) o[opt.key] = (el.value || "").trim();
-      continue;
-    }
     if (opt.type === "select") {
       const el = $("opt_" + opt.key);
       if (el) o[opt.key] = el.value || "";
@@ -791,24 +750,6 @@ async function readJsonFromFolder(handle, filename) {
 // a unique query param forces a fresh fetch from origin.
 function bustCacheUrl(rawUrl) {
   return `${rawUrl}${rawUrl.includes("?") ? "&" : "?"}_=${Date.now()}`;
-}
-
-function parseGitHubFolderUrl(rawUrl) {
-  let url;
-  try { url = new URL(rawUrl); }
-  catch { throw new Error("Template folder URL is not a valid URL."); }
-  if (url.hostname !== "github.com") {
-    throw new Error("Template folder URL must be a github.com URL.");
-  }
-  const parts = url.pathname.split("/").filter(Boolean);
-  if (parts.length < 5 || parts[2] !== "tree") {
-    throw new Error("Use a GitHub folder URL like /owner/repo/tree/branch/path.");
-  }
-  const owner = parts[0];
-  const repo = parts[1];
-  const ref = decodeURIComponent(parts[3]);
-  const folderPath = decodeURIComponent(parts.slice(4).join("/"));
-  return { owner, repo, ref, folderPath };
 }
 
 function pickPreferredFile(files, ext, hints = []) {
@@ -994,79 +935,9 @@ async function resolveTemplateBundleFromConfig(cfg, opts = {}) {
   };
 }
 
-async function fetchTemplateBundleFromUrl(rawUrl) {
-  const { owner, repo, ref, folderPath } = parseGitHubFolderUrl(rawUrl);
-  const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(folderPath).replace(/%2F/g, "/")}?ref=${encodeURIComponent(ref)}`;
-  const res = await fetch(apiUrl, { headers: { Accept: "application/vnd.github+json" }, cache: "no-store" });
-  if (!res.ok) {
-    throw new Error(`Could not read template folder (${res.status} ${res.statusText}).`);
-  }
-  const entries = await res.json();
-  if (!Array.isArray(entries)) {
-    throw new Error("Template URL does not point to a folder.");
-  }
-
-  const jsonFile = pickPreferredFile(entries, ".json", ["config", "preview"]);
-  const htmlFile = pickPreferredFile(entries, ".html", ["template", "preview"]);
-  const cssFile = pickPreferredFile(entries, ".css", ["style", "preview"]);
-  const rawBaseUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${encodeURIComponent(ref).replace(/%2F/g, "/")}/${encodeURIComponent(folderPath).replace(/%2F/g, "/")}/`;
-
-  const readText = async (entry) => {
-    if (!entry || !entry.download_url) return null;
-    const r = await fetch(bustCacheUrl(entry.download_url), { cache: "no-store" });
-    if (!r.ok) throw new Error(`Could not download ${entry.name} (${r.status} ${r.statusText}).`);
-    return r.text();
-  };
-
-  const template = await readText(htmlFile);
-  const configText = await readText(jsonFile);
-  const css = (await readText(cssFile)) || "";
-  let config = null;
-  let templateSrc = htmlFile ? `folder file (${htmlFile.name})` : "none";
-  let cssSrc = cssFile ? `folder file (${cssFile.name})` : "none";
-  if (configText !== null) {
-    try { config = JSON.parse(configText); }
-    catch (e) { throw new Error(`Downloaded config file "${jsonFile.name}" is not valid JSON: ${e.message}`); }
-
-    // If config.json specifies template/style sources, those take precedence.
-    const resolved = await resolveTemplateBundleFromConfig(config, { baseRawUrl: rawBaseUrl });
-    if (resolved.template) { templateSrc = resolved.templateSrc; }
-    if (resolved.css) { cssSrc = resolved.cssSrc; }
-    return {
-      template: resolved.template || template,
-      config,
-      css: resolved.css || css,
-      sourceLabel: `${owner}/${repo}@${ref}/${folderPath}`,
-      files: {
-        template: resolved.template ? resolved.templateSrc : (htmlFile ? htmlFile.name : null),
-        config: jsonFile ? jsonFile.name : null,
-        style: resolved.css ? resolved.cssSrc : (cssFile ? cssFile.name : null),
-      },
-    };
-  }
-
-  return {
-    template,
-    config,
-    css,
-    sourceLabel: `${owner}/${repo}@${ref}/${folderPath}`,
-    files: {
-      template: htmlFile ? htmlFile.name : templateSrc,
-      config: jsonFile ? jsonFile.name : null,
-      style: cssFile ? cssFile.name : cssSrc,
-    },
-  };
-}
-
 function buildGitHubTreeUrl(owner, repo, ref, folderPath) {
   const safePath = String(folderPath || "").split("/").map((p) => encodeURIComponent(p)).join("/");
   return `https://github.com/${owner}/${repo}/tree/${encodeURIComponent(ref)}/${safePath}`;
-}
-
-function describeRemoteSource(label, value, fallback) {
-  if (!value) return fallback;
-  if (value.startsWith("url (") || value.startsWith("inline") || value.startsWith("folder (")) return value;
-  return `${label}/${value}`;
 }
 
 /* ---------- Build ---------- */
@@ -1143,11 +1014,9 @@ async function processFolder(dirHandle, files, options) {
     if (options.overwrite || !(await fileExists(dirHandle, HTML_FILE))) {
       try {
         let html;
-        const urlSelected = !!options.templateSourceUrl;
         const repoSelected = !!options.templateRepoPreset;
-        const sourceUrl = (options.templateSourceUrlValue || "").trim();
-        if (options.styledPreview || urlSelected || repoSelected) {
-          // Precedence for template/config/style: uploaded file → URL folder → local folder.
+        if (options.styledPreview || repoSelected) {
+          // Precedence for template/config/style: repo folder → uploaded file → local folder.
           let template = null, templateSrc = "none";
           let cfg = null, cfgSrc = "none";
           let css = "", cssSrc = "none";
@@ -1155,27 +1024,14 @@ async function processFolder(dirHandle, files, options) {
           if (repoSelected) {
             const selectedFolder = (options.templateRepoFolder || "").trim();
             if (!selectedFolder) throw new Error("Template repo source is selected but no template folder was chosen.");
-            const repoUrl = buildGitHubTreeUrl(TEMPLATE_REPO_OWNER, TEMPLATE_REPO_NAME, TEMPLATE_REPO_REF, selectedFolder);
-            const remote = await fetchTemplateBundleFromUrl(repoUrl);
+            const remote = await fetchTemplateBundle(TEMPLATE_REPO_OWNER, TEMPLATE_REPO_NAME, TEMPLATE_REPO_REF, selectedFolder);
             template = remote.template;
             cfg = remote.config;
             css = remote.css;
             const base = `repo (${selectedFolder})`;
-            templateSrc = describeRemoteSource(base, remote.files.template, `${base}; no template found`);
-            cfgSrc = describeRemoteSource(base, remote.files.config, "none");
-            cssSrc = describeRemoteSource(base, remote.files.style, "none");
-          }
-
-          if (urlSelected) {
-            if (!sourceUrl) throw new Error("Template folder URL is selected but no URL was provided.");
-            const remote = await fetchTemplateBundleFromUrl(sourceUrl);
-            template = remote.template;
-            cfg = remote.config;
-            css = remote.css;
-            const base = `URL (${remote.sourceLabel})`;
-            templateSrc = describeRemoteSource(base, remote.files.template, `${base}; no template found`);
-            cfgSrc = describeRemoteSource(base, remote.files.config, "none");
-            cssSrc = describeRemoteSource(base, remote.files.style, "none");
+            templateSrc = remote.files.template ? `${base}/${remote.files.template}` : `${base}; no template found`;
+            cfgSrc = remote.files.config ? `${base}/${remote.files.config}` : "none";
+            cssSrc = remote.files.style ? `${base}/${remote.files.style}` : "none";
           }
 
           if (options.styledPreview && options.configUpload) {
@@ -1183,7 +1039,7 @@ async function processFolder(dirHandle, files, options) {
             try { cfg = JSON.parse(cfgText); }
             catch (e) { throw new Error(`uploaded config "${options.configUpload.name}" is not valid JSON: ${e.message}`); }
             cfgSrc = `uploaded (${options.configUpload.name})`;
-          } else if (!urlSelected && !repoSelected) {
+          } else if (!repoSelected) {
             const folderCfg = await readJsonFromFolder(dirHandle, "preview-config.json");
             if (folderCfg) { cfg = folderCfg; cfgSrc = "preview-config.json from folder"; }
           }
