@@ -5,7 +5,7 @@
 
 import {
   buildFileMetadata, buildCrate, crateToJsonString, crateToXlsxBytes, crateToPreviewHtml,
-  mergeXlsxIntoCrate, readXlsxHeaders, readXlsxContextPrefixes, GENERATED_FILENAMES, CONTROL_FILENAMES,
+  mergeXlsxIntoCrate, readXlsxHeaders, readXlsxContextPrefixes, loadCrateFromJson, GENERATED_FILENAMES, CONTROL_FILENAMES,
 } from "./crate.js";
 // ./austlang.js (and its bundled AUSTLANG data pack) is loaded lazily via
 // dynamic import() only when language lookups are enabled — see run() — so the
@@ -204,14 +204,15 @@ function renderTypeStatus(typeCounts) {
 }
 
 /* ---------- view routing ---------- */
-const VIEWS = ["view-mode", "view-crate-details", "view-build", "view-show"];
+const VIEWS = ["view-mode", "view-crate-details", "view-build", "view-show", "view-edit"];
 function showView(name) {
   for (const v of VIEWS) $(v).classList.toggle("hidden", v !== name);
   $("contextBar").classList.toggle("hidden", !dirHandle);
-  $("menuBtn").classList.toggle("hidden", !(name === "view-build" || name === "view-show"));
+  $("menuBtn").classList.toggle("hidden", !(name === "view-build" || name === "view-show" || name === "view-edit"));
   $("settingsBtn").classList.toggle("hidden", name !== "view-build");
-  $("showBtn").classList.toggle("hidden", name !== "view-build");
-  $("rebuildBtn").classList.toggle("hidden", name !== "view-show");
+  $("showBtn").classList.toggle("hidden", !(name === "view-build" || name === "view-edit"));
+  $("editBtn").classList.toggle("hidden", !(name === "view-build" || name === "view-show"));
+  $("rebuildBtn").classList.toggle("hidden", !(name === "view-show" || name === "view-edit"));
 }
 
 /* ---------- options form ---------- */
@@ -1393,13 +1394,16 @@ async function processFolder(dirHandle, files, options) {
           if (template) {
             log(`Preview: styled tabular · template ${templateSrc} · config ${cfgSrc} · style ${cssSrc}.`, "muted");
             html = await crateToPreviewHtml(crate, { template, config: cfg, css });
+            lastHtmlTemplate = { template, config: cfg, css, source: templateSrc };
           } else {
             log("Preview: plain (library default template; no custom template file provided).", "muted");
             html = await crateToPreviewHtml(crate);
+            lastHtmlTemplate = null;
           }
         } else {
           log("Preview: plain (library default template).", "muted");
           html = await crateToPreviewHtml(crate);
+          lastHtmlTemplate = null;
         }
         await writeFile(dirHandle, HTML_FILE, html);
         log(`Wrote ${HTML_FILE}.`, "ok");
@@ -1413,6 +1417,10 @@ async function processFolder(dirHandle, files, options) {
 }
 
 let buildHtml = null;  // ro-crate-preview.html captured after the last successful build
+// The styled template/config/css resolved by the most recent successful build
+// in this session (null if that build used the plain template). Edit-save
+// reuses this so it doesn't silently downgrade a styled preview to plain.
+let lastHtmlTemplate = null;
 
 async function run() {
   if (!dirHandle) return;
@@ -1439,8 +1447,9 @@ async function run() {
     buildHtml = await readFileText(dirHandle, HTML_FILE);
     if (buildHtml !== null) $("showHtmlBtn").classList.remove("hidden");
     // A build always writes ro-crate-metadata.json (or it already existed), so
-    // the context bar's Show button can now be enabled.
+    // the context bar's Show and Edit buttons can now be enabled.
     $("showBtn").disabled = false;
+    $("editBtn").disabled = false;
   } catch (e) {
     log("Error: " + (e && e.message ? e.message : e), "err");
     console.error(e);
@@ -1460,6 +1469,8 @@ async function pickFolder(nextView = "view-mode") {
     return;
   }
   rootDatasetOverride = null;
+  buildHtml = null;
+  lastHtmlTemplate = null;
   resetCrateDetailsForm();
   try {
     await populateCrateDetailsFromExistingCrate(dirHandle);
@@ -1485,9 +1496,12 @@ async function refreshModeCards() {
   }
   $("cardShow").classList.toggle("hidden", !(hasJson || hasHtml));
   $("showBtn").disabled = !(hasJson || hasHtml);
+  $("cardEdit").classList.toggle("hidden", !hasJson);
+  $("editBtn").disabled = !hasJson;
   refreshBuildStepActions();
 }
 function openBuild() {
+  if (!confirmLeaveEditIfDirty()) return;
   clearLog();
   $("showHtmlBtn").classList.add("hidden");
   $("saveLogBtn").disabled = true;
@@ -1710,6 +1724,7 @@ async function materializePreviewHtml(html, handle) {
 
 async function openShow() {
   if (!dirHandle) return;
+  if (!confirmLeaveEditIfDirty()) return;
   try {
     if (!(await verifyPermission(dirHandle, false))) return;
     showHtml = await readFileText(dirHandle, HTML_FILE);
@@ -1809,6 +1824,425 @@ async function openHtmlInNewTab(html) {
 }
 function openPreviewWindow() { openHtmlInNewTab(showHtml); }
 
+/* ---------- Edit ---------- */
+// Loads ro-crate-metadata.json into a live ROCrate instance and edits it
+// directly (setProperty/addEntity/deleteEntity/…), the same public API
+// mergeXlsxIntoCrate already relies on. Saving re-serializes that instance
+// through the same crateTo* functions the Build flow uses.
+const EDIT_DESCRIPTOR_ID = "ro-crate-metadata.json";
+const STRUCTURAL_ENTITY_TYPES = new Set(["File", "RepositoryObject", "RepositoryCollection"]);
+const EDIT_NEW_TYPES = ["Person", "Organization", "Place", "Language", "License", "CreativeWork"];
+
+let editCrate = null;
+let editSelectedId = null;
+let editDirty = false;
+
+function asArray(v) { return v === undefined || v === null ? [] : (Array.isArray(v) ? v : [v]); }
+function entityTypes(entity) { return asArray(entity && entity["@type"]).map(String); }
+function entityDisplayName(entity) {
+  const names = asArray(entity && entity.name).filter((n) => typeof n === "string" && n.trim());
+  return names.length ? names[0] : String((entity && entity["@id"]) || "");
+}
+function entityIdIsStructural(entity) {
+  if (!entity || !editCrate) return true;
+  const id = entity["@id"];
+  if (id === editCrate.rootId || id === EDIT_DESCRIPTOR_ID) return true;
+  return entityTypes(entity).some((t) => STRUCTURAL_ENTITY_TYPES.has(t));
+}
+function isEditViewActive() {
+  const view = $("view-edit");
+  return !!(view && !view.classList.contains("hidden"));
+}
+// Guard for switching away from Edit (Menu/Show/Build) with unsaved changes.
+function confirmLeaveEditIfDirty() {
+  if (!isEditViewActive() || !editDirty) return true;
+  return confirm("You have unsaved changes in the crate editor. Discard them?");
+}
+
+function editLog(msg) {
+  const el = $("editLog");
+  if (!el) return;
+  if (!msg) { el.classList.add("hidden"); el.textContent = ""; return; }
+  el.classList.remove("hidden");
+  el.textContent = msg;
+}
+
+function markEditDirty() {
+  editDirty = true;
+  updateEditSaveState();
+}
+function updateEditSaveState() {
+  const btn = $("editSaveBtn");
+  const badge = $("editDirtyBadge");
+  if (btn) btn.disabled = !editDirty;
+  if (badge) badge.classList.toggle("hidden", !editDirty);
+}
+
+async function openEdit() {
+  if (!dirHandle) return;
+  if (!confirmLeaveEditIfDirty()) return;
+  try {
+    if (!(await verifyPermission(dirHandle, true))) { alert("Permission to read/write the folder was denied."); return; }
+    const text = await readFileText(dirHandle, JSON_FILE);
+    if (text === null) { $("modal").classList.remove("hidden"); return; }
+    let json;
+    try { json = JSON.parse(text); }
+    catch (e) { alert(`${JSON_FILE} is not valid JSON: ${e.message}`); return; }
+    editCrate = loadCrateFromJson(json);
+    editDirty = false;
+    editLog("");
+    updateEditSaveState();
+    showView("view-edit");
+    populateEditTypeFilter();
+    refreshEditEntityIdOptions();
+    renderEditEntityList();
+    const firstId = editCrate.rootId
+      || (editCrate.graph.find((e) => e["@id"] !== EDIT_DESCRIPTOR_ID) || {})["@id"]
+      || null;
+    selectEditEntity(firstId);
+  } catch (e) {
+    alert("Could not open the crate for editing: " + (e && e.message ? e.message : e));
+    console.error(e);
+  }
+}
+
+function populateEditTypeFilter() {
+  const select = $("editTypeFilter");
+  if (!select || !editCrate) return;
+  const current = select.value;
+  const types = new Set();
+  editCrate.graph.forEach((e) => { if (e["@id"] !== EDIT_DESCRIPTOR_ID) entityTypes(e).forEach((t) => types.add(t)); });
+  select.innerHTML = '<option value="">All types</option>' +
+    [...types].sort().map((t) => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join("");
+  select.value = [...types].includes(current) ? current : "";
+}
+
+function refreshEditEntityIdOptions() {
+  const dl = $("editEntityIdOptions");
+  if (!dl || !editCrate) return;
+  dl.innerHTML = editCrate.graph
+    .filter((e) => e["@id"] !== EDIT_DESCRIPTOR_ID)
+    .map((e) => `<option value="${escapeHtml(e["@id"])}">${escapeHtml(entityDisplayName(e))}</option>`)
+    .join("");
+}
+
+function editEntityMatchesFilter(entity, search, typeFilter) {
+  if (typeFilter && !entityTypes(entity).includes(typeFilter)) return false;
+  if (!search) return true;
+  const hay = (entityDisplayName(entity) + " " + entity["@id"]).toLowerCase();
+  return hay.includes(search);
+}
+
+function renderEditEntityList() {
+  const host = $("editEntityList");
+  if (!host || !editCrate) return;
+  const search = ($("editSearch").value || "").trim().toLowerCase();
+  const typeFilter = $("editTypeFilter").value || "";
+  host.innerHTML = "";
+  const entities = editCrate.graph
+    .filter((e) => e["@id"] !== EDIT_DESCRIPTOR_ID)
+    .filter((e) => editEntityMatchesFilter(e, search, typeFilter))
+    .sort((a, b) => entityDisplayName(a).localeCompare(entityDisplayName(b)));
+  if (!entities.length) {
+    host.appendChild(hintEl("No entities match."));
+    return;
+  }
+  entities.forEach((entity) => {
+    const id = entity["@id"];
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "entity-item" + (id === editSelectedId ? " active" : "");
+    const isRoot = id === editCrate.rootId;
+    item.innerHTML = [
+      `<span class="entity-item-name">${escapeHtml(entityDisplayName(entity))}`,
+      isRoot ? ` <span class="entity-root-badge">root</span>` : "",
+      `</span>`,
+      `<span class="entity-item-meta">`,
+      `<span class="entity-item-type">${escapeHtml(entityTypes(entity).join(", ") || "Thing")}</span>`,
+      `<span class="entity-item-id">${escapeHtml(id)}</span>`,
+      `</span>`,
+    ].join("");
+    item.addEventListener("click", () => selectEditEntity(id));
+    host.appendChild(item);
+  });
+}
+
+function selectEditEntity(id) {
+  editSelectedId = id || null;
+  renderEditEntityList();
+  renderEditForm();
+}
+
+// Distinguishes a property's editor: values that resolved (config.link) to
+// another entity render as reference chips; everything else is a plain value.
+function propValueKind(values) {
+  const first = values.find((v) => v !== undefined && v !== null);
+  return first && typeof first === "object" ? "ref" : "text";
+}
+
+function commitEditPropertyValues(id, prop, newValues) {
+  if (!newValues.length) editCrate.deleteProperty(id, prop);
+  else editCrate.setProperty(id, prop, newValues.length === 1 ? newValues[0] : newValues);
+  markEditDirty();
+}
+
+function buildEditPropertyRow(entity, prop) {
+  const row = document.createElement("div");
+  row.className = "prop-row";
+  const values = asArray(entity[prop]);
+  const kind = propValueKind(values);
+
+  const head = document.createElement("div");
+  head.className = "prop-row-head";
+  const label = document.createElement("span");
+  label.className = "prop-label";
+  label.textContent = prop;
+  const delPropBtn = document.createElement("button");
+  delPropBtn.type = "button"; delPropBtn.className = "prop-del-btn"; delPropBtn.title = "Delete property";
+  delPropBtn.textContent = "×";
+  delPropBtn.addEventListener("click", () => {
+    editCrate.deleteProperty(editSelectedId, prop);
+    markEditDirty();
+    renderEditForm();
+  });
+  head.append(label, delPropBtn);
+  row.appendChild(head);
+
+  const valuesHost = document.createElement("div");
+  valuesHost.className = "prop-values";
+  row.appendChild(valuesHost);
+
+  values.forEach((val, idx) => {
+    const valRow = document.createElement("div");
+    valRow.className = "value-row";
+    if (kind === "ref") {
+      const isLinked = val && typeof val === "object";
+      const refId = isLinked ? String(val["@id"]) : String(val);
+      const refName = isLinked ? entityDisplayName(val) : refId;
+      const chip = document.createElement("button");
+      chip.type = "button"; chip.className = "ref-chip";
+      chip.textContent = refName !== refId ? `${refName}  (${refId})` : refId;
+      chip.title = "Jump to this entity";
+      chip.addEventListener("click", () => { if (editCrate.hasEntity(refId)) selectEditEntity(refId); });
+      valRow.appendChild(chip);
+    } else {
+      const input = document.createElement("input");
+      input.type = "text"; input.className = "value-input";
+      input.value = val === undefined || val === null ? "" : String(val);
+      input.addEventListener("change", () => {
+        const raw = asArray(entity[prop]).slice();
+        raw[idx] = input.value;
+        commitEditPropertyValues(editSelectedId, prop, raw);
+        renderEditForm();
+      });
+      valRow.appendChild(input);
+    }
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button"; removeBtn.className = "value-remove-btn"; removeBtn.title = "Remove value";
+    removeBtn.textContent = "×";
+    removeBtn.addEventListener("click", () => {
+      const raw = asArray(entity[prop]).slice();
+      raw.splice(idx, 1);
+      commitEditPropertyValues(editSelectedId, prop, raw);
+      renderEditForm();
+    });
+    valRow.appendChild(removeBtn);
+    valuesHost.appendChild(valRow);
+  });
+
+  const addRow = document.createElement("div");
+  addRow.className = "value-add-row";
+  if (kind === "ref") {
+    const input = document.createElement("input");
+    input.type = "text"; input.className = "value-input"; input.setAttribute("list", "editEntityIdOptions");
+    input.placeholder = "@id of entity to reference…";
+    const addBtn = document.createElement("button");
+    addBtn.type = "button"; addBtn.className = "secondary"; addBtn.textContent = "Add reference";
+    addBtn.addEventListener("click", () => {
+      const refId = input.value.trim();
+      if (!refId) return;
+      if (!editCrate.hasEntity(refId)) editCrate.addEntity({ "@id": refId, "@type": "Thing" });
+      const raw = asArray(entity[prop]).slice();
+      raw.push({ "@id": refId });
+      commitEditPropertyValues(editSelectedId, prop, raw);
+      refreshEditEntityIdOptions();
+      renderEditForm();
+      renderEditEntityList();
+    });
+    addRow.append(input, addBtn);
+  } else {
+    const addBtn = document.createElement("button");
+    addBtn.type = "button"; addBtn.className = "secondary"; addBtn.textContent = "+ Add value";
+    addBtn.addEventListener("click", () => {
+      const raw = asArray(entity[prop]).slice();
+      raw.push("");
+      commitEditPropertyValues(editSelectedId, prop, raw);
+      renderEditForm();
+    });
+    addRow.appendChild(addBtn);
+  }
+  row.appendChild(addRow);
+  return row;
+}
+
+function buildAddPropertyRow(entity) {
+  const wrap = document.createElement("div");
+  wrap.className = "prop-add-row";
+  const nameInput = document.createElement("input");
+  nameInput.type = "text"; nameInput.className = "value-input";
+  nameInput.placeholder = "New property name (e.g. custom:participant)";
+  const typeSelect = document.createElement("select");
+  typeSelect.innerHTML = '<option value="text">Text value</option><option value="ref">Reference to another entity</option>';
+  const refInput = document.createElement("input");
+  refInput.type = "text"; refInput.className = "value-input hidden";
+  refInput.placeholder = "@id of entity to reference…"; refInput.setAttribute("list", "editEntityIdOptions");
+  typeSelect.addEventListener("change", () => refInput.classList.toggle("hidden", typeSelect.value !== "ref"));
+  const addBtn = document.createElement("button");
+  addBtn.type = "button"; addBtn.textContent = "+ Add property";
+  addBtn.addEventListener("click", () => {
+    const prop = nameInput.value.trim();
+    if (!prop || prop.startsWith("@")) { alert('Enter a property name that doesn’t start with "@".'); return; }
+    if (prop in entity) { alert(`"${prop}" already exists on this entity.`); return; }
+    if (typeSelect.value === "ref") {
+      const refId = refInput.value.trim();
+      if (!refId) { alert("Enter the @id of the entity to reference."); return; }
+      if (!editCrate.hasEntity(refId)) editCrate.addEntity({ "@id": refId, "@type": "Thing" });
+      editCrate.setProperty(editSelectedId, prop, { "@id": refId });
+    } else {
+      editCrate.setProperty(editSelectedId, prop, "");
+    }
+    markEditDirty();
+    refreshEditEntityIdOptions();
+    renderEditForm();
+    renderEditEntityList();
+  });
+  wrap.append(nameInput, typeSelect, refInput, addBtn);
+  return wrap;
+}
+
+function renderEditForm() {
+  const pane = $("editFormPane");
+  if (!pane) return;
+  if (!editCrate || !editSelectedId || !editCrate.hasEntity(editSelectedId)) {
+    pane.innerHTML = `<div class="edit-empty">Select an entity on the left to edit its properties.</div>`;
+    return;
+  }
+  const entity = editCrate.getEntity(editSelectedId);
+  const structural = entityIdIsStructural(entity);
+  pane.innerHTML = "";
+
+  const header = document.createElement("div");
+  header.className = "edit-entity-header";
+  header.innerHTML = [
+    `<div class="field">`,
+    `<label class="file-label">@id</label>`,
+    `<input type="text" id="editFieldId" value="${escapeHtml(editSelectedId)}"${structural ? " disabled" : ""} />`,
+    structural
+      ? `<div class="hint">This id is structural (root dataset, file, or folder) and can’t be renamed here.</div>`
+      : `<div class="hint">Renaming updates every reference to this entity.</div>`,
+    `</div>`,
+    `<div class="field">`,
+    `<label class="file-label">@type</label>`,
+    `<input type="text" id="editFieldType" value="${escapeHtml(entityTypes(entity).join(", "))}" />`,
+    `<div class="hint">Comma-separated.</div>`,
+    `</div>`,
+  ].join("");
+  pane.appendChild(header);
+
+  if (!structural) {
+    const idInput = header.querySelector("#editFieldId");
+    idInput.addEventListener("change", () => {
+      const next = idInput.value.trim();
+      if (!next || next === editSelectedId) { idInput.value = editSelectedId; return; }
+      if (editCrate.hasEntity(next)) { alert(`"${next}" is already used by another entity.`); idInput.value = editSelectedId; return; }
+      editCrate.updateEntityId(editSelectedId, next);
+      editSelectedId = next;
+      markEditDirty();
+      refreshEditEntityIdOptions();
+      renderEditEntityList();
+      renderEditForm();
+    });
+  }
+  header.querySelector("#editFieldType").addEventListener("change", (e) => {
+    const types = e.target.value.split(",").map((t) => t.trim()).filter(Boolean);
+    if (!types.length) { e.target.value = entityTypes(entity).join(", "); return; }
+    editCrate.setProperty(editSelectedId, "@type", types.length === 1 ? types[0] : types);
+    markEditDirty();
+    populateEditTypeFilter();
+    renderEditEntityList();
+  });
+
+  const propsHost = document.createElement("div");
+  propsHost.className = "edit-props";
+  pane.appendChild(propsHost);
+
+  const keys = Object.keys(entity).filter((k) => k !== "@id" && k !== "@type" && k !== "@reverse");
+  keys.sort().forEach((prop) => propsHost.appendChild(buildEditPropertyRow(entity, prop)));
+
+  pane.appendChild(buildAddPropertyRow(entity));
+
+  const actions = document.createElement("div");
+  actions.className = "edit-entity-actions";
+  const delBtn = document.createElement("button");
+  delBtn.type = "button"; delBtn.className = "secondary";
+  delBtn.textContent = "Delete this entity";
+  delBtn.disabled = editSelectedId === editCrate.rootId;
+  delBtn.addEventListener("click", () => deleteEditEntity(editSelectedId));
+  actions.appendChild(delBtn);
+  if (delBtn.disabled) actions.appendChild(hintEl("The root dataset can't be deleted."));
+  pane.appendChild(actions);
+}
+
+function deleteEditEntity(id) {
+  if (!editCrate || !id || id === editCrate.rootId) return;
+  const entity = editCrate.getEntity(id);
+  const label = entity ? entityDisplayName(entity) : id;
+  if (!confirm(`Delete "${label}"? This also removes references to it from other entities.`)) return;
+  editCrate.deleteEntity(id, { references: true });
+  markEditDirty();
+  editSelectedId = editCrate.rootId;
+  populateEditTypeFilter();
+  refreshEditEntityIdOptions();
+  renderEditEntityList();
+  renderEditForm();
+}
+
+async function saveEdit() {
+  if (!editCrate || !dirHandle) return;
+  const btn = $("editSaveBtn");
+  btn.disabled = true; btn.textContent = "Saving…";
+  try {
+    if (!(await verifyPermission(dirHandle, true))) { editLog("Permission to write the folder was denied."); return; }
+    await writeFile(dirHandle, JSON_FILE, crateToJsonString(editCrate));
+    const notes = [`Wrote ${JSON_FILE}.`];
+    if (await fileExists(dirHandle, XLSX_FILE)) {
+      await writeFile(dirHandle, XLSX_FILE, await crateToXlsxBytes(editCrate));
+      notes.push(`Updated ${XLSX_FILE}.`);
+    }
+    if (await fileExists(dirHandle, HTML_FILE)) {
+      if (lastHtmlTemplate) {
+        const html = await crateToPreviewHtml(editCrate, {
+          template: lastHtmlTemplate.template, config: lastHtmlTemplate.config, css: lastHtmlTemplate.css,
+        });
+        await writeFile(dirHandle, HTML_FILE, html);
+        notes.push(`Updated ${HTML_FILE} (styled template from this session's last build: ${lastHtmlTemplate.source}).`);
+      } else {
+        await writeFile(dirHandle, HTML_FILE, await crateToPreviewHtml(editCrate));
+        notes.push(`Updated ${HTML_FILE} (plain template — Build in this session with template options first to reuse a styled one here).`);
+      }
+    }
+    editDirty = false;
+    editLog(notes.join(" "));
+    await refreshModeCards();
+  } catch (e) {
+    editLog("Save failed: " + (e && e.message ? e.message : e));
+    console.error(e);
+  } finally {
+    btn.textContent = "Save";
+    updateEditSaveState();
+  }
+}
+
 /* ---------- boot ---------- */
 function boot() {
   if (!("showDirectoryPicker" in window)) { $("unsupported").classList.remove("hidden"); return; }
@@ -1817,7 +2251,10 @@ function boot() {
   showView("view-mode");
   refreshModeCards();
 
-  $("menuBtn").addEventListener("click", async () => { await refreshModeCards(); showView("view-mode"); });
+  $("menuBtn").addEventListener("click", async () => {
+    if (!confirmLeaveEditIfDirty()) return;
+    await refreshModeCards(); showView("view-mode");
+  });
   $("settingsBtn").addEventListener("click", () => $("settingsModal").classList.remove("hidden"));
   $("settingsClose").addEventListener("click", () => $("settingsModal").classList.add("hidden"));
   $("settingsModal").addEventListener("click", (e) => { if (e.target === $("settingsModal")) $("settingsModal").classList.add("hidden"); });
@@ -1858,6 +2295,39 @@ function boot() {
   $("openPreviewBtn").addEventListener("click", openPreviewWindow);
   const key = (fn) => (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fn(); } };
   $("cardShow").addEventListener("keydown", key(openShow));
+  $("cardEdit").addEventListener("click", openEdit);
+  $("cardEdit").addEventListener("keydown", key(openEdit));
+  $("editBtn").addEventListener("click", openEdit);
+  $("editSaveBtn").addEventListener("click", saveEdit);
+  $("editSearch").addEventListener("input", renderEditEntityList);
+  $("editTypeFilter").addEventListener("change", renderEditEntityList);
+  $("editAddEntityToggle").addEventListener("click", () => { $("editAddEntityForm").classList.toggle("hidden"); });
+  $("editNewType").addEventListener("change", () => {
+    $("editNewCustomType").classList.toggle("hidden", $("editNewType").value !== "__custom");
+  });
+  $("editNewCancel").addEventListener("click", () => {
+    $("editAddEntityForm").classList.add("hidden");
+    $("editNewName").value = ""; $("editNewCustomType").value = "";
+  });
+  $("editNewCreate").addEventListener("click", () => {
+    if (!editCrate) return;
+    const typeVal = $("editNewType").value;
+    const type = typeVal === "__custom" ? ($("editNewCustomType").value.trim() || "Thing") : typeVal;
+    const name = $("editNewName").value.trim();
+    const base = `#${slugify(name || type) || "entity"}`;
+    let id = base, i = 2;
+    while (editCrate.hasEntity(id)) { id = `${base}-${i++}`; }
+    const data = { "@id": id, "@type": type };
+    if (name) data.name = name;
+    editCrate.addEntity(data);
+    markEditDirty();
+    $("editAddEntityForm").classList.add("hidden");
+    $("editNewName").value = ""; $("editNewCustomType").value = "";
+    populateEditTypeFilter();
+    refreshEditEntityIdOptions();
+    renderEditEntityList();
+    selectEditEntity(id);
+  });
   $("crateDetailsBackBtn").addEventListener("click", async () => { await refreshModeCards(); showView("view-mode"); });
   $("crateDetailsContinueBtn").addEventListener("click", submitCrateDetails);
   $("crateDetailsForm").addEventListener("keydown", (e) => {

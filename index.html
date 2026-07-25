@@ -178,6 +178,71 @@
     background: var(--panel-2); color: var(--muted); font-size: 13px; line-height: 1; cursor: pointer;
   }
   .mapping-row .map-copy-btn:hover { color: var(--text); border-color: var(--accent); }
+  .edit-view { flex: 1; display: flex; flex-direction: column; padding: 24px 28px; min-height: 0; }
+  .edit-view .bar { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+  .edit-dirty-badge { font-size: 12px; color: var(--warn); border: 1px solid var(--warn); border-radius: 999px; padding: 3px 10px; }
+  .edit-log { font-size: 12.5px; color: var(--muted); background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; margin-bottom: 12px; }
+  .edit-grid { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; min-height: 0; }
+  .edit-sidebar { display: flex; flex-direction: column; min-height: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+  .edit-sidebar-tools { display: flex; gap: 8px; margin-bottom: 10px; }
+  .edit-sidebar-tools input, .edit-sidebar-tools select {
+    padding: 7px 9px; border-radius: 7px; border: 1px solid var(--border);
+    background: var(--panel-2); color: var(--text); font-size: 12.5px;
+  }
+  .edit-sidebar-tools input { flex: 1; min-width: 0; }
+  .edit-entity-list { flex: 1; overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 4px; }
+  .entity-item {
+    display: flex; flex-direction: column; gap: 2px; text-align: left; width: 100%;
+    padding: 8px 10px; border-radius: 7px; border: 1px solid transparent;
+    background: transparent; color: var(--text); cursor: pointer; font: inherit;
+  }
+  .entity-item:hover { background: var(--panel-2); }
+  .entity-item.active { background: rgba(79,156,249,0.14); border-color: var(--accent); }
+  .entity-item-name { font-size: 13px; font-weight: 500; }
+  .entity-root-badge { font-size: 10px; color: var(--accent); border: 1px solid var(--accent); border-radius: 999px; padding: 1px 6px; margin-left: 4px; }
+  .entity-item-meta { display: flex; gap: 8px; font-size: 11px; color: var(--muted); font-family: var(--mono); min-width: 0; }
+  .entity-item-type { flex-shrink: 0; }
+  .entity-item-id { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .edit-add-entity { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+  .edit-add-entity-form { margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }
+  .edit-add-entity-form select, .edit-add-entity-form input {
+    padding: 7px 9px; border-radius: 7px; border: 1px solid var(--border);
+    background: var(--panel-2); color: var(--text); font-size: 12.5px;
+  }
+  .edit-add-entity-actions { display: flex; gap: 8px; justify-content: flex-end; }
+  .edit-form-pane { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 20px 22px; overflow-y: auto; min-height: 0; }
+  .edit-empty { color: var(--muted); font-size: 13px; }
+  .edit-entity-header { display: flex; flex-direction: column; gap: 14px; margin-bottom: 18px; padding-bottom: 18px; border-bottom: 1px solid var(--border); }
+  .edit-entity-header input[type="text"] {
+    width: 100%; padding: 9px 10px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--panel-2); color: var(--text); font-family: var(--mono); font-size: 12px;
+  }
+  .edit-entity-header input:disabled { opacity: 0.6; }
+  .edit-props { display: flex; flex-direction: column; gap: 16px; }
+  .prop-row { border: 1px solid var(--border); border-radius: 9px; padding: 10px 12px; background: var(--panel-2); }
+  .prop-row-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .prop-label { font-family: var(--mono); font-size: 12.5px; font-weight: 600; }
+  .prop-del-btn, .value-remove-btn {
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+    width: 22px; height: 22px; padding: 0; border-radius: 6px; font-size: 13px; line-height: 1; cursor: pointer;
+  }
+  .prop-del-btn:hover, .value-remove-btn:hover { color: var(--err); border-color: var(--err); background: transparent; }
+  .prop-values { display: flex; flex-direction: column; gap: 6px; }
+  .value-row { display: flex; align-items: center; gap: 8px; }
+  .value-input {
+    flex: 1; min-width: 0; padding: 7px 9px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--panel); color: var(--text); font-family: var(--mono); font-size: 12.5px;
+  }
+  .ref-chip {
+    flex: 1; text-align: left; padding: 7px 9px; border-radius: 6px; border: 1px dashed var(--accent);
+    background: rgba(79,156,249,0.10); color: var(--text); font-family: var(--mono); font-size: 12.5px; cursor: pointer;
+  }
+  .ref-chip:hover { background: rgba(79,156,249,0.18); }
+  .value-add-row { display: flex; gap: 8px; margin-top: 8px; }
+  .value-add-row .value-input { flex: 1; }
+  .prop-add-row { display: flex; gap: 8px; margin-top: 4px; }
+  .prop-add-row select { padding: 7px 9px; border-radius: 6px; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); font-size: 12.5px; }
+  .edit-entity-actions { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
   .unsupported { margin: 28px; padding: 20px 24px; background: rgba(248, 81, 73, 0.08); border: 1px solid var(--err); border-radius: 10px; }
   .unsupported h2 { color: var(--err); }
   code { font-family: var(--mono); background: var(--panel-2); padding: 1px 6px; border-radius: 4px; font-size: 0.9em; }
@@ -193,6 +258,7 @@
       border-left: none;
     }
     .output { grid-column: 2; }
+    .edit-grid { grid-template-columns: minmax(0, 300px) minmax(0, 1fr); }
   }
 </style>
 </head>
@@ -213,6 +279,7 @@
     <span class="folder"><span class="k">Folder:</span> <span id="ctxFolder"></span></span>
     <button id="menuBtn" class="secondary hidden" style="padding:5px 10px;">&larr; Menu</button>
     <button id="showBtn" class="secondary hidden" style="padding:5px 10px;" disabled>Show</button>
+    <button id="editBtn" class="secondary hidden" style="padding:5px 10px;" disabled>Edit</button>
     <button id="rebuildBtn" class="secondary hidden" style="padding:5px 10px;">Build</button>
     <div class="spacer"></div>
     <button id="settingsBtn" class="secondary hidden" style="padding:5px 10px;">&#9881; Settings</button>
@@ -249,6 +316,11 @@
           <div class="ic">&#128196;</div>
           <div class="t">Show</div>
           <div class="d">Render the existing <code>ro-crate-preview.html</code> in this folder.</div>
+        </div>
+        <div id="cardEdit" class="mode-card hidden" role="button" tabindex="0">
+          <div class="ic">&#9998;&#65039;</div>
+          <div class="t">Edit</div>
+          <div class="d">Edit entities and properties in the existing <code>ro-crate-metadata.json</code>.</div>
         </div>
       </div>
     </section>
@@ -355,6 +427,49 @@
         <button id="openPreviewBtn" class="big">Open ro-crate-preview.html &nearr;</button>
       </div>
       <div id="showPane" class="show-pane hidden"></div>
+    </section>
+
+    <section id="view-edit" class="edit-view hidden">
+      <div class="bar">
+        <h2 style="margin:0;">Edit RO-Crate</h2>
+        <div style="flex:1;"></div>
+        <span id="editDirtyBadge" class="edit-dirty-badge hidden">Unsaved changes</span>
+        <button id="editSaveBtn" class="big" disabled>Save</button>
+      </div>
+      <div id="editLog" class="edit-log hidden"></div>
+      <div class="edit-grid">
+        <div class="edit-sidebar">
+          <div class="edit-sidebar-tools">
+            <input type="text" id="editSearch" placeholder="Search entities&hellip;" />
+            <select id="editTypeFilter"><option value="">All types</option></select>
+          </div>
+          <div id="editEntityList" class="edit-entity-list"></div>
+          <div class="edit-add-entity">
+            <button id="editAddEntityToggle" class="secondary" type="button" style="width:100%;">+ Add entity</button>
+            <div id="editAddEntityForm" class="edit-add-entity-form hidden">
+              <select id="editNewType">
+                <option value="Person">Person</option>
+                <option value="Organization">Organization</option>
+                <option value="Place">Place</option>
+                <option value="Language">Language</option>
+                <option value="License">License</option>
+                <option value="CreativeWork">CreativeWork</option>
+                <option value="__custom">Custom type&hellip;</option>
+              </select>
+              <input type="text" id="editNewCustomType" class="hidden" placeholder="Custom @type" />
+              <input type="text" id="editNewName" placeholder="Name" />
+              <div class="edit-add-entity-actions">
+                <button id="editNewCancel" class="secondary" type="button">Cancel</button>
+                <button id="editNewCreate" type="button">Create</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="editFormPane" class="edit-form-pane">
+          <div class="edit-empty">Select an entity on the left to edit its properties.</div>
+        </div>
+      </div>
+      <datalist id="editEntityIdOptions"></datalist>
     </section>
   </main>
 </div>

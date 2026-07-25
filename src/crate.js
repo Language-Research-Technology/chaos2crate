@@ -230,6 +230,14 @@ function rewriteHashIdsForExport(crate) {
   })(crate.graph);
 }
 
+// Load an existing ro-crate-metadata.json (plain object) into a live, mutable
+// ROCrate instance — used by the Edit view to read/write entities directly
+// (same config the rest of this module already relies on: array-valued
+// properties, and reference objects resolved to their linked entity).
+export function loadCrateFromJson(json) {
+  return new ROCrate(json, { array: true, link: true });
+}
+
 /* ---------- top-level: build the ROCrate ---------- */
 export function buildCrate(filesWithMeta, config, sampleData, langByIndex, log = () => {}, opts = {}) {
   const includeSampleData = opts.includeSampleData !== false;
