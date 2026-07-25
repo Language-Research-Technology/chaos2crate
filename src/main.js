@@ -46,25 +46,96 @@ const OPTION_SCHEMA = [
 
 // Shown in the Settings modal (accessed from the button next to Menu).
 const SETTINGS_SCHEMA = [
-  { key: "makeXlsx", label: "Generate ro-crate-metadata.xlsx", default: true },
-  { key: "enableLocalTemplateUpload", label: "Enable local template upload", default: false,
-    hint: "Shows or hides the Upload template files option in Build settings." },
-  { key: "includeSampleData", label: "Include sample data entities", default: false,
-    hint: "Adds entities from sample-data.json (or built-in defaults) to the crate graph." },
+  { key: "themeMode", type: "select", label: "Theme", default: "light",
+    options: [
+      { value: "light", label: "Light" },
+      { value: "dark", label: "Dark" },
+    ],
+    hint: "Switches the interface between light and dark modes." },
   { key: "topLevelFolderType", type: "select", label: "Top-level folders are", default: "object",
     options: [
       { value: "object", label: "Objects (RepositoryObject)" },
       { value: "collection", label: "Collections (RepositoryCollection)" },
     ],
     hint: "When Collections is selected, child folders are emitted as RepositoryObjects; files directly inside a top-level folder are grouped into an object named Files." },
-  { key: "includeAlternateNames", label: "Match AUSTLANG alternate names", default: false,
-    hint: "Only applies when “Identify subject languages” is on. More matches, more false positives." },
   { key: "overwrite", label: "Overwrite existing outputs", default: true },
+  { key: "makeXlsx", label: "Generate ro-crate-metadata.xlsx", default: true },
+  { key: "includeSampleData", label: "Include sample data entities", default: false,
+    hint: "Adds entities from sample-data.json (or built-in defaults) to the crate graph." },
+  { key: "enableLocalTemplateUpload", label: "Enable local template upload", default: false,
+    hint: "Shows or hides the Upload template files option in Build settings." },
+  { key: "includeAlternateNames", label: "Match Austlang alternate names", default: false,
+    hint: "Only applies when \u201cIdentify subject languages\u201d is on. More matches, more false positives." },
 ];
 
 /* ---------- DOM helpers ---------- */
 const $ = (id) => document.getElementById(id);
 const logEl = () => $("log");
+const SETTINGS_STORAGE_KEY = "resources2crate.settings";
+
+function normalizeThemeMode(value) {
+  return value === "dark" ? "dark" : "light";
+}
+
+function applyThemeMode(value) {
+  document.documentElement.setAttribute("data-theme", normalizeThemeMode(value));
+}
+
+function defaultSettingsFromSchema(schema) {
+  const defaults = {};
+  for (const opt of schema) {
+    if (opt.type === "file" || opt.type === "mappingBuilder") continue;
+    if (opt.type === "select") defaults[opt.key] = typeof opt.default === "string" ? opt.default : "";
+    else defaults[opt.key] = !!opt.default;
+    if (opt.children) Object.assign(defaults, defaultSettingsFromSchema(opt.children));
+  }
+  return defaults;
+}
+
+function loadSettingsState() {
+  const defaults = defaultSettingsFromSchema(SETTINGS_SCHEMA);
+  let saved = {};
+  try {
+    saved = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) || "{}") || {};
+  } catch {
+    saved = {};
+  }
+  const merged = { ...defaults, ...saved };
+  merged.themeMode = normalizeThemeMode(merged.themeMode);
+  return merged;
+}
+
+function applySettingsToUi(schema, values) {
+  for (const opt of schema) {
+    if (opt.type === "file" || opt.type === "mappingBuilder") continue;
+    const el = $("opt_" + opt.key);
+    if (!el) continue;
+    if (opt.type === "select") {
+      const v = values[opt.key];
+      if (typeof v === "string") el.value = v;
+    } else {
+      el.checked = !!values[opt.key];
+    }
+    if (opt.children) applySettingsToUi(opt.children, values);
+  }
+}
+
+function saveSettingsState(values) {
+  localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(values));
+}
+
+function readSettingsFromUi() {
+  const values = {};
+  collectOptions(SETTINGS_SCHEMA, values);
+  values.themeMode = normalizeThemeMode(values.themeMode);
+  return values;
+}
+
+function persistSettingsFromUi() {
+  const values = readSettingsFromUi();
+  saveSettingsState(values);
+  applyThemeMode(values.themeMode);
+}
 
 function syncLogActionButtons() {
   const text = (logEl().textContent || "").trim();
@@ -165,6 +236,15 @@ function buildForm() {
   const settings = $("settingsForm");
   settings.innerHTML = "";
   renderOptions(SETTINGS_SCHEMA, settings);
+
+  const settingsState = loadSettingsState();
+  applySettingsToUi(SETTINGS_SCHEMA, settingsState);
+  applyThemeMode(settingsState.themeMode);
+
+  settings.querySelectorAll("input, select").forEach((el) => {
+    el.addEventListener("change", persistSettingsFromUi);
+  });
+
   const localTemplateToggle = $("opt_enableLocalTemplateUpload");
   if (localTemplateToggle) localTemplateToggle.addEventListener("change", refreshTemplateUploadVisibility);
   const uploadTemplateOpt = $("opt_styledPreview");
