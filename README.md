@@ -16,11 +16,6 @@ one **uses the `ro-crate` library** to assemble the crate — the same approach 
 rather than hand-building JSON-LD. Because those libraries are npm packages, the app is now
 a small **Vite** project that bundles them for the browser.
 
----
-
-TODO: review context-checking code when merging data
-
----
 ## Install & run
 
 Requires Node and npm (for the build). The end result runs in Chrome/Edge.
@@ -84,7 +79,21 @@ The crate object is then serialized with `crate.getJson()` (JSON), fed to `ro-cr
 | Upload template files | upload a single `config.json`; template and style are resolved from values inside that config |
 | Identify subject languages (AUSTLANG, by filename) | the original's `-l`; filename-based only; uses the bundled AUSTLANG data pack offline |
 | …also match AUSTLANG alternate names | the original's `-a` |
+| Merge metadata from a spreadsheet | upload an `.xlsx` and merge rows into crate entities by matching `@id` |
+| Spreadsheet (XLSX) | the workbook used for merge; can contain multiple sheets |
+| Build mapping from spreadsheet columns… | opens a mapping popup to set source → target property mappings (plus optional entity type) |
 | Overwrite existing outputs | off = skip files that already exist |
+
+### Spreadsheet merge and mapping
+
+- Merge applies before output generation, so JSON/xlsx/html all include merged values.
+- Merge mapping config precedence: mapping popup upload → `merge-config.json` in folder → bundled `src/merge_config.json`.
+- Mapping popup supports workbook sheet selection; source columns refresh for the selected sheet.
+- If a mapping config includes `sheet`, that sheet is selected and its headers are used.
+- When a mapping config is loaded in the popup, rows are restricted to config-defined source fields (badge: “Showing config-defined sources”).
+- Prefixed mapping targets (for example `dc:format`) trigger workbook context lookup; missing contexts found in workbook are added to the crate context.
+- Popup shows a warning if target prefixes are unresolved against known + workbook contexts.
+- During preview rendering, compact property keys are expanded using context prefixes so full-URI template columns can resolve merged values.
 
 ### Configuration
 
@@ -118,5 +127,5 @@ Generated outputs and these two control files are skipped during the scan.
 
 - PDF *content* language identification (the original uses `pdf-parse`) — only filename-based
   AUSTLANG matching is ported.
-- OCFL building and the spreadsheet **merge** step (`merge.js`, `-m`/`-g`).
+- OCFL building (`merge.js`, `-m`/`-g`).
 - Formal `ro-crate` validation.
