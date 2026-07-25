@@ -83,6 +83,9 @@ The crate object is then serialized with `crate.getJson()` (JSON), fed to `ro-cr
 | Build mapping from spreadsheet columns… | opens a mapping popup to set source → target property mappings (plus optional entity type) |
 | Overwrite existing outputs | off = skip files that already exist |
 
+Template repo fetches currently use a minimal/public access method: a plain GitHub Contents API request (with an `Accept` header) plus raw file downloads, with no `Authorization` token.
+Future work: add optional token-based auth support to improve rate-limit headroom and private-repo access.
+
 ### Spreadsheet merge and mapping
 
 - Merge applies before output generation, so JSON/xlsx/html all include merged values.
