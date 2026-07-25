@@ -18,6 +18,9 @@ a small **Vite** project that bundles them for the browser.
 
 ---
 
+TODO: review context-checking code when merging data
+
+---
 ## Install & run
 
 Requires Node and npm (for the build). The end result runs in Chrome/Edge.

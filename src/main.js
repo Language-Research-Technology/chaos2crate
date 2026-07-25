@@ -5,7 +5,7 @@
 
 import {
   buildFileMetadata, buildCrate, crateToJsonString, crateToXlsxBytes, crateToPreviewHtml,
-  mergeXlsxIntoCrate, readXlsxHeaders, GENERATED_FILENAMES, CONTROL_FILENAMES,
+  mergeXlsxIntoCrate, readXlsxHeaders, readXlsxContextPrefixes, GENERATED_FILENAMES, CONTROL_FILENAMES,
 } from "./crate.js";
 // ./austlang.js (and its bundled AUSTLANG data pack) is loaded lazily via
 // dynamic import() only when language lookups are enabled — see run() — so the
@@ -345,6 +345,71 @@ let mergeMappingDraft = {};
 // re-render the rows without re-reading the spreadsheet.
 let mergeMappingHeaders = [];
 let mergeMappingSheetName = "";
+let mergeWorkbookBytes = null;
+let mergeWorkbookContextPrefixes = new Map();
+let mergeMappingConfigSources = null;
+const BUILTIN_CONTEXT_PREFIXES = new Set(["ldac", "pcdm", "custom", "AUSTLANG"]);
+
+function updateMergeSourceModeBadge() {
+  const badge = $("mappingSourceModeBadge");
+  if (!badge) return;
+  const showingConfigSources = Array.isArray(mergeMappingConfigSources) && mergeMappingConfigSources.length > 0;
+  badge.classList.toggle("hidden", !showingConfigSources);
+}
+
+function mappingTargetPrefix(term) {
+  const t = String(term || "").trim();
+  if (!t || t.includes("://")) return "";
+  const i = t.indexOf(":");
+  if (i <= 0) return "";
+  const prefix = t.slice(0, i);
+  return /^[A-Za-z][A-Za-z0-9._-]*$/.test(prefix) ? prefix : "";
+}
+
+function updateMergePrefixHint() {
+  const hint = $("mappingPrefixHint");
+  const container = $("mergeMappingBody");
+  if (!hint || !container) return;
+
+  const required = new Set();
+  container.querySelectorAll(".mapping-row .map-target").forEach((input) => {
+    const p = mappingTargetPrefix(input.value);
+    if (p) required.add(p);
+  });
+
+  const unresolved = [...required].filter((p) => !BUILTIN_CONTEXT_PREFIXES.has(p) && !mergeWorkbookContextPrefixes.has(p));
+  if (!unresolved.length) {
+    hint.classList.add("hidden");
+    hint.textContent = "";
+    return;
+  }
+
+  hint.textContent = `Prefix context not found in workbook: ${unresolved.join(", ")}. Add a context table (e.g. prefix + uri) or an @context JSON row.`;
+  hint.classList.remove("hidden");
+}
+
+function setMergeMappingSheetOptions(sheetNames, selectedSheetName) {
+  const select = $("mappingSheetSelect");
+  if (!select) return;
+  select.innerHTML = "";
+  (sheetNames || []).forEach((name) => {
+    const opt = document.createElement("option");
+    opt.value = name;
+    opt.textContent = name;
+    select.appendChild(opt);
+  });
+  select.disabled = (sheetNames || []).length <= 1;
+  if (selectedSheetName) select.value = selectedSheetName;
+}
+
+async function refreshMergeMappingSheet(preferredSheetName = "") {
+  if (!mergeWorkbookBytes) return;
+  const { headers, sheetName, sheetNames } = await readXlsxHeaders(mergeWorkbookBytes, preferredSheetName);
+  mergeMappingHeaders = headers;
+  mergeMappingSheetName = sheetName;
+  setMergeMappingSheetOptions(sheetNames, sheetName);
+  renderMergeMappingRows(headers, sheetName);
+}
 
 async function openMergeMappingModal() {
   const upload = uploads.mergeFile;
@@ -352,29 +417,30 @@ async function openMergeMappingModal() {
     alert('Select a spreadsheet in "Spreadsheet (XLSX)" first.');
     return;
   }
-  let headers, sheetName;
   try {
-    const bytes = await upload.file.arrayBuffer();
-    ({ headers, sheetName } = await readXlsxHeaders(bytes));
+    mergeWorkbookBytes = await upload.file.arrayBuffer();
+    mergeWorkbookContextPrefixes = await readXlsxContextPrefixes(mergeWorkbookBytes);
+    mergeMappingConfigSources = null;
+    await refreshMergeMappingSheet();
   } catch (e) {
     alert("Could not read the spreadsheet: " + (e && e.message ? e.message : e));
     return;
   }
-  mergeMappingHeaders = headers;
-  mergeMappingSheetName = sheetName;
   $("mappingConfigDropText").textContent = "Drop a mapping config.json here, or click to load one";
   $("mappingConfigDrop").classList.remove("has-file");
   $("mappingConfigError").classList.add("hidden");
   $("mappingConfigFile").value = "";
-  renderMergeMappingRows(headers, sheetName);
+  $("mappingPrefixHint").classList.add("hidden");
+  $("mappingPrefixHint").textContent = "";
+  updateMergeSourceModeBadge();
   $("mergeMappingModal").classList.remove("hidden");
 }
 
 // A loaded config.json must look like { mapping: [{ source, target, type? }, ...] }
-// (the same shape mergeXlsxIntoCrate consumes) — sheet is ignored, since the
-// spreadsheet drives which columns exist.
+// (the same shape mergeXlsxIntoCrate consumes), optionally with sheet.
 function isValidMergeMappingConfig(obj) {
-  return !!obj && typeof obj === "object" && Array.isArray(obj.mapping) && obj.mapping.length > 0
+  const validSheet = obj && (obj.sheet === undefined || typeof obj.sheet === "string");
+  return !!obj && typeof obj === "object" && validSheet && Array.isArray(obj.mapping) && obj.mapping.length > 0
     && obj.mapping.every((m) => m && typeof m.source === "string" && typeof m.target === "string"
       && (m.type === undefined || typeof m.type === "string"));
 }
@@ -391,10 +457,26 @@ async function loadMappingConfigFile(file) {
     return;
   }
   if (!isValidMergeMappingConfig(parsed)) {
-    errEl.textContent = 'Not a valid mapping config — expected {"mapping": [{"source": "…", "target": "…", "type": "…" (optional)}, …]}.';
+    errEl.textContent = 'Not a valid mapping config — expected {"sheet": "…" (optional), "mapping": [{"source": "…", "target": "…", "type": "…" (optional)}, …]}.';
     errEl.classList.remove("hidden");
     return;
   }
+  const requestedSheet = String(parsed.sheet || "").trim();
+  if (requestedSheet) {
+    try {
+      await refreshMergeMappingSheet(requestedSheet);
+    } catch (e) {
+      errEl.textContent = e && e.message ? e.message : String(e);
+      errEl.classList.remove("hidden");
+      return;
+    }
+  }
+  mergeMappingConfigSources = [...new Set(
+    parsed.mapping
+      .map((m) => String(m.source || "").trim())
+      .filter((s) => s && s !== "@id")
+  )];
+  updateMergeSourceModeBadge();
   parsed.mapping.forEach((m) => { mergeMappingDraft[m.source] = { target: m.target, type: m.type || "" }; });
   $("mappingConfigDropText").textContent = file.name;
   $("mappingConfigDrop").classList.add("has-file");
@@ -406,12 +488,19 @@ function renderMergeMappingRows(headers, sheetName) {
   container.innerHTML = "";
   container.dataset.sheetName = sheetName || "";
 
-  const columns = headers
+  const sheetColumns = headers
     .map((h) => String(h || "").trim())
     .filter((h) => h && h !== "@id");
+  const columns = Array.isArray(mergeMappingConfigSources) && mergeMappingConfigSources.length
+    ? mergeMappingConfigSources
+    : sheetColumns;
 
   if (!columns.length) {
-    container.appendChild(hintEl("No columns found in the first row of the sheet."));
+    const msg = Array.isArray(mergeMappingConfigSources) && mergeMappingConfigSources.length
+      ? "No source columns found in the loaded mapping config."
+      : "No columns found in the first row of this sheet.";
+    container.appendChild(hintEl(msg));
+    updateMergePrefixHint();
     return;
   }
 
@@ -443,6 +532,7 @@ function renderMergeMappingRows(headers, sheetName) {
     target.value = draft.target !== undefined ? draft.target : defaultTarget;
     target.addEventListener("input", () => {
       mergeMappingDraft[header] = { ...mergeMappingDraft[header], target: target.value };
+      updateMergePrefixHint();
     });
 
     const copyBtn = document.createElement("button");
@@ -470,6 +560,8 @@ function renderMergeMappingRows(headers, sheetName) {
     row.append(src, copyBtn, target, type);
     container.appendChild(row);
   });
+
+  updateMergePrefixHint();
 }
 
 function applyMergeMapping() {
@@ -1394,6 +1486,14 @@ function boot() {
   $("mappingConfigDrop").addEventListener("drop", (e) => {
     e.preventDefault(); $("mappingConfigDrop").classList.remove("drag");
     if (e.dataTransfer.files && e.dataTransfer.files.length) loadMappingConfigFile(e.dataTransfer.files[0]);
+  });
+  $("mappingSheetSelect").addEventListener("change", async (e) => {
+    const name = e.target.value;
+    try {
+      await refreshMergeMappingSheet(name);
+    } catch (err) {
+      alert("Could not read sheet: " + (err && err.message ? err.message : err));
+    }
   });
   $("cardBuild").addEventListener("click", openCrateDetails);
   $("cardShow").addEventListener("click", openShow);

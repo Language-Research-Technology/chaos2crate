@@ -90,6 +90,23 @@
   .modal h3 { margin: 0 0 10px; font-size: 17px; } .modal p { margin: 0 0 20px; color: var(--muted); } .modal .actions { display: flex; gap: 10px; justify-content: flex-end; }
   .modal.mapping-modal { max-width: 680px; width: 90vw; max-height: 82vh; display: flex; flex-direction: column; }
   .mapping-load { margin-top: 14px; }
+  .mapping-sheet-row { margin: 12px 0 0; display: grid; gap: 6px; }
+  .mapping-sheet-row label { font-size: 12px; color: var(--muted); }
+  .mapping-sheet-row select {
+    width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--panel-2); color: var(--text); font-family: var(--mono); font-size: 12px;
+  }
+  .mapping-mode-badge {
+    margin-top: 8px;
+    display: inline-block;
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    color: var(--muted);
+  }
+  .mapping-prefix-hint { margin-top: 8px; color: var(--warn); }
   .mapping-load .dropzone { padding: 10px 12px; font-size: 12px; }
   .mapping-load-error { color: var(--err); }
   .mapping-body { overflow-y: auto; margin: 14px 0 18px; min-height: 0; }
@@ -288,6 +305,12 @@
       </label>
       <input type="file" id="mappingConfigFile" accept=".json,application/json" class="hidden" />
       <div id="mappingConfigError" class="hint mapping-load-error hidden"></div>
+      <div class="mapping-sheet-row">
+        <label for="mappingSheetSelect">Workbook sheet</label>
+        <select id="mappingSheetSelect"></select>
+      </div>
+      <div id="mappingSourceModeBadge" class="mapping-mode-badge hidden">Showing config-defined sources</div>
+      <div id="mappingPrefixHint" class="hint mapping-prefix-hint hidden"></div>
     </div>
     <div id="mergeMappingBody" class="mapping-body"></div>
     <div class="actions">

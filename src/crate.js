@@ -8,10 +8,7 @@
 // / strings rather than writing files. The caller (browser or Node) does I/O.
 
 import { ROCrate } from "ro-crate";
-// lib/preview.js is the package's real module (index.js only re-exports
-// renderSinglePage). renderTemplate + roCrateToJSON drive the styled preview
-// (custom template + config + css) on the dyirbal-workshop branch.
-import { renderSinglePage, renderTemplate, roCrateToJSON } from "ro-crate-html-lite/lib/preview.js";
+import { renderSinglePage, renderTemplate, roCrateToJSON } from "ro-crate-html-lite";
 import Workbook from "ro-crate-excel/lib/workbook.js";
 import ExcelJS from "exceljs";
 import { CUSTOM_PROPERTIES } from "./defaults.js";
@@ -291,6 +288,7 @@ export async function crateToXlsxBytes(crate) {
 //    Rendered via roCrateToJSON + renderTemplate, exactly as the CLI does.
 export async function crateToPreviewHtml(crate, opts = {}) {
   const { layouts = { default: DEFAULT_LAYOUT }, template = null, config = null, css = "" } = opts;
+  expandCompactPropertiesForRender(crate);
   let html;
   if (template) {
     const cfg = config || {};
@@ -312,6 +310,47 @@ export async function crateToPreviewHtml(crate, opts = {}) {
   return html;
 }
 
+function contextPrefixMap(crate) {
+  const out = new Map();
+  const ctx = crate.getJson()["@context"];
+  const collect = (entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return;
+    Object.entries(entry).forEach(([k, v]) => {
+      if (typeof v !== "string") return;
+      if (!/^[A-Za-z][A-Za-z0-9._-]*$/.test(k)) return;
+      if (!/^(https?:|urn:|arcp:)/i.test(v)) return;
+      out.set(k, v);
+    });
+  };
+  if (Array.isArray(ctx)) ctx.forEach(collect);
+  else collect(ctx);
+  return out;
+}
+
+// Some merges write compact predicates (e.g. "dc:format"); the tabular
+// renderer often resolves by full URI. Mirror compact keys to full URI keys so
+// rendering can find values regardless of key form.
+function expandCompactPropertiesForRender(crate) {
+  const prefixes = contextPrefixMap(crate);
+  if (!prefixes.size) return;
+
+  crate.graph.forEach((entity) => {
+    if (!entity || typeof entity !== "object" || Array.isArray(entity)) return;
+    Object.keys(entity).forEach((key) => {
+      if (!key || key.startsWith("@") || key.includes("://")) return;
+      const i = key.indexOf(":");
+      if (i <= 0) return;
+      const prefix = key.slice(0, i);
+      const local = key.slice(i + 1);
+      if (!local) return;
+      const base = prefixes.get(prefix);
+      if (!base) return;
+      const full = `${base}${local}`;
+      if (entity[full] === undefined) entity[full] = entity[key];
+    });
+  });
+}
+
 /* ---------- spreadsheet merge (ported from corpus-tools-dyirbal/merge.js) ---------- */
 
 // ExcelJS cell values can be plain scalars or rich objects (formula results,
@@ -328,18 +367,30 @@ function cellText(v) {
   return String(v);
 }
 
-// Read the header row (+ sheet name) of a single-sheet XLSX workbook — used to
-// drive the merge-mapping builder UI. Assumes one sheet, same as the UI does.
-export async function readXlsxHeaders(xlsxData) {
+// Read workbook sheet names plus the header row from a selected sheet
+// (defaulting to the first sheet). Used by the merge-mapping builder UI.
+export async function readXlsxHeaders(xlsxData, preferredSheetName = "") {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(xlsxData);
-  const sheet = wb.worksheets[0];
-  if (!sheet) throw new Error("The spreadsheet has no worksheets");
+  if (!wb.worksheets.length) throw new Error("The spreadsheet has no worksheets");
+  const sheetNames = wb.worksheets.map((ws) => ws.name);
+  const wanted = String(preferredSheetName || "").trim();
+  const sheet = wanted ? wb.getWorksheet(wanted) : wb.worksheets[0];
+  if (!sheet) throw new Error(`Sheet "${wanted}" not found in the workbook`);
   let headers = [];
   sheet.eachRow((row, rowNumber) => {
     if (rowNumber === 1) headers = row.values.slice(1).map(cellText);
   });
-  return { sheetName: sheet.name, headers };
+  return { sheetName: sheet.name, sheetNames, headers };
+}
+
+// Read prefix->URI context definitions found anywhere in a workbook.
+// Used by the mapping UI to warn about unresolved prefixed targets.
+export async function readXlsxContextPrefixes(xlsxData) {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(xlsxData);
+  if (!wb.worksheets.length) throw new Error("The spreadsheet has no worksheets");
+  return scanWorkbookContexts(wb);
 }
 
 // "custom:" is this app's own made-up namespace (arcp://name,custom/terms#) —
@@ -354,6 +405,106 @@ function prettifyPropertyLocalName(localName) {
     .replace(/[-_]+/g, " ")
     .trim()
     .replace(/^./, (c) => c.toUpperCase());
+}
+
+function getTargetPrefix(term) {
+  const t = String(term || "").trim();
+  if (!t || t.includes("://")) return "";
+  const i = t.indexOf(":");
+  if (i <= 0) return "";
+  const prefix = t.slice(0, i);
+  return /^[A-Za-z][A-Za-z0-9._-]*$/.test(prefix) ? prefix : "";
+}
+
+function normalizePrefixKey(raw) {
+  const key = String(raw || "").trim().replace(/:$/, "");
+  return /^[A-Za-z][A-Za-z0-9._-]*$/.test(key) ? key : "";
+}
+
+function isLikelyContextUri(value) {
+  return /^(https?:|urn:|arcp:)/i.test(String(value || "").trim());
+}
+
+function addParsedContextEntries(raw, outMap) {
+  if (!raw) return;
+  if (Array.isArray(raw)) {
+    raw.forEach((entry) => addParsedContextEntries(entry, outMap));
+    return;
+  }
+  if (typeof raw !== "object") return;
+  Object.entries(raw).forEach(([k, v]) => {
+    const prefix = normalizePrefixKey(k);
+    if (!prefix || typeof v !== "string") return;
+    const uri = v.trim();
+    if (!isLikelyContextUri(uri)) return;
+    if (!outMap.has(prefix)) outMap.set(prefix, uri);
+  });
+}
+
+function parseContextCellValue(value, outMap) {
+  const text = cellText(value).trim();
+  if (!text) return;
+  if ((text.startsWith("{") && text.endsWith("}")) || (text.startsWith("[") && text.endsWith("]"))) {
+    try {
+      addParsedContextEntries(JSON.parse(text), outMap);
+      return;
+    } catch {
+      return;
+    }
+  }
+}
+
+function scanWorkbookContexts(workbook) {
+  const contexts = new Map();
+  workbook.worksheets.forEach((ws) => {
+    let headers = [];
+    ws.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) {
+        headers = row.values.slice(1).map((v) => String(cellText(v)).trim());
+        return;
+      }
+
+      // Generic key/value rows (prefix in col A, URI in col B), with or without headers.
+      const a = cellText(row.getCell(1).value).trim();
+      const b = cellText(row.getCell(2).value).trim();
+      const prefA = normalizePrefixKey(a);
+      if (prefA && isLikelyContextUri(b) && !contexts.has(prefA)) contexts.set(prefA, b);
+
+      // A row like @context | { ...json... }.
+      if (a === "@context") parseContextCellValue(row.getCell(2).value, contexts);
+
+      if (!headers.length) return;
+
+      // Column named @context containing JSON object/array values.
+      const contextCol = headers.indexOf("@context");
+      if (contextCol !== -1) parseContextCellValue(row.getCell(contextCol + 1).value, contexts);
+
+      // Prefix table columns such as prefix + uri/namespace/context/@id.
+      const prefixCol = headers.findIndex((h) => /^(prefix|term)$/i.test(h));
+      const uriCol = headers.findIndex((h) => /^(uri|namespace|context|@id|iri)$/i.test(h));
+      if (prefixCol !== -1 && uriCol !== -1) {
+        const pref = normalizePrefixKey(cellText(row.getCell(prefixCol + 1).value));
+        const uri = cellText(row.getCell(uriCol + 1).value).trim();
+        if (pref && isLikelyContextUri(uri) && !contexts.has(pref)) contexts.set(pref, uri);
+      }
+    });
+  });
+  return contexts;
+}
+
+function getExistingContextPrefixes(crate) {
+  const prefixes = new Set();
+  const ctx = crate.getJson()["@context"];
+  const collect = (entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return;
+    Object.keys(entry).forEach((k) => {
+      const p = normalizePrefixKey(k);
+      if (p) prefixes.add(p);
+    });
+  };
+  if (Array.isArray(ctx)) ctx.forEach(collect);
+  else collect(ctx);
+  return prefixes;
 }
 
 // Merge a spreadsheet's rows into matching crate entities (by an "@id" column),
@@ -389,6 +540,21 @@ export async function mergeXlsxIntoCrate(crate, xlsxData, mergeConfig, log = () 
   crate.graph.forEach((e) => { if (e["@id"]) entityById.set(e["@id"], e); });
 
   const mappings = Array.isArray(mergeConfig.mapping) ? mergeConfig.mapping : [];
+  const requiredPrefixes = new Set(
+    mappings.map((m) => getTargetPrefix(m && m.target)).filter(Boolean)
+  );
+  const workbookContexts = scanWorkbookContexts(wb);
+  const existingPrefixes = getExistingContextPrefixes(crate);
+  const addedContexts = [];
+  requiredPrefixes.forEach((prefix) => {
+    if (existingPrefixes.has(prefix)) return;
+    const uri = workbookContexts.get(prefix);
+    if (!uri) return;
+    crate.addContext({ [prefix]: uri });
+    existingPrefixes.add(prefix);
+    addedContexts.push(`${prefix}: ${uri}`);
+  });
+
   let merged = 0, generated = 0;
   const missingCols = new Set();
   const matchedIds = new Set();   // entity @ids that a spreadsheet row matched
@@ -454,8 +620,21 @@ export async function mergeXlsxIntoCrate(crate, xlsxData, mergeConfig, log = () 
     log(`Merge: ${unmatchedFiles.length} file(s) had NO matching spreadsheet row — no metadata merged (check the @id path):${sample(unmatchedFiles)}`, "warn");
   if (unmatchedRowIds.length)
     log(`Merge: ${unmatchedRowIds.length} spreadsheet row(s) matched no entity in the crate:${sample(unmatchedRowIds)}`, "warn");
+  if (addedContexts.length)
+    log(`Merge: added ${addedContexts.length} missing context prefix(es) from workbook: ${addedContexts.join(", ")}.`, "ok");
+  const unresolvedPrefixes = [...requiredPrefixes].filter((p) => !existingPrefixes.has(p));
+  if (unresolvedPrefixes.length)
+    log(`Merge: no matching context found in workbook for prefix(es): ${unresolvedPrefixes.join(", ")}.`, "warn");
   if (generatedProps.length)
     log(`Merge: generated rdf:Property definitions for ${generatedProps.length} custom propert${generatedProps.length === 1 ? "y" : "ies"} not yet described in the crate: ${generatedProps.sort().join(", ")}.`, "ok");
   log(`Merged ${merged} value(s) from "${sheet.name}" into ${matchedIds.size} entity/ies; generated ${generated} new entity/ies.`, "ok");
-  return { merged, generated, generatedProperties: generatedProps.length, skipped: unmatchedRowIds.length, unmatchedFiles: unmatchedFiles.length, sheet: sheet.name };
+  return {
+    merged,
+    generated,
+    generatedProperties: generatedProps.length,
+    addedContexts: addedContexts.length,
+    skipped: unmatchedRowIds.length,
+    unmatchedFiles: unmatchedFiles.length,
+    sheet: sheet.name,
+  };
 }
