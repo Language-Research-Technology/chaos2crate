@@ -63,8 +63,14 @@
   .id-input-group { display: flex; align-items: stretch; border-radius: 8px; border: 1px solid var(--border); background: var(--panel-2); overflow: hidden; }
   .id-input-group .id-prefix { display: flex; align-items: center; padding: 0 0 0 10px; color: var(--muted); font-family: var(--mono); font-size: 12px; white-space: nowrap; }
   .crate-form .id-input-group input[type="text"] { flex: 1; min-width: 0; border: none; border-radius: 0; background: transparent; padding-left: 2px; }
-  .build-grid { flex: 1; display: grid; grid-template-columns: minmax(340px, 440px) 1fr; min-height: 0; }
+  .build-grid { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); min-height: 0; }
   .config { padding: 24px 28px; border-right: 1px solid var(--border); overflow-y: auto; }
+  .config input:not([type="checkbox"]):not([type="radio"]),
+  .config select,
+  .config textarea,
+  .config button {
+    max-width: 300px;
+  }
   .output { padding: 24px 28px; display: flex; flex-direction: column; min-height: 0; }
   h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 14px; font-weight: 600; }
   .field { margin-bottom: 14px; }
@@ -171,6 +177,18 @@
   .unsupported h2 { color: var(--err); }
   code { font-family: var(--mono); background: var(--panel-2); padding: 1px 6px; border-radius: 4px; font-size: 0.9em; }
   .hidden { display: none !important; }
+
+  @media (min-width: 768px) {
+    .build-grid { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
+    .config {
+      grid-column: 1;
+      justify-self: end;
+      width: min(100%, 500px);
+      border-right: 1px solid var(--border);
+      border-left: none;
+    }
+    .output { grid-column: 2; }
+  }
 </style>
 </head>
 <body>
