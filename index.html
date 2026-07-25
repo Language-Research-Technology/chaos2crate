@@ -17,7 +17,7 @@
   header { padding: 20px 28px; border-bottom: 1px solid var(--border); display: flex; align-items: baseline; gap: 12px; }
   header h1 { font-size: 20px; margin: 0; font-weight: 600; }
   header .tag { color: var(--muted); font-size: 13px; }
-  .context-bar { display: flex; align-items: center; gap: 14px; padding: 12px 28px; border-bottom: 1px solid var(--border); background: var(--panel); font-size: 13px; }
+  .context-bar { display: flex; align-items: center; gap: 14px; padding: 12px 28px; min-height: 56px; border-bottom: 1px solid var(--border); background: var(--panel); font-size: 13px; }
   .context-bar .folder { font-family: var(--mono); } .context-bar .folder .k { color: var(--muted); } .context-bar .spacer { flex: 1; }
   main { flex: 1; display: flex; flex-direction: column; min-height: 0; }
   .center-step { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 40px; gap: 22px; }
@@ -27,6 +27,26 @@
   .mode-card { width: 250px; background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 26px 22px; cursor: pointer; text-align: left; transition: border-color .12s, transform .12s; }
   .mode-card:hover { border-color: var(--accent); transform: translateY(-2px); }
   .mode-card .ic { font-size: 26px; margin-bottom: 12px; } .mode-card .t { font-size: 17px; font-weight: 600; margin-bottom: 6px; } .mode-card .d { color: var(--muted); font-size: 13px; }
+  .mode-card.build-card { width: 320px; cursor: default; }
+  .mode-card.build-card:hover { border-color: var(--border); transform: none; }
+  .build-card .build-steps { margin-top: 12px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--panel-2); }
+  .build-card .build-step {
+    display: grid; grid-template-columns: 28px 1fr; gap: 10px; align-items: start; padding: 10px 12px;
+    width: 100%; border: none; border-radius: 0; text-align: left;
+    background: transparent; color: var(--text); font: inherit;
+    transition: background-color .14s ease;
+  }
+  .build-card .build-step:hover:not(:disabled), .build-card .build-step:focus-visible:not(:disabled) { background: rgba(79,156,249,0.12); }
+  .build-card .build-step:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+  .build-card .build-step:disabled { opacity: 0.45; cursor: not-allowed; }
+  .build-card .build-step + .build-step { border-top: 1px solid var(--border); }
+  .build-card .step-index {
+    width: 20px; height: 20px; border-radius: 999px; border: 1px solid var(--border);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700; color: var(--text); background: rgba(79,156,249,0.18);
+    transition: background-color .2s ease, border-color .2s ease, transform .2s ease;
+  }
+  .build-card .step-text { font-size: 13px; color: var(--text); line-height: 1.35; }
   .form-step { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 40px; overflow-y: auto; }
   .form-step-inner { width: 100%; max-width: 480px; }
   .form-step .lead { font-size: 22px; font-weight: 600; margin-top: 6px; }
@@ -73,10 +93,33 @@
   .summary { display: flex; gap: 20px; margin-bottom: 16px; flex-wrap: wrap; }
   .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 16px; min-width: 90px; }
   .stat .num { font-size: 22px; font-weight: 600; } .stat .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .status-block { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-bottom: 12px; }
+  .type-status { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .type-pill { display: inline-flex; align-items: baseline; gap: 6px; border: 1px solid var(--border); border-radius: 999px; padding: 4px 10px; background: var(--panel-2); }
+  .type-pill .k { font-size: 12px; color: var(--muted); }
+  .type-pill .v { font-size: 12px; color: var(--text); font-weight: 600; }
+  .type-empty { color: var(--muted); font-size: 12px; }
+  .log-actions { margin-top: 10px; display: flex; justify-content: flex-end; gap: 8px; }
   .show-view { flex: 1; display: flex; flex-direction: column; padding: 24px 28px; min-height: 0; }
   .show-view .bar { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
   .show-view .bar .fname { font-family: var(--mono); font-size: 13px; color: var(--muted); }
   .show-pane { flex: 1; background: #0b0f14; border: 1px solid var(--border); border-radius: 8px; padding: 16px 18px; overflow: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.6; white-space: pre; min-height: 0; margin: 0; }
+  .show-pane.sheet-mode { white-space: normal; padding: 12px; }
+  .sheet-wrap { display: flex; flex-direction: column; gap: 10px; }
+  .sheet-switch { display: flex; align-items: center; gap: 8px; }
+  .sheet-switch-label { color: var(--muted); font-size: 12px; }
+  .sheet-switch-select {
+    padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--panel-2); color: var(--text); font-family: var(--mono); font-size: 12px;
+  }
+  .sheet-title { color: var(--muted); font-size: 12px; }
+  .sheet-grid { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  .sheet-grid th, .sheet-grid td {
+    border: 1px solid var(--border); padding: 6px 8px; text-align: left; vertical-align: top;
+    overflow-wrap: anywhere; word-break: break-word;
+  }
+  .sheet-grid th { background: var(--panel); position: sticky; top: 0; z-index: 1; }
+  .sheet-note { color: var(--muted); font-size: 11px; }
   .show-open { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 16px; border: 1px dashed var(--border); border-radius: 8px; padding: 40px; min-height: 0; }
   .show-open .ic { font-size: 30px; } .show-open .lead { font-size: 18px; font-weight: 600; } .show-open .sub { color: var(--muted); max-width: 460px; font-size: 13px; }
   .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
@@ -144,32 +187,40 @@
 
 <div id="app" class="hidden" style="flex:1; display:flex; flex-direction:column; min-height:0;">
   <div id="contextBar" class="context-bar hidden">
-    <button id="menuBtn" class="secondary hidden" style="padding:5px 10px;">&larr; Menu</button>
-    <button id="settingsBtn" class="secondary hidden" style="padding:5px 10px;">&#9881; Settings</button>
-    <button id="showBtn" class="secondary hidden" style="padding:5px 10px;" disabled>Show</button>
-    <button id="rebuildBtn" class="secondary hidden" style="padding:5px 10px;">Rebuild</button>
     <span class="folder"><span class="k">Folder:</span> <span id="ctxFolder"></span></span>
-    <button id="changeFolderBtn" class="secondary" style="padding:5px 10px;">Change</button>
+    <button id="menuBtn" class="secondary hidden" style="padding:5px 10px;">&larr; Menu</button>
+    <button id="showBtn" class="secondary hidden" style="padding:5px 10px;" disabled>Show</button>
+    <button id="rebuildBtn" class="secondary hidden" style="padding:5px 10px;">Build</button>
     <div class="spacer"></div>
+    <button id="settingsBtn" class="secondary hidden" style="padding:5px 10px;">&#9881; Settings</button>
   </div>
 
   <main>
-    <section id="view-folder" class="center-step">
-      <div class="step-num">Step 1</div>
-      <div class="lead">Select a folder</div>
-      <div class="sub">Choose a local corpus folder. Files are read and written directly on your
-        machine &mdash; nothing is uploaded.</div>
-      <button id="pickBtn" class="big">Choose folder&hellip;</button>
-    </section>
-
     <section id="view-mode" class="center-step hidden">
-      <div class="step-num">Step 2</div>
-      <div class="lead">What would you like to do?</div>
+<!--
+  <div class="step-num">Step 1</div>
+  <div class="lead">What would you like to do?</div>
+-->
+
       <div class="mode-cards">
-        <div id="cardBuild" class="mode-card" role="button" tabindex="0">
+        <div id="cardBuild" class="mode-card build-card">
           <div class="ic">&#128296;</div>
           <div class="t">Build</div>
-          <div class="d">Scan the folder and generate the RO-Crate: <code>ro-crate-metadata.json</code>, <code>.xlsx</code>, and <code>ro-crate-preview.html</code>.</div>
+          <div class="d">Create a new RO-Crate in three steps.</div>
+          <div class="build-steps" aria-label="Build flow">
+            <button id="buildStepChooseFolder" class="build-step" type="button">
+              <span class="step-index">1</span>
+              <div class="step-text">Choose folder</div>
+            </button>
+            <button id="buildStepDescribe" class="build-step" type="button" disabled>
+              <span class="step-index">2</span>
+              <div class="step-text">Describe</div>
+            </button>
+            <button id="buildStepOpenBuild" class="build-step" type="button" disabled>
+              <span class="step-index">3</span>
+              <div class="step-text">Build</div>
+            </button>
+          </div>
         </div>
         <div id="cardShow" class="mode-card" role="button" tabindex="0">
           <div class="ic">&#128196;</div>
@@ -181,8 +232,11 @@
 
     <section id="view-crate-details" class="form-step hidden">
       <div class="form-step-inner">
-        <div class="step-num">Step 3</div>
-        <div class="lead">Describe this crate</div>
+        <!--
+          <div class="step-num">Step 2</div>
+          <div class="lead">Describe this crate</div>
+        -->
+        
         <div class="sub">These details populate the RO-Crate root dataset.</div>
         <form id="crateDetailsForm" class="crate-form" autocomplete="off">
           <div class="field">
@@ -241,14 +295,21 @@
         <div class="results-bar">
           <h2 style="margin:0;">Results</h2>
           <div style="flex:1;"></div>
-          <button id="saveLogBtn" class="secondary" style="padding:5px 10px;" disabled>Save log</button>
         </div>
         <div class="summary">
           <div class="stat"><div id="statFiles" class="num">&mdash;</div><div class="lbl">Files seen</div></div>
           <div class="stat"><div id="statEntities" class="num">&mdash;</div><div class="lbl">Entities</div></div>
           <div class="stat"><div id="statTime" class="num">&mdash;</div><div class="lbl">Time</div></div>
         </div>
+        <div class="status-block">
+          <h2 style="margin:0 0 8px;">Status</h2>
+          <div id="typeStatus" class="type-status"><span class="type-empty">Run a build to see entity counts by Type.</span></div>
+        </div>
         <div id="log" class="log"><span class="l-muted">Set your options, then click Build RO-Crate.</span></div>
+        <div class="log-actions">
+          <button id="clearLogBtn" class="secondary" style="padding:5px 10px;">Clear</button>
+          <button id="saveLogBtn" class="secondary" style="padding:5px 10px;" disabled>Save log</button>
+        </div>
       </div>
     </section>
 
@@ -258,6 +319,7 @@
         <div class="seg">
           <button id="showTabPreview" class="seg-btn active">Preview</button>
           <button id="showTabJson" class="seg-btn">JSON</button>
+          <button id="showTabXlsx" class="seg-btn">XLSX</button>
         </div>
         <span id="showFileName" class="fname"></span>
       </div>
@@ -269,7 +331,7 @@
           frame. It opens in its own browser tab instead.</div>
         <button id="openPreviewBtn" class="big">Open ro-crate-preview.html &nearr;</button>
       </div>
-      <pre id="showPane" class="show-pane hidden"></pre>
+      <div id="showPane" class="show-pane hidden"></div>
     </section>
   </main>
 </div>

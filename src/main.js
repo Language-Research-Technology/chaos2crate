@@ -24,11 +24,8 @@ const TEMPLATE_REPO_REF = "main";
 
 const OPTION_SCHEMA = [
   { key: "makeHtml", label: "Generate ro-crate-preview.html", default: true, children: [
-    { key: "templateRepoPreset", label: "Template from rocss-template-repo", default: false,
-      hint: "Pick a folder from the online template repo.", children: [
-      { key: "templateRepoFolder", type: "select", label: "Template folder",
-        placeholder: "Loading folders…", hint: "Select one folder from the template repo." },
-    ] },
+    { key: "templateRepoFolder", type: "select", label: "Template from rocss-template-repo",
+      placeholder: "Loading folders…", hint: "Optional. Select one folder from the template repo." },
     { key: "styledPreview", label: "Upload template files", default: false,
       hint: "Off = the library's plain preview.", children: [
       { key: "configFile", type: "file", label: "Config (JSON)", accept: ".json,.css,.html,application/json,text/css,text/html",
@@ -50,6 +47,8 @@ const OPTION_SCHEMA = [
 // Shown in the Settings modal (accessed from the button next to Menu).
 const SETTINGS_SCHEMA = [
   { key: "makeXlsx", label: "Generate ro-crate-metadata.xlsx", default: true },
+  { key: "enableLocalTemplateUpload", label: "Enable local template upload", default: false,
+    hint: "Shows or hides the Upload template files option in Build settings." },
   { key: "includeSampleData", label: "Include sample data entities", default: false,
     hint: "Adds entities from sample-data.json (or built-in defaults) to the crate graph." },
   { key: "topLevelFolderType", type: "select", label: "Top-level folders are", default: "object",
@@ -66,17 +65,75 @@ const SETTINGS_SCHEMA = [
 /* ---------- DOM helpers ---------- */
 const $ = (id) => document.getElementById(id);
 const logEl = () => $("log");
+
+function syncLogActionButtons() {
+  const text = (logEl().textContent || "").trim();
+  const hasLog = text.length > 0;
+  const clearBtn = $("clearLogBtn");
+  const saveBtn = $("saveLogBtn");
+  if (clearBtn) clearBtn.disabled = !hasLog;
+  if (saveBtn && !hasLog) saveBtn.disabled = true;
+}
+
 function log(msg, cls = "info") {
   const span = document.createElement("span");
   span.className = "l-" + cls;
   span.textContent = msg + "\n";
   logEl().appendChild(span);
   logEl().scrollTop = logEl().scrollHeight;
+  syncLogActionButtons();
 }
-function clearLog() { logEl().textContent = ""; }
+function clearLog() {
+  logEl().textContent = "";
+  syncLogActionButtons();
+}
+
+function collectTypeCounts(graph) {
+  const counts = new Map();
+  for (const entity of graph || []) {
+    const raw = entity && entity["@type"];
+    const types = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+    if (!types.length) {
+      counts.set("(none)", (counts.get("(none)") || 0) + 1);
+      continue;
+    }
+    for (const type of types) {
+      const key = String(type || "").trim() || "(none)";
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+  }
+  return Array.from(counts.entries())
+    .map(([type, count]) => ({ type, count }))
+    .sort((a, b) => (b.count - a.count) || a.type.localeCompare(b.type));
+}
+
+function renderTypeStatus(typeCounts) {
+  const host = $("typeStatus");
+  if (!host) return;
+  host.innerHTML = "";
+  if (!typeCounts || !typeCounts.length) {
+    const empty = document.createElement("span");
+    empty.className = "type-empty";
+    empty.textContent = "No entity types found.";
+    host.appendChild(empty);
+    return;
+  }
+  typeCounts.forEach((item) => {
+    const pill = document.createElement("span");
+    pill.className = "type-pill";
+    const k = document.createElement("span");
+    k.className = "k";
+    k.textContent = item.type;
+    const v = document.createElement("span");
+    v.className = "v";
+    v.textContent = String(item.count);
+    pill.append(k, v);
+    host.appendChild(pill);
+  });
+}
 
 /* ---------- view routing ---------- */
-const VIEWS = ["view-folder", "view-mode", "view-crate-details", "view-build", "view-show"];
+const VIEWS = ["view-mode", "view-crate-details", "view-build", "view-show"];
 function showView(name) {
   for (const v of VIEWS) $(v).classList.toggle("hidden", v !== name);
   $("contextBar").classList.toggle("hidden", !dirHandle);
@@ -104,34 +161,52 @@ function buildForm() {
   const form = $("optionsForm");
   form.innerHTML = "";
   renderOptions(OPTION_SCHEMA, form);
-  setupTemplateSourceExclusivity();
   loadTemplateRepoFolderOptions();
   const settings = $("settingsForm");
   settings.innerHTML = "";
   renderOptions(SETTINGS_SCHEMA, settings);
+  const localTemplateToggle = $("opt_enableLocalTemplateUpload");
+  if (localTemplateToggle) localTemplateToggle.addEventListener("change", refreshTemplateUploadVisibility);
+  const uploadTemplateOpt = $("opt_styledPreview");
+  if (uploadTemplateOpt) uploadTemplateOpt.addEventListener("change", resetTemplateRepoSelectionWhenUploadEnabled);
+  const templateRepoSelect = $("opt_templateRepoFolder");
+  if (templateRepoSelect) templateRepoSelect.addEventListener("change", uncheckUploadWhenTemplateRepoSelected);
+  refreshTemplateUploadVisibility();
 }
 
-function setupTemplateSourceExclusivity() {
-  const uploadOpt = $("opt_styledPreview");
-  const repoOpt = $("opt_templateRepoPreset");
-  if (!uploadOpt || !repoOpt) return;
+function resetTemplateRepoSelectionWhenUploadEnabled() {
+  const uploadTemplateOpt = $("opt_styledPreview");
+  const templateRepoSelect = $("opt_templateRepoFolder");
+  if (!uploadTemplateOpt || !templateRepoSelect) return;
+  if (uploadTemplateOpt.checked) templateRepoSelect.value = "";
+}
 
-  const sync = (changed) => {
-    const active = [];
-    if (uploadOpt.checked) active.push("upload");
-    if (repoOpt.checked) active.push("repo");
-    if (active.length <= 1) return;
+function uncheckUploadWhenTemplateRepoSelected() {
+  const uploadTemplateOpt = $("opt_styledPreview");
+  const templateRepoSelect = $("opt_templateRepoFolder");
+  if (!uploadTemplateOpt || !templateRepoSelect) return;
+  if (!templateRepoSelect.value) return;
+  if (uploadTemplateOpt.checked) {
+    uploadTemplateOpt.checked = false;
+    uploadTemplateOpt.dispatchEvent(new Event("change"));
+  }
+}
 
-    if (changed === "upload") { repoOpt.checked = false; }
-    else if (changed === "repo") { uploadOpt.checked = false; }
-    else { repoOpt.checked = false; }
+function refreshTemplateUploadVisibility() {
+  const localTemplateToggle = $("opt_enableLocalTemplateUpload");
+  const uploadField = $("field_opt_styledPreview");
+  if (!localTemplateToggle || !uploadField) return;
 
-    uploadOpt.dispatchEvent(new Event("change"));
-    repoOpt.dispatchEvent(new Event("change"));
-  };
+  const enabled = !!localTemplateToggle.checked;
+  uploadField.classList.toggle("hidden", !enabled);
 
-  uploadOpt.addEventListener("change", () => sync("upload"));
-  repoOpt.addEventListener("change", () => sync("repo"));
+  if (!enabled) {
+    const uploadOpt = $("opt_styledPreview");
+    if (uploadOpt && uploadOpt.checked) {
+      uploadOpt.checked = false;
+      uploadOpt.dispatchEvent(new Event("change"));
+    }
+  }
 }
 
 function renderOptions(schema, parent) {
@@ -142,6 +217,7 @@ function renderOptions(schema, parent) {
 
     const wrap = document.createElement("div");
     wrap.className = "field";
+    wrap.id = "field_opt_" + opt.key;
     const row = document.createElement("div");
     row.className = "checkbox";
     const input = document.createElement("input");
@@ -671,9 +747,120 @@ function buildRootDatasetFromForm() {
   return rootDataset;
 }
 
+function resetCrateDetailsForm() {
+  $("cd_id").value = "";
+  $("cd_name").value = "";
+  $("cd_description").value = "";
+  $("cd_datePublished").value = "";
+  $("cd_inLanguage").value = "";
+  $("cd_license").value = "";
+  $("cd_creator").value = "";
+}
+
+function resolveLinkedName(value, byId) {
+  if (!value) return "";
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = resolveLinkedName(item, byId);
+      if (found) return found;
+    }
+    return "";
+  }
+  if (typeof value === "string") {
+    const ref = byId.get(value);
+    if (ref && typeof ref.name === "string" && ref.name.trim()) return ref.name.trim();
+    return value.trim();
+  }
+  if (typeof value === "object") {
+    if (typeof value.name === "string" && value.name.trim()) return value.name.trim();
+    const refId = typeof value["@id"] === "string" ? value["@id"] : "";
+    if (refId) {
+      const ref = byId.get(refId);
+      if (ref && typeof ref.name === "string" && ref.name.trim()) return ref.name.trim();
+      return refId;
+    }
+  }
+  return "";
+}
+
+function getRootDatasetEntity(crateJson) {
+  const graph = Array.isArray(crateJson && crateJson["@graph"]) ? crateJson["@graph"] : [];
+  if (!graph.length) return null;
+
+  const byId = new Map();
+  for (const entity of graph) {
+    const id = entity && entity["@id"];
+    if (typeof id === "string") byId.set(id, entity);
+  }
+
+  let root = byId.get("./") || null;
+  if (!root) {
+    const md = byId.get("ro-crate-metadata.json");
+    const about = md && md.about;
+    const aboutId = typeof about === "string" ? about : (about && typeof about["@id"] === "string" ? about["@id"] : "");
+    if (aboutId && byId.has(aboutId)) root = byId.get(aboutId);
+  }
+  if (!root) {
+    root = graph.find((entity) => {
+      const t = entity && entity["@type"];
+      const types = Array.isArray(t) ? t : (t ? [t] : []);
+      return types.includes("Dataset") && entity["@id"] !== "ro-crate-metadata.json";
+    }) || null;
+  }
+  if (!root) return null;
+  return { root, byId };
+}
+
+async function populateCrateDetailsFromExistingCrate(handle) {
+  const crateJson = await readJsonFromFolder(handle, JSON_FILE);
+  if (!crateJson) return false;
+
+  const extracted = getRootDatasetEntity(crateJson);
+  if (!extracted) return false;
+
+  const { root, byId } = extracted;
+  const rootId = typeof root["@id"] === "string" ? root["@id"].trim() : "";
+  if (rootId) {
+    $("cd_id").value = rootId.replace(/^arcp:\/\/name,/i, "");
+  }
+  if (typeof root.name === "string") $("cd_name").value = root.name;
+  if (typeof root.description === "string") $("cd_description").value = root.description;
+
+  if (typeof root.datePublished === "string" && root.datePublished.trim()) {
+    const isoDate = root.datePublished.trim().slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) $("cd_datePublished").value = isoDate;
+  }
+
+  const license = root.license;
+  if (typeof license === "string" && license.trim()) {
+    $("cd_license").value = license.trim();
+  } else if (license && typeof license === "object" && typeof license["@id"] === "string") {
+    $("cd_license").value = license["@id"].trim();
+  }
+
+  const languageName = resolveLinkedName(root.inLanguage, byId);
+  if (languageName) $("cd_inLanguage").value = languageName;
+
+  const creatorName = resolveLinkedName(root.creator, byId);
+  if (creatorName) $("cd_creator").value = creatorName;
+
+  return true;
+}
+
 function submitCrateDetails() {
   rootDatasetOverride = buildRootDatasetFromForm();
-  openBuild();
+  refreshBuildStepActions();
+  showView("view-mode");
+}
+
+function refreshBuildStepActions() {
+  const describeBtn = $("buildStepDescribe");
+  const buildBtn = $("buildStepOpenBuild");
+  if (!describeBtn || !buildBtn) return;
+  const hasFolder = !!dirHandle;
+  const hasDescribe = !!rootDatasetOverride;
+  describeBtn.disabled = !hasFolder;
+  buildBtn.disabled = !(hasFolder && hasDescribe);
 }
 
 /* ---------- File System Access ---------- */
@@ -940,6 +1127,71 @@ function buildGitHubTreeUrl(owner, repo, ref, folderPath) {
   return `https://github.com/${owner}/${repo}/tree/${encodeURIComponent(ref)}/${safePath}`;
 }
 
+function buildGitHubRawUrl(owner, repo, ref, filePath) {
+  const safePath = String(filePath || "").split("/").map((p) => encodeURIComponent(p)).join("/");
+  return `https://raw.githubusercontent.com/${owner}/${repo}/${encodeURIComponent(ref)}/${safePath}`;
+}
+
+async function fetchGitHubTextFile(owner, repo, ref, filePath, downloadUrl = "") {
+  const url = downloadUrl || buildGitHubRawUrl(owner, repo, ref, filePath);
+  const res = await fetch(bustCacheUrl(url), { cache: "no-store" });
+  if (!res.ok) throw new Error(`Could not download ${filePath} (${res.status} ${res.statusText}).`);
+  return await res.text();
+}
+
+async function fetchTemplateBundle(owner, repo, ref, folderPath) {
+  const safeFolder = String(folderPath || "").replace(/^\/+|\/+$/g, "");
+  if (!safeFolder) throw new Error("No template folder selected.");
+
+  const encodedFolder = safeFolder.split("/").map((p) => encodeURIComponent(p)).join("/");
+  const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${encodedFolder}?ref=${encodeURIComponent(ref)}`;
+  const res = await fetch(apiUrl, { headers: { Accept: "application/vnd.github+json" }, cache: "no-store" });
+  if (!res.ok) throw new Error(`Could not list template folder "${safeFolder}" (${res.status} ${res.statusText}).`);
+  const entries = await res.json();
+  if (!Array.isArray(entries)) throw new Error(`Unexpected API response for template folder "${safeFolder}".`);
+
+  const files = entries
+    .filter((e) => e && e.type === "file" && typeof e.name === "string")
+    .map((e) => ({
+      name: e.name,
+      path: e.path || `${safeFolder}/${e.name}`,
+      downloadUrl: typeof e.download_url === "string" ? e.download_url : "",
+      type: "file",
+    }));
+
+  const templateFile = pickPreferredFile(files, ".html", ["template", "tabular", "preview", "index"]);
+  const configFile = pickPreferredFile(files, ".json", ["config", "preview"]);
+  const styleFile = pickPreferredFile(files, ".css", ["style", "preview", "default"]);
+
+  const template = templateFile
+    ? await fetchGitHubTextFile(owner, repo, ref, templateFile.path, templateFile.downloadUrl)
+    : null;
+  const configText = configFile
+    ? await fetchGitHubTextFile(owner, repo, ref, configFile.path, configFile.downloadUrl)
+    : null;
+  const css = styleFile
+    ? await fetchGitHubTextFile(owner, repo, ref, styleFile.path, styleFile.downloadUrl)
+    : "";
+
+  let config = null;
+  if (configText !== null) {
+    try { config = JSON.parse(configText); }
+    catch (e) { throw new Error(`Template config ${configFile.name} is not valid JSON: ${e.message}`); }
+  }
+
+  return {
+    template,
+    config,
+    css,
+    files: {
+      template: templateFile ? templateFile.name : null,
+      config: configFile ? configFile.name : null,
+      style: styleFile ? styleFile.name : null,
+    },
+    source: buildGitHubTreeUrl(owner, repo, ref, safeFolder),
+  };
+}
+
 /* ---------- Build ---------- */
 async function processFolder(dirHandle, files, options) {
   const config = (await readJsonFromFolder(dirHandle, "config.json")) || DEFAULT_CONFIG;
@@ -992,7 +1244,9 @@ async function processFolder(dirHandle, files, options) {
     log("Merge is on but no spreadsheet was selected — skipping merge.", "warn");
   }
 
-  const entities = crate.getJson()["@graph"].length;
+  const graph = crate.getJson()["@graph"] || [];
+  const entities = graph.length;
+  const typeCounts = collectTypeCounts(graph);
 
   // ro-crate-metadata.json
   if (options.overwrite || !(await fileExists(dirHandle, JSON_FILE))) {
@@ -1014,7 +1268,8 @@ async function processFolder(dirHandle, files, options) {
     if (options.overwrite || !(await fileExists(dirHandle, HTML_FILE))) {
       try {
         let html;
-        const repoSelected = !!options.templateRepoPreset;
+        const selectedFolder = (options.templateRepoFolder || "").trim();
+        const repoSelected = !!selectedFolder;
         if (options.styledPreview || repoSelected) {
           // Precedence for template/config/style: repo folder → uploaded file → local folder.
           let template = null, templateSrc = "none";
@@ -1022,8 +1277,6 @@ async function processFolder(dirHandle, files, options) {
           let css = "", cssSrc = "none";
 
           if (repoSelected) {
-            const selectedFolder = (options.templateRepoFolder || "").trim();
-            if (!selectedFolder) throw new Error("Template repo source is selected but no template folder was chosen.");
             const remote = await fetchTemplateBundle(TEMPLATE_REPO_OWNER, TEMPLATE_REPO_NAME, TEMPLATE_REPO_REF, selectedFolder);
             template = remote.template;
             cfg = remote.config;
@@ -1076,7 +1329,7 @@ async function processFolder(dirHandle, files, options) {
     } else log(`${HTML_FILE} exists and overwrite is off — skipped.`, "warn");
   }
 
-  return { files: filesWithMeta.length, entities };
+  return { files: filesWithMeta.length, entities, typeCounts };
 }
 
 let buildHtml = null;  // ro-crate-preview.html captured after the last successful build
@@ -1087,7 +1340,9 @@ async function run() {
   runBtn.disabled = true; runBtn.textContent = "Building…";
   $("showHtmlBtn").classList.add("hidden"); buildHtml = null;
   const started = performance.now();
+  log("Build started at " + new Date().toLocaleTimeString() + ".", "muted");
   $("statFiles").textContent = "—"; $("statEntities").textContent = "—"; $("statTime").textContent = "—";
+  renderTypeStatus([]);
   try {
     if (!(await verifyPermission(dirHandle, true))) { log("Permission to read/write the folder was denied.", "err"); return; }
     const options = readOptions();
@@ -1095,6 +1350,7 @@ async function run() {
     const result = await processFolder(dirHandle, files, options);
     $("statFiles").textContent = result.files;
     $("statEntities").textContent = result.entities;
+    renderTypeStatus(result.typeCounts);
     const secs = ((performance.now() - started) / 1000).toFixed(2);
     $("statTime").textContent = secs + "s";
     log("Done in " + secs + "s.", "ok");
@@ -1115,7 +1371,7 @@ async function run() {
 }
 
 /* ---------- actions ---------- */
-async function pickFolder() {
+async function pickFolder(nextView = "view-mode") {
   try {
     dirHandle = await window.showDirectoryPicker({ mode: "readwrite" });
   } catch (e) {
@@ -1123,9 +1379,16 @@ async function pickFolder() {
     console.error("Could not open folder:", e);
     return;
   }
+  rootDatasetOverride = null;
+  resetCrateDetailsForm();
+  try {
+    await populateCrateDetailsFromExistingCrate(dirHandle);
+  } catch (e) {
+    console.warn("Could not prefill describe form from existing crate JSON:", e);
+  }
   $("ctxFolder").textContent = dirHandle.name;
   await refreshModeCards();
-  showView("view-mode");
+  showView(nextView);
 }
 
 // Offer "Show" only when the folder already has crate output to view:
@@ -1142,6 +1405,7 @@ async function refreshModeCards() {
   }
   $("cardShow").classList.toggle("hidden", !(hasJson || hasHtml));
   $("showBtn").disabled = !(hasJson || hasHtml);
+  refreshBuildStepActions();
 }
 function openBuild() {
   clearLog();
@@ -1163,8 +1427,128 @@ function saveLog() {
   document.body.appendChild(a); a.click(); a.remove();
   URL.revokeObjectURL(url);
 }
+
+function clearLogPanel() {
+  clearLog();
+}
+
+function isDescribeViewActive() {
+  const view = $("view-crate-details");
+  return !!(view && !view.classList.contains("hidden"));
+}
+
+function isBuildViewActive() {
+  const view = $("view-build");
+  return !!(view && !view.classList.contains("hidden"));
+}
+
+function isModalOpen() {
+  const ids = ["modal", "settingsModal", "mergeMappingModal"];
+  return ids.some((id) => {
+    const el = $(id);
+    return !!(el && !el.classList.contains("hidden"));
+  });
+}
 let showHtml = null, showJson = null, previewUrl = null;
 let previewFileUrls = [];
+let showHasXlsx = false;
+let showXlsxPreview = null;
+let showXlsxSheetIndex = 0;
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function renderWorksheetAsHtml(worksheet, maxRows = 200, maxCols = 20) {
+  const bounds = worksheet.dimensions;
+  if (!bounds) return `<div class="sheet-wrap"><div class="sheet-title">Sheet: ${escapeHtml(worksheet.name)}</div><div class="sheet-note">This worksheet is empty.</div></div>`;
+
+  const rowEnd = Math.min(bounds.bottom, bounds.top + maxRows - 1);
+  const colEnd = Math.min(bounds.right, bounds.left + maxCols - 1);
+  const header = [];
+  for (let c = bounds.left; c <= colEnd; c++) header.push(`<th>${escapeHtml(worksheet.getCell(bounds.top, c).text || "")}</th>`);
+
+  const rows = [];
+  for (let r = bounds.top + 1; r <= rowEnd; r++) {
+    const cells = [];
+    for (let c = bounds.left; c <= colEnd; c++) {
+      cells.push(`<td>${escapeHtml(worksheet.getCell(r, c).text || "")}</td>`);
+    }
+    rows.push(`<tr>${cells.join("")}</tr>`);
+  }
+
+  const clippedRows = bounds.bottom > rowEnd;
+  const clippedCols = bounds.right > colEnd;
+  const note = clippedRows || clippedCols
+    ? `<div class="sheet-note">Showing first ${rowEnd - bounds.top + 1} row(s) and ${colEnd - bounds.left + 1} column(s).</div>`
+    : "";
+
+  return [
+    `<div class="sheet-wrap">`,
+    `<div class="sheet-title">Sheet: ${escapeHtml(worksheet.name)}</div>`,
+    note,
+    `<table class="sheet-grid"><thead><tr>${header.join("")}</tr></thead><tbody>${rows.join("")}</tbody></table>`,
+    `</div>`,
+  ].join("");
+}
+
+async function readFileBytes(handle, filename) {
+  const fh = await handle.getFileHandle(filename, { create: false });
+  return await (await fh.getFile()).arrayBuffer();
+}
+
+async function buildXlsxPreviewData(handle) {
+  const mod = await import("exceljs");
+  const Workbook = mod.Workbook || (mod.default && mod.default.Workbook);
+  if (!Workbook) throw new Error("Could not load Excel parser.");
+
+  const bytes = await readFileBytes(handle, XLSX_FILE);
+  const wb = new Workbook();
+  await wb.xlsx.load(bytes);
+  const sheets = wb.worksheets.map((ws) => ({
+    name: ws.name || "Sheet",
+    html: renderWorksheetAsHtml(ws),
+  }));
+  return { sheets };
+}
+
+function renderXlsxSheetInPane(index = 0) {
+  const pane = $("showPane");
+  const data = showXlsxPreview;
+  if (!pane || !data || !Array.isArray(data.sheets) || data.sheets.length === 0) {
+    pane.innerHTML = `<div class="sheet-wrap"><div class="sheet-note">Workbook has no worksheets.</div></div>`;
+    return;
+  }
+
+  const safeIndex = Math.max(0, Math.min(index, data.sheets.length - 1));
+  showXlsxSheetIndex = safeIndex;
+  const options = data.sheets.map((s, i) => (
+    `<option value="${i}"${i === safeIndex ? " selected" : ""}>${escapeHtml(s.name)}</option>`
+  )).join("");
+
+  pane.innerHTML = [
+    `<div class="sheet-wrap">`,
+    `<div class="sheet-switch">`,
+    `<label for="showXlsxSheetSelect" class="sheet-switch-label">Sheet</label>`,
+    `<select id="showXlsxSheetSelect" class="sheet-switch-select">${options}</select>`,
+    `</div>`,
+    data.sheets[safeIndex].html,
+    `</div>`,
+  ].join("");
+
+  const select = $("showXlsxSheetSelect");
+  if (select) {
+    select.addEventListener("change", () => {
+      const next = Number.parseInt(select.value, 10);
+      renderXlsxSheetInPane(Number.isNaN(next) ? 0 : next);
+    });
+  }
+}
 
 function revokePreviewUrls() {
   if (previewUrl) {
@@ -1250,42 +1634,69 @@ async function openShow() {
     if (!(await verifyPermission(dirHandle, false))) return;
     showHtml = await readFileText(dirHandle, HTML_FILE);
     showJson = await readFileText(dirHandle, JSON_FILE);
-    if (showHtml === null && showJson === null) { $("modal").classList.remove("hidden"); return; }
+    showHasXlsx = await fileExists(dirHandle, XLSX_FILE);
+    showXlsxPreview = null;
+    showXlsxSheetIndex = 0;
+    if (showHtml === null && showJson === null && !showHasXlsx) { $("modal").classList.remove("hidden"); return; }
     showView("view-show");
-    renderShow(showHtml !== null ? "preview" : "json");
+    await renderShow(showHtml !== null ? "preview" : (showJson !== null ? "json" : "xlsx"));
   } catch (e) {
     $("showFileName").textContent = "";
     $("showPreview").classList.add("hidden");
     const pane = $("showPane");
+    pane.classList.remove("sheet-mode");
     pane.classList.remove("hidden");
     pane.textContent = "Error reading the RO-Crate: " + (e && e.message ? e.message : e);
     showView("view-show");
   }
 }
 
-function renderShow(mode) {
+async function renderShow(mode) {
   const preview = $("showPreview"), pane = $("showPane");
-  const tabP = $("showTabPreview"), tabJ = $("showTabJson");
+  const tabP = $("showTabPreview"), tabJ = $("showTabJson"), tabX = $("showTabXlsx");
   // Fall back to whichever file is present if the requested one is missing.
   if (mode === "preview" && showHtml === null) mode = "json";
-  if (mode === "json" && showJson === null) mode = "preview";
+  if (mode === "json" && showJson === null) mode = showHasXlsx ? "xlsx" : "preview";
+  if (mode === "xlsx" && !showHasXlsx) mode = showJson !== null ? "json" : "preview";
 
   tabP.disabled = showHtml === null;
   tabJ.disabled = showJson === null;
+  tabX.disabled = !showHasXlsx;
   tabP.classList.toggle("active", mode === "preview");
   tabJ.classList.toggle("active", mode === "json");
+  tabX.classList.toggle("active", mode === "xlsx");
 
   if (mode === "preview") {
     $("showFileName").textContent = HTML_FILE;
+    pane.classList.remove("sheet-mode");
     pane.classList.add("hidden");
     pane.textContent = "";
+    pane.innerHTML = "";
     preview.classList.remove("hidden");
+  } else if (mode === "xlsx") {
+    $("showFileName").textContent = XLSX_FILE;
+    preview.classList.add("hidden");
+    pane.classList.remove("hidden");
+    pane.classList.add("sheet-mode");
+    if (!showXlsxPreview) {
+      pane.textContent = "Loading workbook preview...";
+      try {
+        showXlsxPreview = await buildXlsxPreviewData(dirHandle);
+      } catch (e) {
+        pane.classList.remove("sheet-mode");
+        pane.textContent = "Could not render workbook preview: " + (e && e.message ? e.message : e);
+        return;
+      }
+    }
+    renderXlsxSheetInPane(showXlsxSheetIndex);
   } else {
     let pretty = showJson;
     try { pretty = JSON.stringify(JSON.parse(showJson), null, 2); } catch { /* raw */ }
     $("showFileName").textContent = JSON_FILE;
     preview.classList.add("hidden");
     pane.classList.remove("hidden");
+    pane.classList.remove("sheet-mode");
+    pane.innerHTML = "";
     pane.textContent = pretty;
   }
 }
@@ -1323,10 +1734,9 @@ function boot() {
   if (!("showDirectoryPicker" in window)) { $("unsupported").classList.remove("hidden"); return; }
   $("app").classList.remove("hidden");
   buildForm();
-  showView("view-folder");
+  showView("view-mode");
+  refreshModeCards();
 
-  $("pickBtn").addEventListener("click", pickFolder);
-  $("changeFolderBtn").addEventListener("click", pickFolder);
   $("menuBtn").addEventListener("click", async () => { await refreshModeCards(); showView("view-mode"); });
   $("settingsBtn").addEventListener("click", () => $("settingsModal").classList.remove("hidden"));
   $("settingsClose").addEventListener("click", () => $("settingsModal").classList.add("hidden"));
@@ -1351,21 +1761,59 @@ function boot() {
       alert("Could not read sheet: " + (err && err.message ? err.message : err));
     }
   });
-  $("cardBuild").addEventListener("click", openCrateDetails);
+  $("buildStepChooseFolder").addEventListener("click", () => { void pickFolder("view-mode"); });
+  $("buildStepDescribe").addEventListener("click", () => {
+    if (!dirHandle) return;
+    openCrateDetails();
+  });
+  $("buildStepOpenBuild").addEventListener("click", () => {
+    if (!dirHandle || !rootDatasetOverride) return;
+    openBuild();
+  });
   $("cardShow").addEventListener("click", openShow);
   $("showBtn").addEventListener("click", openShow);
-  $("showTabPreview").addEventListener("click", () => renderShow("preview"));
-  $("showTabJson").addEventListener("click", () => renderShow("json"));
+  $("showTabPreview").addEventListener("click", () => { void renderShow("preview"); });
+  $("showTabJson").addEventListener("click", () => { void renderShow("json"); });
+  $("showTabXlsx").addEventListener("click", () => { void renderShow("xlsx"); });
   $("openPreviewBtn").addEventListener("click", openPreviewWindow);
   const key = (fn) => (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fn(); } };
-  $("cardBuild").addEventListener("keydown", key(openCrateDetails));
   $("cardShow").addEventListener("keydown", key(openShow));
-  $("crateDetailsBackBtn").addEventListener("click", () => showView("view-mode"));
+  $("crateDetailsBackBtn").addEventListener("click", async () => { await refreshModeCards(); showView("view-mode"); });
   $("crateDetailsContinueBtn").addEventListener("click", submitCrateDetails);
+  $("crateDetailsForm").addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    if (e.target && e.target.tagName === "TEXTAREA") return;
+    e.preventDefault();
+    submitCrateDetails();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    if (isModalOpen()) return;
+    const tag = e.target && e.target.tagName ? e.target.tagName : "";
+    if (tag === "TEXTAREA") return;
+    if (tag === "INPUT" || tag === "SELECT" || tag === "BUTTON" || tag === "A") return;
+    if (isDescribeViewActive()) {
+      e.preventDefault();
+      submitCrateDetails();
+      return;
+    }
+    if (isBuildViewActive()) {
+      const runBtn = $("runBtn");
+      if (!runBtn || runBtn.disabled) return;
+      e.preventDefault();
+      run();
+      return;
+    }
+  });
   $("runBtn").addEventListener("click", run);
   $("showHtmlBtn").addEventListener("click", () => openHtmlInNewTab(buildHtml));
+  $("clearLogBtn").addEventListener("click", clearLogPanel);
   $("saveLogBtn").addEventListener("click", saveLog);
-  $("rebuildBtn").addEventListener("click", openCrateDetails);
+  syncLogActionButtons();
+  $("rebuildBtn").addEventListener("click", () => {
+    if (!dirHandle) return;
+    openBuild();
+  });
   $("modalCancel").addEventListener("click", () => $("modal").classList.add("hidden"));
   $("modalBuild").addEventListener("click", () => { $("modal").classList.add("hidden"); openCrateDetails(); });
 }
