@@ -15,7 +15,7 @@
     "exceljs": "^4.4.0",
     "ro-crate": "^3.7.2",
     "ro-crate-excel": "^1.2.1",
-    "ro-crate-html-lite": "github:Language-Research-Technology/ro-crate-html-lite#tabular-merge"
+    "ro-crate-html-lite": "github:crate-works/ro-crate-static-site#export-preview-fns"
   },
   "devDependencies": {
     "@describo/data-packs": "^0.13.1",
