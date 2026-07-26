@@ -13,6 +13,7 @@ import Workbook from "ro-crate-excel/lib/workbook.js";
 import ExcelJS from "exceljs";
 import { CUSTOM_PROPERTIES } from "./defaults.js";
 import { DEFAULT_LAYOUT } from "./default_layout.js";
+import { createPlaceLookupService } from "./place_lookup.js";
 
 /* Files that are generated output or local control files — never treated as
  * corpus data (mirrors GENERATED_FILENAMES in the original). */
@@ -515,6 +516,33 @@ function getExistingContextPrefixes(crate) {
   return prefixes;
 }
 
+function slugifyEntityValue(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function generatedEntityId(type, value) {
+  const slug = slugifyEntityValue(value).replace(/-/g, "_") || "entity";
+  if (type === "Place") return `#place-${slugifyEntityValue(value) || "place"}`;
+  return `#${slug}`;
+}
+
+function generatedGeometryId(placeEntity, placeName) {
+  const explicit = String(placeEntity?.geo?.["@id"] || "").trim();
+  if (explicit) return explicit;
+  const placeId = String(placeEntity?.["@id"] || "").trim();
+  if (placeId.startsWith("#place-")) return `#location-${placeId.slice("#place-".length)}`;
+  const slug = slugifyEntityValue(placeName || placeId.replace(/^#/, "")) || "place";
+  return `#location-${slug}`;
+}
+
+function graphEntityById(crate, id) {
+  return crate.graph.find((entity) => entity && entity["@id"] === id) || null;
+}
+
 // Merge a spreadsheet's rows into matching crate entities (by an "@id" column),
 // applying the config's column→property mappings. Typed mappings split on comma
 // or slash and generate linked entities. Any "custom:" target property that's
@@ -554,6 +582,7 @@ export async function mergeXlsxIntoCrate(crate, xlsxData, mergeConfig, log = () 
   const workbookContexts = scanWorkbookContexts(wb);
   const existingPrefixes = getExistingContextPrefixes(crate);
   const addedContexts = [];
+  const placeLookup = createPlaceLookupService(mergeConfig.placeLookup, log);
   requiredPrefixes.forEach((prefix) => {
     if (existingPrefixes.has(prefix)) return;
     const uri = workbookContexts.get(prefix);
@@ -563,7 +592,7 @@ export async function mergeXlsxIntoCrate(crate, xlsxData, mergeConfig, log = () 
     addedContexts.push(`${prefix}: ${uri}`);
   });
 
-  let merged = 0, generated = 0;
+  let merged = 0, generated = 0, enrichedPlaces = 0;
   const missingCols = new Set();
   const matchedIds = new Set();   // entity @ids that a spreadsheet row matched
   const unmatchedRowIds = [];     // spreadsheet @ids with no matching entity
@@ -587,16 +616,48 @@ export async function mergeXlsxIntoCrate(crate, xlsxData, mergeConfig, log = () 
           .split(/\s*[,/]\s*/).map((v) => v.trim()).filter(Boolean)
           .map((v) => v.replace(/[\[\]?()']/g, "").trim()).filter(Boolean);
         if (!values.length) continue;
-        const refs = values.map((val) => {
-          const id = `#${val.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase()}`;
+        const refs = [];
+        for (const val of values) {
+          const id = generatedEntityId(mapping.type, val);
           if (!entityById.get(id)) {
             const ge = { "@id": id, "@type": mapping.type, name: val };
             crate.addEntity(ge);
-            entityById.set(id, ge);
+            entityById.set(id, graphEntityById(crate, id) || ge);
             generated++;
           }
-          return { "@id": id };
-        });
+          if (mapping.type === "Place") {
+            const placeNode = graphEntityById(crate, id) || entityById.get(id);
+            const lookup = await placeLookup.lookup(val || placeNode?.name || "");
+            if (lookup) {
+              const geometryId = generatedGeometryId(placeNode || { "@id": id }, val);
+              let geometryNode = graphEntityById(crate, geometryId) || entityById.get(geometryId);
+              const hadGeo = !!placeNode?.geo?.["@id"];
+              if (!geometryNode) {
+                const geometryRecord = {
+                  "@id": geometryId,
+                  "@type": "Geometry",
+                  ".latitude": lookup.latitude,
+                  ".longitude": lookup.longitude,
+                  asWKT: lookup.asWKT,
+                };
+                crate.addEntity(geometryRecord);
+                geometryNode = graphEntityById(crate, geometryId) || geometryRecord;
+                entityById.set(geometryId, geometryNode);
+                generated++;
+              } else {
+                geometryNode["@type"] = geometryNode["@type"] || "Geometry";
+                geometryNode[".latitude"] = lookup.latitude;
+                geometryNode[".longitude"] = lookup.longitude;
+                geometryNode.asWKT = lookup.asWKT;
+              }
+              if (placeNode) {
+                placeNode.geo = { "@id": geometryId };
+                if (!hadGeo) enrichedPlaces++;
+              }
+            }
+          }
+          refs.push({ "@id": id });
+        }
         entity[mapping.target] = refs.length === 1 ? refs[0] : refs;
         merged++;
       } else {
@@ -635,10 +696,13 @@ export async function mergeXlsxIntoCrate(crate, xlsxData, mergeConfig, log = () 
     log(`Merge: no matching context found in workbook for prefix(es): ${unresolvedPrefixes.join(", ")}.`, "warn");
   if (generatedProps.length)
     log(`Merge: generated rdf:Property definitions for ${generatedProps.length} custom propert${generatedProps.length === 1 ? "y" : "ies"} not yet described in the crate: ${generatedProps.sort().join(", ")}.`, "ok");
+  if (enrichedPlaces)
+    log(`Merge: added Geometry coordinates for ${enrichedPlaces} place reference${enrichedPlaces === 1 ? "" : "s"}.`, "ok");
   log(`Merged ${merged} value(s) from "${sheet.name}" into ${matchedIds.size} entity/ies; generated ${generated} new entity/ies.`, "ok");
   return {
     merged,
     generated,
+    enrichedPlaces,
     generatedProperties: generatedProps.length,
     addedContexts: addedContexts.length,
     skipped: unmatchedRowIds.length,

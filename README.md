@@ -85,6 +85,7 @@ The crate object is then serialized with `crate.getJson()` (JSON), fed to `ro-cr
 
 Template repo fetches currently use a minimal/public access method: a plain GitHub Contents API request (with an `Accept` header) plus raw file downloads, with no `Authorization` token.
 Future work: add optional token-based auth support to improve rate-limit headroom and private-repo access.
+Future work: surface an explicit note/example in the merge UI for `placeLookup.providers` so users can pin lookups to a single source such as Geoscience Australia for deterministic results.
 
 ### Spreadsheet merge and mapping
 
@@ -94,6 +95,8 @@ Future work: add optional token-based auth support to improve rate-limit headroo
 - If a mapping config includes `sheet`, that sheet is selected and its headers are used.
 - When a mapping config is loaded in the popup, rows are restricted to config-defined source fields (badge: “Showing config-defined sources”).
 - Prefixed mapping targets (for example `dc:format`) trigger workbook context lookup; missing contexts found in workbook are added to the crate context.
+- Typed `Place` mappings now try to add a linked `Geometry` entity during merge. Geometry entities are stored with `@id`, `@type`, `.latitude`, `.longitude`, and `asWKT`, and linked from the place via `geo`.
+- Merge config may include an optional `placeLookup` block with `enabled`, `providers`, `records`, `ghap`, and `geoscienceAustralia` settings. Manual `records` are checked first; by default live lookup now tries Geoscience Australia’s Composite Gazetteer ArcGIS service before GHAP/TLCMap-style endpoints.
 - Popup shows a warning if target prefixes are unresolved against known + workbook contexts.
 - During preview rendering, compact property keys are expanded using context prefixes so full-URI template columns can resolve merged values.
 

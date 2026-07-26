@@ -8,6 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview --port 5000",
+    "test:place-merge": "node test-place-merge.mjs",
     "test:top-level-folders": "node test-top-level-folders.mjs",
     "update:austlang": "node scripts/update-austlang-data.mjs"
   },
