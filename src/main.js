@@ -1473,7 +1473,8 @@ async function pickFolder(nextView = "view-mode") {
   lastHtmlTemplate = null;
   resetCrateDetailsForm();
   try {
-    await populateCrateDetailsFromExistingCrate(dirHandle);
+    const hasExistingCrate = await populateCrateDetailsFromExistingCrate(dirHandle);
+    if (hasExistingCrate) rootDatasetOverride = buildRootDatasetFromForm();
   } catch (e) {
     console.warn("Could not prefill describe form from existing crate JSON:", e);
   }
