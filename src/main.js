@@ -62,6 +62,8 @@ const SETTINGS_SCHEMA = [
   { key: "makeXlsx", label: "Generate ro-crate-metadata.xlsx", default: true },
   { key: "includeSampleData", label: "Include sample data entities", default: false,
     hint: "Adds entities from sample-data.json (or built-in defaults) to the crate graph." },
+  { key: "doPlaceLookups", label: "Do placenames lookup", default: true,
+    hint: "When on, merged Place entities try to look up coordinates and generate linked Geometry entities." },
   { key: "enableLocalTemplateUpload", label: "Enable local template upload", default: false,
     hint: "Shows or hides the Upload template files option in Build settings." },
   { key: "includeAlternateNames", label: "Match Austlang alternate names", default: false,
@@ -1320,7 +1322,15 @@ async function processFolder(dirHandle, files, options) {
     }
     log(`Merging ${options.mergeUpload.name} · mapping ${mcSrc}.`, "muted");
     const bytes = await options.mergeUpload.file.arrayBuffer();
-    await mergeXlsxIntoCrate(crate, bytes, mergeConfig, log);
+    const effectiveMergeConfig = {
+      ...mergeConfig,
+      placeLookup: {
+        ...(mergeConfig && typeof mergeConfig.placeLookup === "object" ? mergeConfig.placeLookup : {}),
+        enabled: options.doPlaceLookups !== false,
+      },
+    };
+    if (options.doPlaceLookups === false) log("Placename lookup disabled by settings.", "muted");
+    await mergeXlsxIntoCrate(crate, bytes, effectiveMergeConfig, log);
   } else if (options.merge && !options.mergeUpload) {
     log("Merge is on but no spreadsheet was selected — skipping merge.", "warn");
   }
