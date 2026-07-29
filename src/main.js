@@ -11,6 +11,7 @@ import {
 // dynamic import() only when language lookups are enabled — see run() — so the
 // ~730 kB data pack stays out of the main bundle.
 import { DEFAULT_CONFIG, DEFAULT_SAMPLE_DATA } from "./defaults.js";
+import packageJson from "../package.json";
 // Default column→property mapping for the spreadsheet merge. A folder may
 // override it with its own merge-config.json (see processFolder).
 import MERGE_CONFIG from "./merge_config.json";
@@ -21,6 +22,7 @@ const HTML_FILE = "ro-crate-preview.html";
 const TEMPLATE_REPO_OWNER = "benfoley";
 const TEMPLATE_REPO_NAME = "rocss-template-repo";
 const TEMPLATE_REPO_REF = "main";
+const APP_VERSION = packageJson.version || "dev";
 
 const OPTION_SCHEMA = [
   { key: "makeHtml", label: "Generate ro-crate-preview.html", default: true, children: [
@@ -2274,6 +2276,8 @@ async function saveEdit() {
 function boot() {
   if (!("showDirectoryPicker" in window)) { $("unsupported").classList.remove("hidden"); return; }
   $("app").classList.remove("hidden");
+  const versionEl = $("appVersion");
+  if (versionEl) versionEl.textContent = `v${APP_VERSION}`;
   buildForm();
   showView("view-mode");
   refreshModeCards();
