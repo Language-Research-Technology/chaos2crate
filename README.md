@@ -6,7 +6,7 @@ outputs back into it:
 
 - `ro-crate-metadata.json` — the crate as JSON-LD
 - `ro-crate-metadata.xlsx` — the crate as a spreadsheet (via `ro-crate-excel`)
-- `ro-crate-preview.html` — a self-contained HTML preview (via `ro-crate-html-lite`)
+- `ro-crate-preview.html` — a self-contained HTML preview (via `ro-crate-static-site`)
 
 It reads and writes local files through the **File System Access API** (Chrome / Edge), so
 the user's files never leave their machine. Unlike the earlier single-file version, this
@@ -22,7 +22,7 @@ Requires Node and npm (for the build). The end result runs in Chrome/Edge.
 
 ```bash
 cd resources2crate
-npm install          # pulls ro-crate, ro-crate-excel, ro-crate-html-lite, exceljs, vite
+npm install          # pulls ro-crate, ro-crate-excel, ro-crate-static-site, exceljs, vite
 
 npm run dev          # dev server at http://localhost:5173  → open in Chrome/Edge
 # or
@@ -64,7 +64,7 @@ that reproduces `corpus-tools-dyirbal`'s crate structure using the `ROCrate` cla
 - optional AUSTLANG subject-language identification (filename-based; see options).
 
 The crate object is then serialized with `crate.getJson()` (JSON), fed to `ro-crate-excel`'s
-`Workbook` (xlsx), and to `ro-crate-html-lite`'s `renderSinglePage` (html).
+`Workbook` (xlsx), and to `ro-crate-static-site`'s `renderSinglePage` (html).
 
 ### Options (Build)
 
@@ -122,7 +122,7 @@ Generated outputs and these two control files are skipped during the scan.
   `lib/workbook.js` needs only `exceljs`, `ro-crate`, `lodash`, `uuid`. exceljs ships a browser
   build (`dist/exceljs.min.js`) that Vite selects automatically; we write `.xlsx` via
   `workbook.xlsx.writeBuffer()` (a Blob) instead of to disk.
-- **`ro-crate-html-lite` renders offline.** It uses nunjucks *precompiled* templates (no `fs`),
+- **`ro-crate-static-site` renders offline.** It uses nunjucks *precompiled* templates (no `fs`),
   and would otherwise `fetch` its default layout from GitHub at runtime (fragile + CORS). We
   bundle that layout (`src/default_layout.js`, vendored from the package) and pass it in, so no
   network call is needed.

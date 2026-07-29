@@ -1,14 +1,14 @@
 // Crate assembly + output generation, ported from corpus-tools-dyirbal's
 // index.js to use the ro-crate library directly (as the original does), plus
-// xlsx (ro-crate-excel) and html (ro-crate-html-lite) generation.
+// xlsx (ro-crate-excel) and html (ro-crate-static-site) generation.
 //
 // This module is ISOMORPHIC: it imports only browser-safe entry points
-// (ro-crate, ro-crate-html-lite, and ro-crate-excel's lib/workbook.js — which
+// (ro-crate, ro-crate-static-site, and ro-crate-excel's lib/workbook.js — which
 // avoids that package's Node-only shelljs/fs-extra modules), and returns bytes
 // / strings rather than writing files. The caller (browser or Node) does I/O.
 
 import { ROCrate } from "ro-crate";
-import { renderSinglePage, renderTemplate, roCrateToJSON } from "ro-crate-html-lite";
+import { renderSinglePage, renderTemplate, roCrateToJSON } from "ro-crate-static-site";
 import Workbook from "ro-crate-excel/lib/workbook.js";
 import ExcelJS from "exceljs";
 import { CUSTOM_PROPERTIES } from "./defaults.js";
@@ -311,7 +311,7 @@ export async function crateToPreviewHtml(crate, opts = {}) {
   } else {
     html = await renderSinglePage({ crate, layouts });
   }
-  // ro-crate-html-lite urlencodes file links wholesale, turning "/" into "%2F"
+  // ro-crate-static-site urlencodes file links wholesale, turning "/" into "%2F"
   // and breaking relative navigation; only href values (not "#" anchors) are real links.
   html = html.replace(/href="([^"#][^"]*)"/g, (match, href) =>
     href.includes("%2F") ? `href="${href.replace(/%2F/g, "/")}"` : match

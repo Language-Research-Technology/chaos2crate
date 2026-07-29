@@ -2,7 +2,7 @@ import { defineConfig } from "vite";
 import { nodePolyfills } from "vite-plugin-node-polyfills";
 
 // resources2crate is a browser app that leans on Node-oriented libraries
-// (ro-crate, ro-crate-excel → exceljs, ro-crate-html-lite → nunjucks). Vite
+// (ro-crate, ro-crate-excel -> exceljs, ro-crate-static-site -> nunjucks). Vite
 // honours each package's `browser` field automatically (exceljs →
 // dist/exceljs.min.js, nunjucks → browser/nunjucks.js), and we only import
 // ro-crate-excel via its clean lib/workbook.js entry (never the package index,
@@ -17,7 +17,7 @@ export default defineConfig({
     }),
   ],
   optimizeDeps: {
-    include: ["ro-crate", "ro-crate-excel/lib/workbook.js", "ro-crate-html-lite", "exceljs", "nunjucks"],
+    include: ["ro-crate", "ro-crate-excel/lib/workbook.js", "ro-crate-static-site", "exceljs", "nunjucks"],
   },
   build: {
     target: "es2020",

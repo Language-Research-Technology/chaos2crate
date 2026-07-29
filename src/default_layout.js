@@ -1,4 +1,4 @@
-// The default RO-Crate preview layout, vendored from ro-crate-html-lite/lib/default_layout.json
+// The default RO-Crate preview layout, vendored from ro-crate-static-site/lib/default_layout.json
 // so HTML preview generation needs no network fetch (avoids CORS in the browser).
 export const DEFAULT_LAYOUT = [
   {

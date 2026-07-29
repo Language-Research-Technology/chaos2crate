@@ -16,7 +16,7 @@
     "exceljs": "^4.4.0",
     "ro-crate": "^3.7.2",
     "ro-crate-excel": "^1.2.1",
-    "ro-crate-html-lite": "github:crate-works/ro-crate-static-site#export-preview-fns"
+    "ro-crate-static-site": "github:crate-works/ro-crate-static-site#main"
   },
   "devDependencies": {
     "@describo/data-packs": "^0.13.1",
