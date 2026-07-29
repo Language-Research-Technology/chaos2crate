@@ -832,6 +832,8 @@ function buildRootDatasetFromForm() {
   const creatorText = $("cd_creator").value.trim();
   const idText = $("cd_id").value.trim();
   const name = $("cd_name").value.trim();
+  const portalName = $("cd_portalName").value.trim();
+  const portalDescription = $("cd_portalDescription").value.trim();
   const rootDataset = {
     "@id": normalizeArcpId(idText || name),
     name,
@@ -839,6 +841,14 @@ function buildRootDatasetFromForm() {
     datePublished: $("cd_datePublished").value || todayIsoDate(),
     license: { "@id": $("cd_license").value.trim() || DEFAULT_LICENSE_URL },
   };
+  if (portalName) {
+    rootDataset["custom:portalName"] = portalName;
+    rootDataset.portalName = portalName;
+  }
+  if (portalDescription) {
+    rootDataset["custom:portalDescription"] = portalDescription;
+    rootDataset.portalDescription = portalDescription;
+  }
   if (languageText) {
     rootDataset.inLanguage = { "@id": `#language-${slugify(languageText)}`, "@type": "Language", name: languageText };
   }
@@ -852,6 +862,8 @@ function resetCrateDetailsForm() {
   $("cd_id").value = "";
   $("cd_name").value = "";
   $("cd_description").value = "";
+  $("cd_portalName").value = "";
+  $("cd_portalDescription").value = "";
   $("cd_datePublished").value = "";
   $("cd_inLanguage").value = "";
   $("cd_license").value = "";
@@ -926,6 +938,14 @@ async function populateCrateDetailsFromExistingCrate(handle) {
   }
   if (typeof root.name === "string") $("cd_name").value = root.name;
   if (typeof root.description === "string") $("cd_description").value = root.description;
+  const rootPortalName =
+    typeof root["custom:portalName"] === "string" ? root["custom:portalName"]
+      : (typeof root.portalName === "string" ? root.portalName : "");
+  if (rootPortalName) $("cd_portalName").value = rootPortalName;
+  const rootPortalDescription =
+    typeof root["custom:portalDescription"] === "string" ? root["custom:portalDescription"]
+      : (typeof root.portalDescription === "string" ? root.portalDescription : "");
+  if (rootPortalDescription) $("cd_portalDescription").value = rootPortalDescription;
 
   if (typeof root.datePublished === "string" && root.datePublished.trim()) {
     const isoDate = root.datePublished.trim().slice(0, 10);
