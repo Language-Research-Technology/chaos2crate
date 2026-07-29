@@ -582,7 +582,13 @@ export async function mergeXlsxIntoCrate(crate, xlsxData, mergeConfig, log = () 
   const workbookContexts = scanWorkbookContexts(wb);
   const existingPrefixes = getExistingContextPrefixes(crate);
   const addedContexts = [];
-  const placeLookup = createPlaceLookupService(mergeConfig.placeLookup, log);
+  const placeLookupConfig = {
+    ...(mergeConfig && typeof mergeConfig.placeLookup === "object" ? mergeConfig.placeLookup : {}),
+  };
+  if (mergeConfig && typeof mergeConfig.placeMatchRegion === "string" && mergeConfig.placeMatchRegion.trim()) {
+    placeLookupConfig.placeMatchRegion = placeLookupConfig.placeMatchRegion || mergeConfig.placeMatchRegion.trim();
+  }
+  const placeLookup = createPlaceLookupService(placeLookupConfig, log);
   requiredPrefixes.forEach((prefix) => {
     if (existingPrefixes.has(prefix)) return;
     const uri = workbookContexts.get(prefix);

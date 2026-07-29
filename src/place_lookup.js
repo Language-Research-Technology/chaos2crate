@@ -85,6 +85,105 @@ function coordinateRecord(value, provider, matchedName = "") {
   };
 }
 
+function normalizeRegionToken(value) {
+  return String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, " ")
+    .trim();
+}
+
+const REGION_ALIASES = new Map([
+  ["QLD", "QLD"],
+  ["QUEENSLAND", "QLD"],
+  ["NSW", "NSW"],
+  ["NEW SOUTH WALES", "NSW"],
+  ["VIC", "VIC"],
+  ["VICTORIA", "VIC"],
+  ["SA", "SA"],
+  ["SOUTH AUSTRALIA", "SA"],
+  ["WA", "WA"],
+  ["WESTERN AUSTRALIA", "WA"],
+  ["TAS", "TAS"],
+  ["TASMANIA", "TAS"],
+  ["NT", "NT"],
+  ["NORTHERN TERRITORY", "NT"],
+  ["ACT", "ACT"],
+  ["AUSTRALIAN CAPITAL TERRITORY", "ACT"],
+]);
+
+function canonicalRegion(value) {
+  const token = normalizeRegionToken(value);
+  if (!token) return "";
+  return REGION_ALIASES.get(token) || token;
+}
+
+const REGION_MATCH_TOKENS = new Map([
+  ["QLD", ["QLD", "QUEENSLAND"]],
+  ["NSW", ["NSW", "NEW SOUTH WALES"]],
+  ["VIC", ["VIC", "VICTORIA"]],
+  ["SA", ["SA", "SOUTH AUSTRALIA"]],
+  ["WA", ["WA", "WESTERN AUSTRALIA"]],
+  ["TAS", ["TAS", "TASMANIA"]],
+  ["NT", ["NT", "NORTHERN TERRITORY"]],
+  ["ACT", ["ACT", "AUSTRALIAN CAPITAL TERRITORY"]],
+]);
+
+function candidateRegionTexts(candidate) {
+  if (!candidate || typeof candidate !== "object") return [];
+  const fields = [
+    candidate.state,
+    candidate.state_name,
+    candidate.stateName,
+    candidate.state_code,
+    candidate.stateCode,
+    candidate.region,
+    candidate.region_name,
+    candidate.regionName,
+    candidate.province,
+    candidate.admin1,
+    candidate.admin_name_1,
+    candidate.jurisdiction,
+    candidate.authority,
+  ];
+
+  const values = new Set();
+  for (const raw of fields) {
+    const token = normalizeRegionToken(raw);
+    if (token) values.add(token);
+    const canonical = canonicalRegion(raw);
+    if (canonical) values.add(canonical);
+  }
+  return [...values];
+}
+
+function candidateMatchesPreferredRegion(candidate, preferredRegion) {
+  const preferred = canonicalRegion(preferredRegion);
+  if (!preferred) return false;
+
+  const regionTexts = candidateRegionTexts(candidate);
+  if (!regionTexts.length) return false;
+
+  const preferredTokens = REGION_MATCH_TOKENS.get(preferred) || [preferred];
+  return regionTexts.some((text) => {
+    const padded = ` ${text} `;
+    return preferredTokens.some((token) => padded.includes(` ${token} `));
+  });
+}
+
+function extractCandidateRegions(candidate) {
+  const values = new Set();
+  for (const raw of candidateRegionTexts(candidate)) {
+    const canonical = canonicalRegion(raw);
+    if (canonical) values.add(canonical);
+  }
+  return [...values];
+}
+
+function regionBonus(candidate, preferredRegion) {
+  return candidateMatchesPreferredRegion(candidate, preferredRegion) ? 10 : 0;
+}
+
 function flattenCandidates(payload, out = []) {
   if (!payload) return out;
   if (Array.isArray(payload)) {
@@ -133,28 +232,46 @@ function flattenCandidates(payload, out = []) {
   return out;
 }
 
-function rankCandidate(candidate, targetName) {
+function rankCandidate(candidate, targetName, preferredRegion = "") {
   const candidateName = normalizePlaceName(
     candidate.name ?? candidate.placename ?? candidate.place_name ?? candidate.title ?? candidate.preferredName ?? ""
   );
   if (!candidateName) return 0;
-  if (candidateName === targetName) return 4;
-  if (candidateName.startsWith(targetName) || targetName.startsWith(candidateName)) return 3;
-  if (candidateName.includes(targetName) || targetName.includes(candidateName)) return 2;
-  return 1;
+
+  let nameRank = 1;
+  if (candidateName === targetName) nameRank = 4;
+  else if (candidateName.startsWith(targetName) || targetName.startsWith(candidateName)) nameRank = 3;
+  else if (candidateName.includes(targetName) || targetName.includes(candidateName)) nameRank = 2;
+
+  // Keep exact name quality dominant, then bias toward preferred region for ties/near ties.
+  return (nameRank * 100) + regionBonus(candidate, preferredRegion);
 }
 
-function pickBestRecord(payload, provider, placeName) {
+function pickBestRecord(payload, provider, placeName, options = {}) {
+  const preferredRegion = options && typeof options === "object" ? options.placeMatchRegion : "";
   const targetName = normalizePlaceName(placeName);
   const matches = flattenCandidates(payload)
     .map((candidate) => ({
-      rank: rankCandidate(candidate, targetName),
+      rank: rankCandidate(candidate, targetName, preferredRegion),
+      regionBoost: regionBonus(candidate, preferredRegion),
+      candidateRegions: extractCandidateRegions(candidate),
+      candidateName: String(
+        candidate.name ?? candidate.placename ?? candidate.place_name ?? candidate.title ?? candidate.preferredName ?? ""
+      ).trim(),
       rec: coordinateRecord(candidate, provider, candidate.name ?? candidate.placename ?? candidate.title ?? ""),
     }))
     .filter((entry) => entry.rec);
   if (!matches.length) return null;
   matches.sort((a, b) => b.rank - a.rank);
-  return matches[0].rec;
+
+  const winner = matches[0];
+  if (winner && winner.regionBoost > 0) {
+    winner.rec.regionPreferenceApplied = true;
+    winner.rec.regionPreference = canonicalRegion(preferredRegion);
+    winner.rec.matchedRegion = winner.candidateRegions[0] || "";
+    winner.rec.matchedCandidateName = winner.candidateName || winner.rec.matchedName || "";
+  }
+  return winner.rec;
 }
 
 function createTimeoutSignal(timeoutMs) {
@@ -230,7 +347,7 @@ async function lookupViaGhap(placeName, options) {
   const url = new URL(baseUrl);
   url.searchParams.set(String(options?.queryParam || "search"), placeName);
   const payload = await fetchJson(url, options?.timeoutMs || 2500);
-  return pickBestRecord(payload, "ghap", placeName);
+  return pickBestRecord(payload, "ghap", placeName, options);
 }
 
 async function lookupViaGeoscienceAustralia(placeName, options) {
@@ -244,7 +361,7 @@ async function lookupViaGeoscienceAustralia(placeName, options) {
   exactUrl.searchParams.set("returnGeometry", String(options?.returnGeometry || "false"));
   exactUrl.searchParams.set("f", String(options?.format || "pjson"));
   const exactPayload = await fetchJson(exactUrl, options?.timeoutMs || 2500);
-  let match = pickBestRecord(exactPayload, "geoscience-australia", placeName);
+  let match = pickBestRecord(exactPayload, "geoscience-australia", placeName, options);
   if (match || options?.exactOnly) return match;
 
   const fuzzyUrl = new URL(baseUrl);
@@ -253,23 +370,36 @@ async function lookupViaGeoscienceAustralia(placeName, options) {
   fuzzyUrl.searchParams.set("returnGeometry", String(options?.returnGeometry || "false"));
   fuzzyUrl.searchParams.set("f", String(options?.format || "pjson"));
   const payload = await fetchJson(fuzzyUrl, options?.timeoutMs || 2500);
-  return pickBestRecord(payload, "geoscience-australia", placeName);
+  return pickBestRecord(payload, "geoscience-australia", placeName, options);
 }
 
 export function createPlaceLookupService(options = {}, log = () => {}) {
   const settings = options && typeof options === "object" ? options : {};
   const enabled = settings.enabled !== false;
+  const placeMatchRegion = String(
+    settings.placeMatchRegion || settings.preferredRegion || settings.region || ""
+  ).trim();
   const providers = Array.isArray(settings.providers) && settings.providers.length
     ? settings.providers
     : ["geoscience-australia", "ghap"];
   const manualRecords = buildManualRecords(settings.records || settings.cache);
   const resultCache = new Map();
+  let hasLoggedConfig = false;
 
   return {
     async lookup(placeName) {
       const key = normalizePlaceName(placeName);
       if (!key || !enabled) return null;
       if (resultCache.has(key)) return resultCache.get(key);
+
+      if (!hasLoggedConfig) {
+        const preferred = placeMatchRegion || "(none)";
+        log(
+          `Place lookup config: providers=${providers.join(", ")}; preferred region=${preferred}; manual records=${manualRecords.size}.`,
+          "info"
+        );
+        hasLoggedConfig = true;
+      }
 
       const variants = placeNameVariants(placeName);
 
@@ -284,14 +414,42 @@ export function createPlaceLookupService(options = {}, log = () => {}) {
       let match = null;
       for (const variant of variants) {
         for (const provider of providers) {
-          if (provider === "ghap") match = await lookupViaGhap(variant, settings.ghap);
-          else if (provider === "geoscience-australia") match = await lookupViaGeoscienceAustralia(variant, settings.geoscienceAustralia);
+          if (provider === "ghap") {
+            match = await lookupViaGhap(variant, {
+              ...(settings.ghap || {}),
+              placeMatchRegion,
+            });
+          } else if (provider === "geoscience-australia") {
+            match = await lookupViaGeoscienceAustralia(variant, {
+              ...(settings.geoscienceAustralia || {}),
+              placeMatchRegion,
+            });
+          }
           if (match) break;
         }
         if (match) break;
       }
 
-      if (!match && providers.length) log(`Place lookup: no coordinates found for "${placeName}".`, "muted");
+      if (!match && providers.length) log(`Place lookup: no coordinates found for "${placeName}".`, "info");
+      if (match && match.regionPreferenceApplied) {
+        const preferred = match.regionPreference || placeMatchRegion;
+        const matchedRegion = match.matchedRegion ? ` (${match.matchedRegion})` : "";
+        const matchedName = match.matchedCandidateName || match.matchedName || placeName;
+        log(
+          `Place lookup: region preference "${preferred}" favored "${matchedName}"${matchedRegion} for input "${placeName}".`,
+          "info"
+        );
+      }
+      if (match) {
+        const regionNote = match.matchedRegion ? `, region=${match.matchedRegion}` : "";
+        const preferredNote = match.regionPreferenceApplied
+          ? `, preferredRegion=${match.regionPreference || placeMatchRegion}`
+          : "";
+        log(
+          `Place lookup: selected "${match.matchedName || placeName}" -> lat=${match.latitude}, lon=${match.longitude} (provider=${match.provider}${regionNote}${preferredNote}).`,
+          "info"
+        );
+      }
       resultCache.set(key, match);
       return match;
     },

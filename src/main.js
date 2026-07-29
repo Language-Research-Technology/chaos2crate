@@ -471,6 +471,7 @@ let mergeMappingSheetName = "";
 let mergeWorkbookBytes = null;
 let mergeWorkbookContextPrefixes = new Map();
 let mergeMappingConfigSources = null;
+let mergeMappingConfigExtras = null;
 const BUILTIN_CONTEXT_PREFIXES = new Set(["ldac", "pcdm", "custom", "AUSTLANG"]);
 
 function updateMergeSourceModeBadge() {
@@ -544,6 +545,7 @@ async function openMergeMappingModal() {
     mergeWorkbookBytes = await upload.file.arrayBuffer();
     mergeWorkbookContextPrefixes = await readXlsxContextPrefixes(mergeWorkbookBytes);
     mergeMappingConfigSources = null;
+    mergeMappingConfigExtras = null;
     await refreshMergeMappingSheet();
   } catch (e) {
     alert("Could not read the spreadsheet: " + (e && e.message ? e.message : e));
@@ -599,6 +601,16 @@ async function loadMappingConfigFile(file) {
       .map((m) => String(m.source || "").trim())
       .filter((s) => s && s !== "@id")
   )];
+  // Preserve non-mapping lookup settings when a user loads an existing merge config
+  // through the mapping modal, so Apply does not silently drop them.
+  mergeMappingConfigExtras = {
+    ...(typeof parsed.placeMatchRegion === "string" && parsed.placeMatchRegion.trim()
+      ? { placeMatchRegion: parsed.placeMatchRegion.trim() }
+      : {}),
+    ...(parsed.placeLookup && typeof parsed.placeLookup === "object"
+      ? { placeLookup: parsed.placeLookup }
+      : {}),
+  };
   updateMergeSourceModeBadge();
   parsed.mapping.forEach((m) => { mergeMappingDraft[m.source] = { target: m.target, type: m.type || "" }; });
   $("mappingConfigDropText").textContent = file.name;
@@ -703,7 +715,11 @@ function applyMergeMapping() {
     alert("Set a target property for at least one column before applying.");
     return;
   }
-  const config = sheetName ? { sheet: sheetName, mapping } : { mapping };
+  const config = {
+    ...(sheetName ? { sheet: sheetName } : {}),
+    ...(mergeMappingConfigExtras || {}),
+    mapping,
+  };
   const file = new File([JSON.stringify(config, null, 2)], "merge-config.json", { type: "application/json" });
   // No visible dropzone for this anymore — the mapping modal is the only UI
   // for it — so processFolder's mergeConfigUpload is set directly.

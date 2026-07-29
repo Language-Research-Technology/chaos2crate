@@ -96,7 +96,8 @@ Future work: surface an explicit note/example in the merge UI for `placeLookup.p
 - When a mapping config is loaded in the popup, rows are restricted to config-defined source fields (badge: “Showing config-defined sources”).
 - Prefixed mapping targets (for example `dc:format`) trigger workbook context lookup; missing contexts found in workbook are added to the crate context.
 - Typed `Place` mappings now try to add a linked `Geometry` entity during merge. Geometry entities are stored with `@id`, `@type`, `.latitude`, `.longitude`, and `asWKT`, and linked from the place via `geo`.
-- Merge config may include an optional `placeLookup` block with `enabled`, `providers`, `records`, `ghap`, and `geoscienceAustralia` settings. Manual `records` are checked first; by default live lookup now tries Geoscience Australia’s Composite Gazetteer ArcGIS service before GHAP/TLCMap-style endpoints.
+- Merge config may include an optional `placeLookup` block with `enabled`, `providers`, `records`, `ghap`, and `geoscienceAustralia` settings, plus `placeMatchRegion` (for example `QLD`) to prefer candidates from a specific state/region when names are ambiguous. Manual `records` are checked first; by default live lookup now tries Geoscience Australia’s Composite Gazetteer ArcGIS service before GHAP/TLCMap-style endpoints.
+- `placeMatchRegion` can also be set at the merge-config root level (outside `placeLookup`) for convenience; it is forwarded into place lookup settings.
 - Popup shows a warning if target prefixes are unresolved against known + workbook contexts.
 - During preview rendering, compact property keys are expanded using context prefixes so full-URI template columns can resolve merged values.
 

@@ -1,5 +1,6 @@
 {
   "dataDir": "/opt/storage/origin/ro-crate",
+  "placeMatchRegion": "",
   "sheet": "Files",
   "mapping": [
     {"source": "isRef_ldac:hasDerivation", "target": "ldac:hasDerivation", "type": "File"},
