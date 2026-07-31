@@ -1842,11 +1842,29 @@ async function buildAssetUrlMap(handle) {
   return { map, created };
 }
 
+// Inline script injected into every materialized preview page. Runs as part
+// of normal page parsing (no dependency on a 'load' event firing, and no
+// need for the opener to reach into the popup's DOM to attach a listener —
+// both of which turned out to be unreliable: reaching into popup.document
+// from the opener can silently fail with no console output if the browser
+// treats the blob: document as having a distinct security context). Instead
+// the page manages its own clicks and tells the opener what to do next via
+// postMessage, which works reliably across windows regardless.
+const PREVIEW_NAV_SCRIPT = `<script>
+document.addEventListener("click", function (ev) {
+  var link = ev.target.closest("[data-r2c-page]");
+  if (!link || !window.opener) return;
+  ev.preventDefault();
+  window.opener.postMessage({ source: "r2c-preview", page: link.getAttribute("data-r2c-page") }, "*");
+});
+</script>`;
+
 // Rewrites one page's non-HTML src/href attributes to the matching asset
 // blob URL. Links to other crate-generated HTML pages are left as their
-// original relative path but flagged with data-r2c-page, so the click
-// listener installed by openPageInPreview can materialize *that* page (with
-// its own relative-path depth) on demand instead of needing it pre-rewritten.
+// original relative path but flagged with data-r2c-page (and defanged to
+// href="#") for PREVIEW_NAV_SCRIPT to pick up, so that page can be
+// materialized on demand — with its own relative-path depth — instead of
+// needing every page in the site pre-rewritten up front.
 function rewritePageAssets(html, assetMap) {
   const doc = new DOMParser().parseFromString(html, "text/html");
   for (const el of doc.querySelectorAll("[src],[href]")) {
@@ -1858,11 +1876,6 @@ function rewritePageAssets(html, assetMap) {
       if (!key) continue;
       if (key.toLowerCase().endsWith(".html")) {
         el.setAttribute("data-r2c-page", key);
-        // Defang the raw relative href so that if click interception ever
-        // misses (event timing, a click that isn't a plain left-click, …)
-        // the browser's default action is a harmless in-page no-op instead
-        // of trying to navigate this blob: document to an unresolvable
-        // relative path.
         if (attr === "href") el.setAttribute("href", "#");
         continue;
       }
@@ -1870,6 +1883,7 @@ function rewritePageAssets(html, assetMap) {
       if (mapped) el.setAttribute(attr, mapped + suffix);
     }
   }
+  doc.body.insertAdjacentHTML("beforeend", PREVIEW_NAV_SCRIPT);
   return `<!doctype html>\n${doc.documentElement.outerHTML}`;
 }
 
@@ -1883,10 +1897,10 @@ async function getFileHandleAtPath(dirHandle, relativePath) {
 
 // Opens (or click-navigates to) one crate-generated HTML page inside `popup`:
 // reads it fresh from `handle`, rewrites its asset references via `assetMap`,
-// and wires up click-through to any other crate pages it links to. Reused
-// for both the initial "Open the HTML" page and every subsequent in-preview
-// navigation, so every page you can reach gets the same treatment — not just
-// the first one.
+// and injects PREVIEW_NAV_SCRIPT so further click-through (handled by
+// handlePreviewMessage below) works too. Reused for both the initial "Open
+// the HTML" page and every subsequent in-preview navigation, so every page
+// you can reach gets the same treatment — not just the first one.
 async function openPageInPreview(popup, handle, assetMap, relativePath) {
   const fileHandle = await getFileHandleAtPath(handle, relativePath);
   const text = await (await fileHandle.getFile()).text();
@@ -1894,27 +1908,27 @@ async function openPageInPreview(popup, handle, assetMap, relativePath) {
 
   if (currentPageUrl) URL.revokeObjectURL(currentPageUrl);
   currentPageUrl = URL.createObjectURL(new Blob([rewritten], { type: "text/html" }));
-
-  popup.addEventListener("load", function onLoad() {
-    try {
-      popup.document.addEventListener("click", (ev) => {
-        const link = ev.target.closest("[data-r2c-page]");
-        if (!link) return;
-        ev.preventDefault();
-        openPageInPreview(popup, handle, assetMap, link.getAttribute("data-r2c-page")).catch((e) => {
-          console.error("Preview navigation failed:", e);
-          try { popup.document.body.insertAdjacentHTML("afterbegin",
-            `<div style="position:sticky;top:0;background:#fee;color:#900;padding:8px;font:14px sans-serif;z-index:9999">Couldn't open that page: ${e && e.message ? e.message : e}</div>`); }
-          catch { /* popup gone */ }
-        });
-      });
-    } catch {
-      // Popup navigated away/closed before load finished — nothing to wire up.
-    }
-  }, { once: true });
-
   popup.location.replace(currentPageUrl);
 }
+
+// The popup/handle/assetMap for the currently-open preview session, so
+// handlePreviewMessage (a message from PREVIEW_NAV_SCRIPT, arriving well
+// after openHtmlInNewTab's call stack has finished) can still act on it.
+let previewSession = null;
+
+function handlePreviewMessage(event) {
+  if (!previewSession || event.source !== previewSession.popup) return;
+  if (!event.data || event.data.source !== "r2c-preview" || !event.data.page) return;
+  const { popup, handle, assetMap } = previewSession;
+  openPageInPreview(popup, handle, assetMap, event.data.page).catch((e) => {
+    console.error("Preview navigation failed:", e);
+    try {
+      popup.document.body.insertAdjacentHTML("afterbegin",
+        `<div style="position:sticky;top:0;background:#fee;color:#900;padding:8px;font:14px sans-serif;z-index:9999">Couldn't open that page: ${e && e.message ? e.message : e}</div>`);
+    } catch { /* popup gone */ }
+  });
+}
+window.addEventListener("message", handlePreviewMessage);
 
 async function openShow() {
   if (!dirHandle) return;
@@ -2007,9 +2021,11 @@ async function openHtmlInNewTab(html) {
   popup.document.body.textContent = "Loading preview...";
   try {
     revokePreviewUrls();
+    previewSession = null;
     if (dirHandle) {
       const { map, created } = await buildAssetUrlMap(dirHandle);
       previewFileUrls = created;
+      previewSession = { popup, handle: dirHandle, assetMap: map };
       await openPageInPreview(popup, dirHandle, map, HTML_FILE);
     } else {
       previewUrl = URL.createObjectURL(new Blob([html], { type: "text/html" }));
