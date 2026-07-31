@@ -8,7 +8,7 @@
 // / strings rather than writing files. The caller (browser or Node) does I/O.
 
 import { ROCrate } from "ro-crate";
-import { renderSinglePage, renderTemplate, roCrateToJSON } from "ro-crate-static-site";
+import { renderSinglePage, renderTemplate, renderMultiPage, roCrateToJSON } from "ro-crate-static-site";
 import Workbook from "ro-crate-excel/lib/workbook.js";
 import ExcelJS from "exceljs";
 import { CUSTOM_PROPERTIES } from "./defaults.js";
@@ -295,6 +295,14 @@ export async function crateToXlsxBytes(crate) {
 //    opts.config (a preview config object: propertyGroups, settings,
 //    navigationByType, termMapping, footer…), and opts.css (a stylesheet string).
 //    Rendered via roCrateToJSON + renderTemplate, exactly as the CLI does.
+// ro-crate-static-site urlencodes file links wholesale, turning "/" into "%2F"
+// and breaking relative navigation; only href values (not "#" anchors) are real links.
+function fixEncodedSlashes(html) {
+  return html.replace(/href="([^"#][^"]*)"/g, (match, href) =>
+    href.includes("%2F") ? `href="${href.replace(/%2F/g, "/")}"` : match
+  );
+}
+
 export async function crateToPreviewHtml(crate, opts = {}) {
   const { layouts = { default: DEFAULT_LAYOUT }, template = null, config = null, css = "" } = opts;
   expandCompactPropertiesForRender(crate);
@@ -311,12 +319,34 @@ export async function crateToPreviewHtml(crate, opts = {}) {
   } else {
     html = await renderSinglePage({ crate, layouts });
   }
-  // ro-crate-static-site urlencodes file links wholesale, turning "/" into "%2F"
-  // and breaking relative navigation; only href values (not "#" anchors) are real links.
-  html = html.replace(/href="([^"#][^"]*)"/g, (match, href) =>
-    href.includes("%2F") ? `href="${href.replace(/%2F/g, "/")}"` : match
-  );
-  return html;
+  return fixEncodedSlashes(html);
+}
+
+// Renders a full multipage site (root page + one page per entity matched by
+// config.types) via ro-crate-static-site's renderMultiPage, for templates
+// whose config sets multipage !== false. `pageTemplates` is a map of the
+// exact template-path strings referenced in config.root.template /
+// config.types.<Type>.template to their already-fetched template text (see
+// resolveTemplateBundleFromConfig / fetchTemplateBundle in main.js, which
+// fetch a templates/ subfolder for these bundles).
+// Returns { rootHtml, pages: [{ id, path, html }] }, both already run
+// through the same %2F fixup crateToPreviewHtml applies.
+export async function crateToMultiPageHtml(crate, { config, css = "", pageTemplates = {} }) {
+  expandCompactPropertiesForRender(crate);
+  const cfg = config || {};
+  const layout = (Array.isArray(cfg.propertyGroups) && cfg.propertyGroups.length)
+    ? cfg.propertyGroups : DEFAULT_LAYOUT;
+  const crateLite = {
+    ...(await roCrateToJSON(crate, cfg, layout)),
+    cratePath: "",
+    hasLayout: true,
+    layout,
+  };
+  const { rootHtml, pages } = await renderMultiPage(crateLite, cfg, css, { pageTemplates });
+  return {
+    rootHtml: fixEncodedSlashes(rootHtml),
+    pages: pages.map(page => ({ ...page, html: fixEncodedSlashes(page.html) })),
+  };
 }
 
 function contextPrefixMap(crate) {

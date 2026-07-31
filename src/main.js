@@ -4,9 +4,10 @@
 // and the stepped Build/Show UI.
 
 import {
-  buildFileMetadata, buildCrate, crateToJsonString, crateToXlsxBytes, crateToPreviewHtml,
+  buildFileMetadata, buildCrate, crateToJsonString, crateToXlsxBytes, crateToPreviewHtml, crateToMultiPageHtml,
   mergeXlsxIntoCrate, readXlsxHeaders, readXlsxContextPrefixes, loadCrateFromJson, GENERATED_FILENAMES, CONTROL_FILENAMES,
 } from "./crate.js";
+import { writeFile, writeFileAtPath } from "./fs_helpers.js";
 // ./austlang.js (and its bundled AUSTLANG data pack) is loaded lazily via
 // dynamic import() only when language lookups are enabled — see run() — so the
 // ~730 kB data pack stays out of the main bundle.
@@ -48,6 +49,12 @@ const OPTION_SCHEMA = [
 
 // Shown in the Settings modal (accessed from the button next to Menu).
 const SETTINGS_SCHEMA = [
+  { key: "inputMode", type: "select", label: "Input type", default: "generic",
+    options: [
+      { value: "generic", label: "Generic folder of files" },
+      { value: "docx", label: "Structured Word documents (.docx)" },
+    ],
+    hint: "Structured Word documents parses Heading 1/2/3 styles into Collections/Chapters/DocumentParts instead of grouping files generically — see corpus-tools-person-centred-collections-docx's README for the authoring conventions (heading levels, image/caption/photo/SOUND FILE markers)." },
   { key: "themeMode", type: "select", label: "Theme", default: "light",
     options: [
       { value: "light", label: "Light" },
@@ -1005,12 +1012,6 @@ async function walkDirectory(handle, prefix = "") {
   }
   return files;
 }
-async function writeFile(handle, filename, contents) {
-  const fh = await handle.getFileHandle(filename, { create: true });
-  const w = await fh.createWritable();
-  await w.write(contents);
-  await w.close();
-}
 async function fileExists(handle, filename) {
   try { await handle.getFileHandle(filename, { create: false }); return true; }
   catch { return false; }
@@ -1260,16 +1261,21 @@ async function fetchGitHubTextFile(owner, repo, ref, filePath, downloadUrl = "")
   return await res.text();
 }
 
+async function listGitHubFolder(owner, repo, ref, folderPath) {
+  const encodedFolder = folderPath.split("/").map((p) => encodeURIComponent(p)).join("/");
+  const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${encodedFolder}?ref=${encodeURIComponent(ref)}`;
+  const res = await fetch(apiUrl, { headers: { Accept: "application/vnd.github+json" }, cache: "no-store" });
+  if (!res.ok) throw new Error(`Could not list template folder "${folderPath}" (${res.status} ${res.statusText}).`);
+  const entries = await res.json();
+  if (!Array.isArray(entries)) throw new Error(`Unexpected API response for template folder "${folderPath}".`);
+  return entries;
+}
+
 async function fetchTemplateBundle(owner, repo, ref, folderPath) {
   const safeFolder = String(folderPath || "").replace(/^\/+|\/+$/g, "");
   if (!safeFolder) throw new Error("No template folder selected.");
 
-  const encodedFolder = safeFolder.split("/").map((p) => encodeURIComponent(p)).join("/");
-  const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${encodedFolder}?ref=${encodeURIComponent(ref)}`;
-  const res = await fetch(apiUrl, { headers: { Accept: "application/vnd.github+json" }, cache: "no-store" });
-  if (!res.ok) throw new Error(`Could not list template folder "${safeFolder}" (${res.status} ${res.statusText}).`);
-  const entries = await res.json();
-  if (!Array.isArray(entries)) throw new Error(`Unexpected API response for template folder "${safeFolder}".`);
+  const entries = await listGitHubFolder(owner, repo, ref, safeFolder);
 
   const files = entries
     .filter((e) => e && e.type === "file" && typeof e.name === "string")
@@ -1300,10 +1306,27 @@ async function fetchTemplateBundle(owner, repo, ref, folderPath) {
     catch (e) { throw new Error(`Template config ${configFile.name} is not valid JSON: ${e.message}`); }
   }
 
+  // Multipage bundles (see rocss-template-repo's README) keep their per-role
+  // templates in a templates/ subfolder, referenced from config.json as
+  // e.g. "templates/root-template.html" — a path relative to this folder.
+  // Fetch every .html file there, keyed by that same relative path, so
+  // crateToMultiPageHtml's pageTemplates lookup can resolve them directly.
+  const pageTemplates = {};
+  const templatesSubfolder = entries.find((e) => e && e.type === "dir" && e.name === "templates");
+  if (templatesSubfolder) {
+    const subEntries = await listGitHubFolder(owner, repo, ref, `${safeFolder}/templates`);
+    const subHtmlFiles = subEntries.filter((e) => e && e.type === "file" && /\.html?$/i.test(e.name || ""));
+    for (const entry of subHtmlFiles) {
+      const text = await fetchGitHubTextFile(owner, repo, ref, entry.path, entry.download_url || "");
+      pageTemplates[`templates/${entry.name}`] = text;
+    }
+  }
+
   return {
     template,
     config,
     css,
+    pageTemplates,
     files: {
       template: templateFile ? templateFile.name : null,
       config: configFile ? configFile.name : null,
@@ -1316,61 +1339,97 @@ async function fetchTemplateBundle(owner, repo, ref, folderPath) {
 /* ---------- Build ---------- */
 async function processFolder(dirHandle, files, options) {
   const config = (await readJsonFromFolder(dirHandle, "config.json")) || DEFAULT_CONFIG;
-  const sampleData = options.includeSampleData
-    ? ((await readJsonFromFolder(dirHandle, "sample-data.json")) || DEFAULT_SAMPLE_DATA)
-    : null;
-  log(
-    `Config: ${config === DEFAULT_CONFIG ? "built-in default" : "config.json from folder"} · ` +
-    (options.includeSampleData
-      ? `Sample data: ${sampleData === DEFAULT_SAMPLE_DATA ? "built-in default" : "sample-data.json from folder"}.`
-      : "Sample data: disabled by settings."),
-    "muted"
-  );
-
-  files.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
-  const filesWithMeta = buildFileMetadata(files);
-  log(`Scanned ${filesWithMeta.length} file(s).`, "info");
-
-  let langByIndex = null;
-  if (options.enableLanguageLookups) {
-    const { identifyAllLanguages } = await import("./austlang.js");
-    langByIndex = await identifyAllLanguages(filesWithMeta, options.includeAlternateNames, log);
-  }
-
   const effectiveConfig = rootDatasetOverride
     ? { ...config, rootDataset: { ...config.rootDataset, ...rootDatasetOverride } }
     : config;
-  const crate = buildCrate(filesWithMeta, effectiveConfig, sampleData, langByIndex, log, {
-    topLevelFolderType: options.topLevelFolderType,
-    includeSampleData: !!options.includeSampleData,
-  });
 
-  // Optional: merge metadata from an uploaded spreadsheet (before outputs).
-  if (options.merge && options.mergeUpload) {
-    // Mapping config precedence: uploaded file → folder file → bundled default.
-    let mergeConfig = MERGE_CONFIG, mcSrc = "bundled default";
-    if (options.mergeConfigUpload) {
-      const mcText = await options.mergeConfigUpload.file.text();
-      try { mergeConfig = JSON.parse(mcText); }
-      catch (e) { throw new Error(`uploaded merge config "${options.mergeConfigUpload.name}" is not valid JSON: ${e.message}`); }
-      mcSrc = `uploaded (${options.mergeConfigUpload.name})`;
-    } else {
-      const folderMc = await readJsonFromFolder(dirHandle, "merge-config.json");
-      if (folderMc) { mergeConfig = folderMc; mcSrc = "merge-config.json from folder"; }
+  let crate;
+  let sourceCount;
+
+  if (options.inputMode === "docx") {
+    log(`Config: ${config === DEFAULT_CONFIG ? "built-in default" : "config.json from folder"}.`, "muted");
+    log("Parsing structured Word documents (Heading 1/2/3 → Collections/Chapters)…", "info");
+    const { buildCrateFromDocxFolder, scanDocxFolder } = await import("./docx_crate.js");
+    const scan = await scanDocxFolder(dirHandle);
+    if (scan.docxCount === 0) {
+      throw new Error(
+        "No .docx files found in this folder's sub-folders. Expected one folder per collection " +
+        "directly inside the picked folder, each containing structured .docx files."
+      );
     }
-    log(`Merging ${options.mergeUpload.name} · mapping ${mcSrc}.`, "muted");
-    const bytes = await options.mergeUpload.file.arrayBuffer();
-    const effectiveMergeConfig = {
-      ...mergeConfig,
-      placeLookup: {
-        ...(mergeConfig && typeof mergeConfig.placeLookup === "object" ? mergeConfig.placeLookup : {}),
-        enabled: options.doPlaceLookups !== false,
-      },
-    };
-    if (options.doPlaceLookups === false) log("Placename lookup disabled by settings.", "muted");
-    await mergeXlsxIntoCrate(crate, bytes, effectiveMergeConfig, log);
-  } else if (options.merge && !options.mergeUpload) {
-    log("Merge is on but no spreadsheet was selected — skipping merge.", "warn");
+    if (!scan.hasHeadingStyles) {
+      log(
+        "Warning: none of the sampled .docx files use Word's Heading 1/2/3 paragraph styles — " +
+        "structure (Collections/Chapters) may come out empty. See the README for the required authoring conventions.",
+        "warn"
+      );
+    }
+    const result = await buildCrateFromDocxFolder(dirHandle, effectiveConfig, (msg) => log(msg, "muted"));
+    if (!result) {
+      throw new Error(
+        "No collection sub-folders with .docx files were found. Expected one folder per collection " +
+        "directly inside the picked folder, each containing structured .docx files — see " +
+        "corpus-tools-person-centred-collections-docx's README for the folder layout."
+      );
+    }
+    crate = result.crate;
+    sourceCount = result.documentPartCount;
+    log(`Built crate: ${result.collectionCount} collection(s), ${result.documentPartCount} document(s).`, "ok");
+  } else {
+    const sampleData = options.includeSampleData
+      ? ((await readJsonFromFolder(dirHandle, "sample-data.json")) || DEFAULT_SAMPLE_DATA)
+      : null;
+    log(
+      `Config: ${config === DEFAULT_CONFIG ? "built-in default" : "config.json from folder"} · ` +
+      (options.includeSampleData
+        ? `Sample data: ${sampleData === DEFAULT_SAMPLE_DATA ? "built-in default" : "sample-data.json from folder"}.`
+        : "Sample data: disabled by settings."),
+      "muted"
+    );
+
+    files.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+    const filesWithMeta = buildFileMetadata(files);
+    log(`Scanned ${filesWithMeta.length} file(s).`, "info");
+    sourceCount = filesWithMeta.length;
+
+    let langByIndex = null;
+    if (options.enableLanguageLookups) {
+      const { identifyAllLanguages } = await import("./austlang.js");
+      langByIndex = await identifyAllLanguages(filesWithMeta, options.includeAlternateNames, log);
+    }
+
+    crate = buildCrate(filesWithMeta, effectiveConfig, sampleData, langByIndex, log, {
+      topLevelFolderType: options.topLevelFolderType,
+      includeSampleData: !!options.includeSampleData,
+    });
+
+    // Optional: merge metadata from an uploaded spreadsheet (before outputs).
+    if (options.merge && options.mergeUpload) {
+      // Mapping config precedence: uploaded file → folder file → bundled default.
+      let mergeConfig = MERGE_CONFIG, mcSrc = "bundled default";
+      if (options.mergeConfigUpload) {
+        const mcText = await options.mergeConfigUpload.file.text();
+        try { mergeConfig = JSON.parse(mcText); }
+        catch (e) { throw new Error(`uploaded merge config "${options.mergeConfigUpload.name}" is not valid JSON: ${e.message}`); }
+        mcSrc = `uploaded (${options.mergeConfigUpload.name})`;
+      } else {
+        const folderMc = await readJsonFromFolder(dirHandle, "merge-config.json");
+        if (folderMc) { mergeConfig = folderMc; mcSrc = "merge-config.json from folder"; }
+      }
+      log(`Merging ${options.mergeUpload.name} · mapping ${mcSrc}.`, "muted");
+      const bytes = await options.mergeUpload.file.arrayBuffer();
+      const effectiveMergeConfig = {
+        ...mergeConfig,
+        placeLookup: {
+          ...(mergeConfig && typeof mergeConfig.placeLookup === "object" ? mergeConfig.placeLookup : {}),
+          enabled: options.doPlaceLookups !== false,
+        },
+      };
+      if (options.doPlaceLookups === false) log("Placename lookup disabled by settings.", "muted");
+      await mergeXlsxIntoCrate(crate, bytes, effectiveMergeConfig, log);
+    } else if (options.merge && !options.mergeUpload) {
+      log("Merge is on but no spreadsheet was selected — skipping merge.", "warn");
+    }
   }
 
   const graph = crate.getJson()["@graph"] || [];
@@ -1399,6 +1458,7 @@ async function processFolder(dirHandle, files, options) {
         let html;
         const selectedFolder = (options.templateRepoFolder || "").trim();
         const repoSelected = !!selectedFolder;
+        let pageTemplates = null;
         if (options.styledPreview || repoSelected) {
           // Precedence for template/config/style: repo folder → uploaded file → local folder.
           let template = null, templateSrc = "none";
@@ -1410,6 +1470,9 @@ async function processFolder(dirHandle, files, options) {
             template = remote.template;
             cfg = remote.config;
             css = remote.css;
+            if (remote.pageTemplates && Object.keys(remote.pageTemplates).length > 0) {
+              pageTemplates = remote.pageTemplates;
+            }
             const base = `repo (${selectedFolder})`;
             templateSrc = remote.files.template ? `${base}/${remote.files.template}` : `${base}; no template found`;
             cfgSrc = remote.files.config ? `${base}/${remote.files.config}` : "none";
@@ -1439,7 +1502,16 @@ async function processFolder(dirHandle, files, options) {
             if (resolved.template) { template = resolved.template; templateSrc = resolved.templateSrc; }
             if (resolved.css) { css = resolved.css; cssSrc = resolved.cssSrc; }
           }
-          if (template) {
+          if (pageTemplates && !options.configUpload && cfg && cfg.multipage !== false) {
+            log(`Preview: multipage template bundle (repo ${selectedFolder}) · config ${cfgSrc}.`, "muted");
+            const multi = await crateToMultiPageHtml(crate, { config: cfg, css, pageTemplates });
+            for (const page of multi.pages) {
+              await writeFileAtPath(dirHandle, page.path, page.html);
+            }
+            log(`Wrote ${multi.pages.length} page(s) under ro-crate-preview_html/.`, "ok");
+            html = multi.rootHtml;
+            lastHtmlTemplate = null;
+          } else if (template) {
             log(`Preview: styled tabular · template ${templateSrc} · config ${cfgSrc} · style ${cssSrc}.`, "muted");
             html = await crateToPreviewHtml(crate, { template, config: cfg, css });
             lastHtmlTemplate = { template, config: cfg, css, source: templateSrc };
@@ -1461,7 +1533,7 @@ async function processFolder(dirHandle, files, options) {
     } else log(`${HTML_FILE} exists and overwrite is off — skipped.`, "warn");
   }
 
-  return { files: filesWithMeta.length, entities, typeCounts };
+  return { files: sourceCount, entities, typeCounts };
 }
 
 let buildHtml = null;  // ro-crate-preview.html captured after the last successful build

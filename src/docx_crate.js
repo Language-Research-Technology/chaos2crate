@@ -1,0 +1,755 @@
+// Builds an RO-Crate from a folder of structured .docx files, entirely in
+// the browser via the File System Access API.
+//
+// This is a browser-native port of corpus-tools-person-centred-collections-docx's
+// build-ro-crate.js: the parsing/entity-building logic (chapter structure from
+// Heading 1/2/3 styles, image/caption/photo/SOUND FILE text conventions,
+// embedded-image extraction) mirrors that script closely so the two stay
+// behaviourally in sync, but the directory-walking and file I/O is
+// reimplemented against FileSystemDirectoryHandle instead of Node's `fs`,
+// since that layer can't be shared as-is between a Node CLI and a browser
+// bundle. See that repo's README for the authoring conventions this parser
+// relies on.
+//
+// Folder layout expected under `rootHandle` (same as the CLI):
+//   <Collection name>/
+//     Some Document.docx
+//     media/
+//       photo.jpg
+//     subfolder/
+//       Another Document.docx
+//       media/
+//         clip.mp3
+//
+// Referenced/embedded media is written into `rootHandle`'s own `files/`
+// subfolder (wiped and recreated on each call) so the crate's file @ids
+// resolve relative to the crate root, mirroring the CLI's output/files/.
+
+import mammoth from "mammoth";
+import * as cheerio from "cheerio";
+import { ROCrate } from "ro-crate";
+import { writeFileAtPath } from "./fs_helpers.js";
+
+const CONTROL_AND_GENERATED_NAMES = new Set([
+  "files",
+  "ro-crate-metadata.json",
+  "ro-crate-metadata.xlsx",
+  "ro-crate-preview.html",
+  "ro-crate-preview_html",
+  "config.json",
+]);
+
+/* ---------- config ---------- */
+
+function isPlainObject(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function validateAndNormalizeConfig(config) {
+  const defaults = {
+    name: "Person-Centred Collections",
+    description: "RO-Crate generated from docx files.",
+    datePublished: "today",
+    creators: [],
+    license: "",
+  };
+
+  const normalized = {
+    rootDataset: {
+      ...defaults,
+      ...(config && isPlainObject(config.rootDataset) ? config.rootDataset : {}),
+    },
+  };
+
+  const { rootDataset } = normalized;
+
+  if (typeof rootDataset.name !== "string" || !rootDataset.name.trim()) {
+    rootDataset.name = defaults.name;
+  } else {
+    rootDataset.name = rootDataset.name.trim();
+  }
+
+  if (typeof rootDataset.description !== "string" || !rootDataset.description.trim()) {
+    rootDataset.description = defaults.description;
+  } else {
+    rootDataset.description = rootDataset.description.trim();
+  }
+
+  if (typeof rootDataset.datePublished !== "string" || !rootDataset.datePublished.trim()) {
+    rootDataset.datePublished = defaults.datePublished;
+  } else {
+    rootDataset.datePublished = rootDataset.datePublished.trim();
+    if (rootDataset.datePublished !== "today" && !/^\d{4}-\d{2}-\d{2}$/.test(rootDataset.datePublished)) {
+      rootDataset.datePublished = defaults.datePublished;
+    }
+  }
+
+  if (!Array.isArray(rootDataset.creators)) {
+    rootDataset.creators = [];
+  }
+
+  return normalized;
+}
+
+function normalizeIdSegment(value) {
+  return (value || "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+}
+
+function normalizeIdFromPath(pathValue) {
+  return (pathValue || "").replace(/\.docx$/i, "").replace(/\//g, "-").replace(/\s+/g, "_");
+}
+
+function applyRootDatasetCreators(crate, creators) {
+  if (!Array.isArray(creators) || creators.length === 0) return;
+
+  const creatorRefs = [];
+  const seenIds = new Set();
+
+  creators.forEach((creator, index) => {
+    let creatorName = "";
+    let creatorId = "";
+
+    if (typeof creator === "string") {
+      creatorName = creator.trim();
+    } else if (creator && typeof creator === "object") {
+      creatorName = String(creator.name || "").trim();
+      creatorId = String(creator.id || "").trim();
+    }
+    if (!creatorName) return;
+
+    if (!creatorId) {
+      const idSegment = normalizeIdSegment(creatorName) || String(index + 1);
+      creatorId = `#creator-${idSegment}`;
+    }
+
+    if (!seenIds.has(creatorId)) {
+      crate.addEntity({ "@id": creatorId, "@type": "Person", name: creatorName });
+      seenIds.add(creatorId);
+    }
+    creatorRefs.push({ "@id": creatorId });
+  });
+
+  if (creatorRefs.length > 0) crate.rootDataset.creator = creatorRefs;
+}
+
+function applyRootDatasetLicense(crate, licenseConfig) {
+  if (!licenseConfig) return;
+
+  if (typeof licenseConfig === "string") {
+    const licenseId = licenseConfig.trim();
+    if (licenseId) crate.rootDataset.license = { "@id": licenseId };
+    return;
+  }
+
+  if (typeof licenseConfig === "object") {
+    const licenseId = String(licenseConfig.id || licenseConfig.url || "").trim();
+    const licenseName = String(licenseConfig.name || "").trim();
+    if (!licenseId && !licenseName) return;
+
+    if (licenseId) {
+      if (licenseName) crate.addEntity({ "@id": licenseId, "@type": "CreativeWork", name: licenseName });
+      crate.rootDataset.license = { "@id": licenseId };
+      return;
+    }
+    crate.rootDataset.license = licenseName;
+  }
+}
+
+function addContextPrefix(crate, prefix, iri) {
+  if (!crate || !prefix || !iri) return;
+  const context = crate["@context"];
+  if (!Array.isArray(context)) {
+    crate["@context"] = [context, { [prefix]: iri }].filter(Boolean);
+    return;
+  }
+  const objectContext = context.find((entry) => entry && typeof entry === "object" && !Array.isArray(entry));
+  if (objectContext) { objectContext[prefix] = iri; return; }
+  context.push({ [prefix]: iri });
+}
+
+/* ---------- text/markup helpers ---------- */
+
+function normalizeInlineText(text) { return (text || "").replace(/\s+/g, " ").trim(); }
+function preserveLineBreaksFromHtml(html) { return (html || "").replace(/<br\s*\/?>/gi, "<br />"); }
+function isNotesDocx(name) { return /\bnotes?\b/i.test(name.replace(/\.docx$/i, "")); }
+
+function parseImageLine(imageLine) {
+  if (!imageLine) return { hasImage: false, imageToken: "", inlineCaption: "" };
+  const trimmed = imageLine.trim();
+  const imageMatch = trimmed.match(/\S+\.(jpg|jpeg|png|gif|tif|tiff|webp|bmp|mov|mp4)\b/i);
+  if (!imageMatch) return { hasImage: false, imageToken: "", inlineCaption: "" };
+  const imageToken = imageMatch[0];
+  const inlineCaption = trimmed.slice(imageMatch.index + imageToken.length).trim();
+  return { hasImage: true, imageToken, inlineCaption };
+}
+
+function parseSoundLine(line) {
+  const match = (line || "").trim().match(/^SOUND FILE:\s*(.+)$/i);
+  if (!match) return { hasSound: false, mediaToken: "" };
+  return { hasSound: true, mediaToken: match[1].trim() };
+}
+
+function splitCaptionAndPhoto(rawCaption) {
+  const text = (rawCaption || "").trim();
+  if (!text) return { captionText: "", photoText: "" };
+  const normalized = text.replace(/\s+(Photo\s*:)/gi, "\n$1");
+  const lines = normalized.split("\n").map((line) => line.trim()).filter(Boolean);
+  const captionParts = [];
+  const photoParts = [];
+  for (const line of lines) {
+    if (/^caption\s*:/i.test(line)) { captionParts.push(line.replace(/^caption\s*:/i, "").trim()); continue; }
+    if (/^photo\s*:/i.test(line)) { photoParts.push(line.replace(/^photo\s*:/i, "").trim()); continue; }
+    if (photoParts.length > 0) photoParts.push(line); else captionParts.push(line);
+  }
+  return { captionText: captionParts.join("\n").trim(), photoText: photoParts.join("\n").trim() };
+}
+
+function formatCaptionForDisplay(rawCaption) {
+  const { captionText, photoText } = splitCaptionAndPhoto(rawCaption);
+  const parts = [];
+  if (captionText) parts.push(`Caption: ${captionText}`);
+  if (photoText) parts.push(`Photo: ${photoText}`);
+  return parts.length > 0 ? parts.join("\n") : (rawCaption || "").trim();
+}
+
+function toImageMediaEntry(imageSection) {
+  const { imageToken, imagePath, caption } = imageSection;
+  const sectionEntry = {};
+  const { captionText, photoText } = splitCaptionAndPhoto(caption);
+  if (imagePath) { sectionEntry.image = { "@id": imagePath }; sectionEntry.filePart = { "@id": imagePath }; }
+  else if (imageToken) sectionEntry.imageReference = imageToken;
+  if (captionText) sectionEntry.caption = captionText;
+  if (photoText) sectionEntry.creditText = photoText;
+  return Object.keys(sectionEntry).length === 0 ? null : sectionEntry;
+}
+
+function ensureFileEntity(crate, seenIds, entityId, name, encodingFormat, sameAsId) {
+  if (!entityId || seenIds.has(entityId)) return;
+  const entity = { "@id": entityId, "@type": "File", name };
+  if (encodingFormat) entity.encodingFormat = encodingFormat;
+  if (sameAsId) entity.sameAs = { "@id": sameAsId };
+  crate.addEntity(entity);
+  seenIds.add(entityId);
+}
+
+const CONTENT_TYPE_EXTENSIONS = {
+  "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/bmp": "bmp",
+  "image/tiff": "tiff", "image/webp": "webp", "image/x-emf": "emf", "image/x-wmf": "wmf",
+  "image/svg+xml": "svg",
+};
+
+function extensionForContentType(contentType) {
+  if (CONTENT_TYPE_EXTENSIONS[contentType]) return CONTENT_TYPE_EXTENSIONS[contentType];
+  const subtype = (contentType || "").split("/")[1];
+  const cleaned = subtype ? subtype.replace(/[^a-z0-9]/gi, "").toLowerCase() : "";
+  return cleaned || "bin";
+}
+
+const ENCODING_FORMATS = {
+  jpg: "image/jpeg", jpeg: "image/jpeg", mp3: "audio/mpeg", wav: "audio/wav", m4a: "audio/mp4",
+  aac: "audio/aac", ogg: "audio/ogg", flac: "audio/flac", png: "image/png", gif: "image/gif",
+  tif: "image/tiff", tiff: "image/tiff", webp: "image/webp", bmp: "image/bmp",
+  mov: "video/quicktime", mp4: "video/mp4",
+};
+
+function getEncodingFormat(pathValue) {
+  const ext = (pathValue.split(".").pop() || "").toLowerCase();
+  return ENCODING_FORMATS[ext] || "application/octet-stream";
+}
+
+function renderChapterContentBlock(chapter, { includeHeading = true } = {}) {
+  const { heading, text, tableRows, soundSections, imageSections } = chapter;
+  const sectionLines = [];
+  if (includeHeading && heading) sectionLines.push(`## ${heading}`);
+  if (text) sectionLines.push(text);
+  if (tableRows && tableRows.length > 0) for (const row of tableRows) sectionLines.push(`- ${row.text}`);
+  for (const soundSection of soundSections || []) {
+    sectionLines.push(soundSection.mediaPath
+      ? `[Sound: ${soundSection.mediaToken}](${soundSection.mediaPath})`
+      : `[Sound: ${soundSection.mediaToken}]`);
+  }
+  for (const imageSection of imageSections || []) {
+    const { imageToken, imagePath, caption } = imageSection;
+    const captionDisplay = formatCaptionForDisplay(caption);
+    if (imagePath) sectionLines.push(`![${captionDisplay || heading || "Image"}](${imagePath})`);
+    else if (imageToken) sectionLines.push(`[Image: ${imageToken}]`);
+    if (captionDisplay) sectionLines.push(captionDisplay);
+  }
+  return sectionLines.length > 0 ? sectionLines.join("\n\n") : "";
+}
+
+function toStructuredDocumentPartBody(chapters) {
+  return chapters.map((chapter) => renderChapterContentBlock(chapter)).filter(Boolean).join("\n\n---\n\n");
+}
+
+function buildGroupedMediaParts(crate, mediaEntitiesAdded, idPrefix, source) {
+  const mediaParts = [];
+
+  for (const soundSection of source.soundSections || []) {
+    const soundEntityId = soundSection.mediaToken;
+    ensureFileEntity(crate, mediaEntitiesAdded, soundEntityId, soundSection.mediaToken,
+      soundSection.mediaPath ? getEncodingFormat(soundSection.mediaPath) : undefined, soundSection.mediaPath || undefined);
+    if (soundSection.mediaPath) {
+      ensureFileEntity(crate, mediaEntitiesAdded, soundSection.mediaPath,
+        soundSection.mediaPath.split("/").pop(), getEncodingFormat(soundSection.mediaPath));
+    }
+    mediaParts.push({ audio: { "@id": soundEntityId } });
+  }
+
+  for (const imageSection of source.imageSections || []) {
+    const { imagePath } = imageSection;
+    if (imagePath) {
+      ensureFileEntity(crate, mediaEntitiesAdded, imagePath, imagePath.split("/").pop(), getEncodingFormat(imagePath));
+    }
+    const sectionEntry = toImageMediaEntry(imageSection);
+    if (sectionEntry) mediaParts.push(sectionEntry);
+  }
+
+  if (mediaParts.length === 0) return [];
+
+  const groupedRefs = [];
+  mediaParts.forEach((section, sectionIndex) => {
+    const mediaPartId = `${idPrefix}-media-${sectionIndex + 1}`;
+    let mediaPartType = "CreativeWork";
+    if (section.audio || section.mediaReference) mediaPartType = ["CreativeWork", "AudioObject"];
+    else if (section.image || section.imageReference) mediaPartType = ["CreativeWork", "ImageObject"];
+
+    const mediaPartEntity = { "@id": mediaPartId, "@type": mediaPartType };
+    if (section.audio) mediaPartEntity.audio = section.audio;
+    if (section.image) mediaPartEntity.image = section.image;
+    if (section.filePart) mediaPartEntity.hasPart = [section.filePart];
+    if (section.imageReference) mediaPartEntity.imageReference = section.imageReference;
+    if (section.caption) mediaPartEntity.caption = section.caption;
+    if (section.creditText) mediaPartEntity.creditText = section.creditText;
+
+    crate.addEntity(mediaPartEntity);
+    groupedRefs.push({ "@id": mediaPartId });
+  });
+  return groupedRefs;
+}
+
+/* ---------- directory walking (FileSystemDirectoryHandle) ---------- */
+
+async function getSubDirectoryHandles(dirHandle) {
+  const subDirs = [];
+  for await (const entry of dirHandle.values()) {
+    if (entry.kind === "directory" && !CONTROL_AND_GENERATED_NAMES.has(entry.name) && !entry.name.startsWith(".")) {
+      subDirs.push(entry);
+    }
+  }
+  return subDirs;
+}
+
+// Recursively finds .docx file handles under `dirHandle`, returning
+// { handle, relativePath } where relativePath is relative to `subDirHandle`
+// (the collection folder), "/"-joined.
+async function findDocxFilesInDir(dirHandle, prefix = "") {
+  const found = [];
+  for await (const entry of dirHandle.values()) {
+    if (entry.name.startsWith(".") || entry.name.startsWith("~$")) continue;
+    const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (entry.kind === "directory") {
+      if (entry.name === "media") continue;
+      found.push(...await findDocxFilesInDir(entry, relativePath));
+    } else if (entry.kind === "file" && entry.name.toLowerCase().endsWith(".docx")) {
+      found.push({ handle: entry, relativePath });
+    }
+  }
+  return found;
+}
+
+async function buildMediaLookup(docxDirHandle) {
+  const mediaLookup = new Map();
+  let mediaDirHandle;
+  try {
+    mediaDirHandle = await docxDirHandle.getDirectoryHandle("media", { create: false });
+  } catch {
+    return mediaLookup;
+  }
+  for await (const entry of mediaDirHandle.values()) {
+    if (entry.kind !== "file") continue;
+    const lowerName = entry.name.toLowerCase();
+    const lowerNoExt = lowerName.replace(/\.[^.]+$/, "");
+    mediaLookup.set(lowerName, entry);
+    mediaLookup.set(lowerNoExt, entry);
+  }
+  return mediaLookup;
+}
+
+async function copyMediaToOutputFiles(fileHandle, targetRelativePath, filesDirHandle) {
+  const file = await fileHandle.getFile();
+  const bytes = await file.arrayBuffer();
+  await writeFileAtPath(filesDirHandle, targetRelativePath, bytes);
+  return `files/${targetRelativePath}`;
+}
+
+async function findImageReference(imageToken, mediaLookup, collectionRelPath, filesDirHandle) {
+  if (!imageToken) return "";
+  const normalized = imageToken.trim().toLowerCase();
+  if (!normalized) return "";
+
+  const tokenNoExt = normalized.replace(/\.[^.]+$/, "");
+  const fileHandle = mediaLookup.get(normalized) || mediaLookup.get(tokenNoExt);
+  if (!fileHandle) return "";
+
+  return copyMediaToOutputFiles(fileHandle, `${collectionRelPath}/media/${fileHandle.name}`, filesDirHandle);
+}
+
+async function writeEmbeddedImageToOutputFiles(collectionRelPath, docxBaseName, buffer, extension, index, filesDirHandle) {
+  const docxBaseNormalized = normalizeIdSegment(docxBaseName) || "doc";
+  const targetRelativePath = `${collectionRelPath}/media/embedded-${docxBaseNormalized}-${index}.${extension}`;
+  await writeFileAtPath(filesDirHandle, targetRelativePath, buffer);
+  return `files/${targetRelativePath}`;
+}
+
+/* ---------- docx parsing (mirrors build-ro-crate.js's parseStructuredChapters) ---------- */
+
+async function parseStructuredChapters(fileHandle, mediaLookup, collectionRelPath, filesDirHandle) {
+  let embeddedImageIndex = 0;
+  const docxBaseName = fileHandle.name.replace(/\.docx$/i, "");
+  const convertImage = mammoth.images.imgElement(async (element) => {
+    embeddedImageIndex += 1;
+    const buffer = await element.readAsArrayBuffer();
+    const extension = extensionForContentType(element.contentType);
+    const outputRelativePath = await writeEmbeddedImageToOutputFiles(
+      collectionRelPath, docxBaseName, buffer, extension, embeddedImageIndex, filesDirHandle
+    );
+    return { src: outputRelativePath };
+  });
+
+  const file = await fileHandle.getFile();
+  const arrayBuffer = await file.arrayBuffer();
+  const result = await mammoth.convertToHtml({ arrayBuffer }, { convertImage });
+  const $ = cheerio.load(result.value || "");
+  const root = $("body").length ? $("body") : $.root();
+
+  const chapters = [];
+  let currentChapter = null;
+  let chapterAllowsImmediateHeadingTable = false;
+
+  const pushCurrentChapter = () => {
+    if (!currentChapter) return;
+    chapters.push({
+      heading: currentChapter.heading,
+      headingLevel: currentChapter.headingLevel,
+      text: currentChapter.textLines.join("\n\n").trim(),
+      tableRows: currentChapter.tableRows.filter((row) =>
+        row.text || row.plainText || (row.soundSections?.length) || (row.imageSections?.length)),
+      soundSections: currentChapter.soundSections.filter((section) => section.mediaToken),
+      imageSections: currentChapter.imageSections.filter((section) => section.imageToken || section.imagePath || section.caption),
+    });
+    currentChapter = null;
+  };
+
+  const startChapter = (headingText, headingLevel) => {
+    pushCurrentChapter();
+    currentChapter = { heading: headingText, headingLevel, textLines: [], tableRows: [], soundSections: [], imageSections: [] };
+    chapterAllowsImmediateHeadingTable = headingLevel === 2 || headingLevel === 3;
+  };
+
+  const appendCaptionLine = (line) => {
+    if (!currentChapter || currentChapter.imageSections.length === 0) return;
+    const lastSection = currentChapter.imageSections[currentChapter.imageSections.length - 1];
+    lastSection.caption = lastSection.caption ? `${lastSection.caption}\n${line}` : line;
+  };
+
+  for (const node of root.find("h1, h2, h3, p, li, table").toArray()) {
+    const tag = (node.tagName || "").toLowerCase();
+
+    if (tag === "h1" || tag === "h2" || tag === "h3") {
+      const headingText = normalizeInlineText($(node).text());
+      if (headingText) startChapter(headingText, tag === "h1" ? 1 : tag === "h2" ? 2 : 3);
+      continue;
+    }
+
+    if (tag !== "table" && $(node).parents("table").length > 0) continue;
+
+    if ((tag !== "p" && tag !== "li") || !currentChapter) {
+      if (tag === "table" && currentChapter) {
+        if (!chapterAllowsImmediateHeadingTable) continue;
+
+        const rows = $(node).find("tr").toArray();
+        for (const rowNode of rows) {
+          const cell = $(rowNode).find("td").first();
+          const hasEmbeddedImage = cell.find("img").length > 0;
+          const cellForText = cell.clone();
+          const imageMetadata = { imageToken: "", captionLines: [], photoLines: [] };
+
+          cellForText.find("img").remove();
+          for (const blockNode of cellForText.find("p, li").toArray()) {
+            const block = $(blockNode);
+            const blockText = normalizeInlineText(block.text());
+            if (!blockText) continue;
+
+            const imageInfo = parseImageLine(blockText);
+            if (imageInfo.hasImage) {
+              imageMetadata.imageToken = imageMetadata.imageToken || imageInfo.imageToken;
+              if (imageInfo.inlineCaption) imageMetadata.captionLines.push(imageInfo.inlineCaption);
+              block.remove();
+              continue;
+            }
+            if (/^caption\s*[:;]/i.test(blockText)) {
+              imageMetadata.captionLines.push(blockText.replace(/^caption\s*[:;]/i, "").trim());
+              block.remove();
+              continue;
+            }
+            if (/^photo\s*[:;]/i.test(blockText)) {
+              imageMetadata.photoLines.push(blockText.replace(/^photo\s*[:;]/i, "").trim());
+              block.remove();
+            }
+          }
+          for (const emptyNode of cellForText.find("p, li, div").toArray()) {
+            if (!normalizeInlineText($(emptyNode).text())) $(emptyNode).remove();
+          }
+
+          const rowText = normalizeInlineText(cellForText.text());
+          const rowHtml = preserveLineBreaksFromHtml(cellForText.html() || "")
+            .replace(/<p>(?:\s|&nbsp;|<br\s*\/?>)*<\/p>/gi, "").trim();
+          const soundInfo = parseSoundLine(rowText);
+          const imageCaption = [
+            ...imageMetadata.captionLines.filter(Boolean).map((line) => `Caption: ${line}`),
+            ...imageMetadata.photoLines.filter(Boolean).map((line) => `Photo: ${line}`),
+          ].join("\n");
+
+          if (!rowText && !rowHtml && !imageMetadata.imageToken && !hasEmbeddedImage) continue;
+
+          const rowSoundSections = [];
+          const rowImageSections = [];
+          if (soundInfo.hasSound) {
+            rowSoundSections.push({
+              mediaToken: soundInfo.mediaToken,
+              mediaPath: await findImageReference(soundInfo.mediaToken, mediaLookup, collectionRelPath, filesDirHandle),
+            });
+          }
+          if (imageMetadata.imageToken) {
+            rowImageSections.push({
+              imageToken: imageMetadata.imageToken,
+              imagePath: await findImageReference(imageMetadata.imageToken, mediaLookup, collectionRelPath, filesDirHandle),
+              caption: imageCaption,
+            });
+          } else if (hasEmbeddedImage) {
+            rowImageSections.push({ imageToken: "", imagePath: cell.find("img").first().attr("src") || "", caption: imageCaption });
+          }
+
+          currentChapter.tableRows.push({
+            text: rowHtml || rowText, plainText: rowText,
+            soundSections: rowSoundSections, imageSections: rowImageSections,
+          });
+        }
+        chapterAllowsImmediateHeadingTable = false;
+      }
+      continue;
+    }
+
+    const paragraphText = normalizeInlineText($(node).text());
+    const paragraphHtml = $(node).html() || "";
+    const paragraphContent = preserveLineBreaksFromHtml(paragraphHtml);
+    const chapterLine = tag === "li" ? `<li>${paragraphContent}</li>` : `<p>${paragraphContent}</p>`;
+    const hasEmbeddedImage = $(node).find("img").length > 0;
+    const imageInfo = parseImageLine(paragraphText);
+    const soundInfo = parseSoundLine(paragraphText);
+
+    if (soundInfo.hasSound) {
+      currentChapter.soundSections.push({
+        mediaToken: soundInfo.mediaToken,
+        mediaPath: await findImageReference(soundInfo.mediaToken, mediaLookup, collectionRelPath, filesDirHandle),
+      });
+      continue;
+    }
+    if (imageInfo.hasImage) {
+      currentChapter.imageSections.push({
+        imageToken: imageInfo.imageToken,
+        imagePath: await findImageReference(imageInfo.imageToken, mediaLookup, collectionRelPath, filesDirHandle),
+        caption: imageInfo.inlineCaption,
+      });
+      continue;
+    }
+    if (hasEmbeddedImage) {
+      currentChapter.imageSections.push({ imageToken: "", imagePath: $(node).find("img").first().attr("src") || "", caption: paragraphText });
+      continue;
+    }
+    if (!paragraphText) continue;
+
+    chapterAllowsImmediateHeadingTable = false;
+    if (currentChapter.imageSections.length === 0) currentChapter.textLines.push(chapterLine);
+    else appendCaptionLine(paragraphContent);
+  }
+
+  pushCurrentChapter();
+  return chapters;
+}
+
+/* ---------- top-level orchestration ---------- */
+
+// Builds an RO-Crate from `rootHandle` (a FileSystemDirectoryHandle whose
+// direct sub-directories are Collections of structured .docx files), writing
+// referenced/embedded media into `rootHandle/files/...`. `config` is the raw
+// rootDataset config (see docx-tools README). `onProgress(message)` is
+// called with human-readable progress lines, mirroring the CLI's console.log.
+// Returns { crate, collectionCount, documentPartCount }, or null if no
+// collection sub-directories were found.
+export async function buildCrateFromDocxFolder(rootHandle, config, onProgress = () => {}) {
+  const validatedConfig = validateAndNormalizeConfig(config);
+
+  try {
+    await rootHandle.removeEntry("files", { recursive: true });
+  } catch {
+    // no pre-existing files/ to remove — fine.
+  }
+  const filesDirHandle = await rootHandle.getDirectoryHandle("files", { create: true });
+
+  const subDirs = await getSubDirectoryHandles(rootHandle);
+  if (subDirs.length === 0) return null;
+
+  const crate = new ROCrate({ array: true, link: true });
+  addContextPrefix(crate, "bibo", "http://purl.org/ontology/bibo/");
+
+  const today = new Date().toISOString().split("T")[0];
+  crate.rootDataset.name = validatedConfig.rootDataset.name;
+  crate.rootDataset.description = validatedConfig.rootDataset.description;
+  crate.rootDataset.datePublished =
+    validatedConfig.rootDataset.datePublished === "today" || !validatedConfig.rootDataset.datePublished
+      ? today : validatedConfig.rootDataset.datePublished;
+  applyRootDatasetCreators(crate, validatedConfig.rootDataset.creators);
+  applyRootDatasetLicense(crate, validatedConfig.rootDataset.license);
+
+  const rootHasPart = [];
+  const mediaEntitiesAdded = new Set();
+  let documentPartCount = 0;
+
+  for (const subDirHandle of subDirs) {
+    const collectionId = `#${normalizeIdFromPath(subDirHandle.name)}`;
+    const docxFiles = (await findDocxFilesInDir(subDirHandle))
+      .filter(({ handle }) => !isNotesDocx(handle.name));
+
+    onProgress(`Collection: ${subDirHandle.name}/ (${docxFiles.length} documentPart(s))`);
+    const collectionHasPart = [];
+
+    for (const { handle: fileHandle, relativePath } of docxFiles) {
+      const documentPartId = `#${normalizeIdFromPath(`${subDirHandle.name}-${relativePath}`)}`;
+      const fallbackName = fileHandle.name.replace(/\.docx$/i, "");
+
+      // The doc's own directory (for a nested docx, its containing subfolder,
+      // not necessarily subDirHandle itself) is where its media/ sibling lives.
+      const docxDirParts = relativePath.split("/").slice(0, -1);
+      let docxDirHandle = subDirHandle;
+      for (const part of docxDirParts) docxDirHandle = await docxDirHandle.getDirectoryHandle(part, { create: false });
+      const mediaLookup = await buildMediaLookup(docxDirHandle);
+      const collectionRelPath = [subDirHandle.name, ...docxDirParts].join("/");
+
+      onProgress(`  Parsing: ${subDirHandle.name}/${relativePath}`);
+      let chapters = [];
+      try {
+        chapters = await parseStructuredChapters(fileHandle, mediaLookup, collectionRelPath, filesDirHandle);
+        if (chapters.length === 0) {
+          onProgress(`  Warning: no Heading 1/2 styles found in ${relativePath}; no Chapter entities created.`);
+        }
+      } catch (err) {
+        onProgress(`  Warning: could not parse ${relativePath}: ${err.message}`);
+      }
+
+      const heading1Chapter = chapters.find((chapter) => chapter.headingLevel === 1);
+      const documentPartName = heading1Chapter?.heading || fallbackName;
+      const documentPartChapters = chapters.filter((chapter) => chapter.headingLevel !== 1);
+
+      const introContentBlock = heading1Chapter ? renderChapterContentBlock(heading1Chapter, { includeHeading: false }) : "";
+      const restContentBlock = toStructuredDocumentPartBody(documentPartChapters);
+      const documentPartBody = [introContentBlock, restContentBlock].filter(Boolean).join("\n\n---\n\n");
+
+      const introMediaParts = heading1Chapter
+        ? buildGroupedMediaParts(crate, mediaEntitiesAdded, `${documentPartId}-intro`, heading1Chapter)
+        : [];
+
+      const documentPartHasPart = [...introMediaParts];
+      const chapterRecords = [];
+      let currentH2ChapterId = "";
+
+      documentPartChapters.forEach((chapter, index) => {
+        const chapterId = `${documentPartId}-chapter-${index + 1}`;
+        const hasTableRows = (chapter.tableRows || []).length > 0;
+        const parentChapterId = chapter.headingLevel === 3 && hasTableRows && currentH2ChapterId ? currentH2ChapterId : "";
+        chapterRecords.push({ chapter, chapterId, position: index + 1, parentChapterId });
+        if (chapter.headingLevel === 2) currentH2ChapterId = chapterId;
+      });
+
+      const chapterEntityById = new Map();
+
+      for (const record of chapterRecords) {
+        const { chapter, chapterId, position } = record;
+        const chapterEntity = { "@id": chapterId, "@type": ["bibo:Chapter"], position, name: chapter.heading, text: chapter.text };
+
+        const tableRowParts = [];
+        (chapter.tableRows || []).forEach((row, rowIndex) => {
+          const rowId = `${chapterId}-row-${rowIndex + 1}`;
+          const rowEntity = { "@id": rowId, "@type": "bibo:DocumentPart", position: rowIndex + 1, text: row.text };
+          const groupedRowMediaParts = buildGroupedMediaParts(crate, mediaEntitiesAdded, rowId, row);
+          if (groupedRowMediaParts.length > 0) rowEntity.hasPart = groupedRowMediaParts;
+          crate.addEntity(rowEntity);
+          tableRowParts.push({ "@id": rowId });
+        });
+
+        const groupedMediaParts = buildGroupedMediaParts(crate, mediaEntitiesAdded, chapterId, chapter);
+        if (groupedMediaParts.length > 0) chapterEntity.hasPart = [...tableRowParts, ...groupedMediaParts];
+        else if (tableRowParts.length > 0) chapterEntity.hasPart = tableRowParts;
+
+        chapterEntityById.set(chapterId, chapterEntity);
+      }
+
+      for (const record of chapterRecords) {
+        if (!record.parentChapterId) continue;
+        const parentChapter = chapterEntityById.get(record.parentChapterId);
+        if (!parentChapter) continue;
+        if (!Array.isArray(parentChapter.hasPart)) parentChapter.hasPart = [];
+        parentChapter.hasPart.push({ "@id": record.chapterId });
+      }
+
+      for (const record of chapterRecords) {
+        const chapterEntity = chapterEntityById.get(record.chapterId);
+        if (!chapterEntity) continue;
+        crate.addEntity(chapterEntity);
+        if (!record.parentChapterId) documentPartHasPart.push({ "@id": record.chapterId });
+      }
+
+      crate.addEntity({
+        "@id": documentPartId, "@type": "bibo:DocumentPart",
+        name: documentPartName, text: documentPartBody, hasPart: documentPartHasPart,
+      });
+      documentPartCount += 1;
+      collectionHasPart.push({ "@id": documentPartId });
+    }
+
+    crate.addEntity({ "@id": collectionId, "@type": "Collection", name: subDirHandle.name, hasPart: collectionHasPart });
+    rootHasPart.push({ "@id": collectionId });
+  }
+
+  crate.rootDataset.hasPart = rootHasPart;
+
+  return { crate, collectionCount: subDirs.length, documentPartCount };
+}
+
+// Quick pre-flight check for the UI: does this folder look like a structured
+// docx tree at all? Returns { docxCount, hasHeadingStyles } without doing a
+// full parse/build, so the caller can warn before committing to a build.
+export async function scanDocxFolder(rootHandle) {
+  const subDirs = await getSubDirectoryHandles(rootHandle);
+  let docxCount = 0;
+  let hasHeadingStyles = false;
+
+  for (const subDirHandle of subDirs) {
+    const docxFiles = (await findDocxFilesInDir(subDirHandle)).filter(({ handle }) => !isNotesDocx(handle.name));
+    docxCount += docxFiles.length;
+    if (hasHeadingStyles || docxFiles.length === 0) continue;
+
+    const { handle: fileHandle } = docxFiles[0];
+    try {
+      const file = await fileHandle.getFile();
+      const arrayBuffer = await file.arrayBuffer();
+      const result = await mammoth.convertToHtml({ arrayBuffer });
+      if (/<h[123][ >]/i.test(result.value || "")) hasHeadingStyles = true;
+    } catch {
+      // Sampling failure isn't fatal here — the real parse will report it.
+    }
+  }
+
+  return { docxCount, hasHeadingStyles };
+}
