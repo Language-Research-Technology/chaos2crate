@@ -1770,9 +1770,17 @@ function revokePreviewUrls() {
     URL.revokeObjectURL(previewUrl);
     previewUrl = null;
   }
+  if (currentPageUrl) {
+    URL.revokeObjectURL(currentPageUrl);
+    currentPageUrl = null;
+  }
   previewFileUrls.forEach((u) => URL.revokeObjectURL(u));
   previewFileUrls = [];
 }
+
+// The blob URL used for the currently-open preview page, so click-through
+// navigation (see openPageInPreview) can revoke it before replacing it.
+let currentPageUrl = null;
 
 function isAbsoluteLikeUrl(value) {
   return /^[a-z][a-z0-9+.-]*:/i.test(value) || value.startsWith("//") || value.startsWith("#");
@@ -1802,17 +1810,25 @@ function normalizeRelativePath(value) {
   return out.join("/");
 }
 
-async function buildFileUrlMap(handle) {
+// Builds a relative-path -> blob URL map for every non-HTML file under
+// `handle` (media, xlsx, json, css, …). HTML files are deliberately excluded
+// here — a multipage build's other pages (ro-crate-preview_html/**/index.html)
+// need their OWN src/href attributes rewritten too, which this map alone
+// can't do; see openPageInPreview, which materializes pages one at a time,
+// on click, instead of trying to pre-rewrite the whole site's cross-links at
+// once (those links are mutual — page A links to B and B back to A — so
+// there's no single-pass order that could pre-materialize a blob URL for one
+// before the other exists).
+async function buildAssetUrlMap(handle) {
   const map = new Map();
   const created = [];
   async function walk(h, prefix = "") {
     for await (const entry of h.values()) {
       if (entry.kind === "directory") {
-        const next = prefix ? `${prefix}/${entry.name}` : entry.name;
-        await walk(entry, next);
+        await walk(entry, prefix ? `${prefix}/${entry.name}` : entry.name);
         continue;
       }
-      if (entry.kind !== "file") continue;
+      if (entry.kind !== "file" || entry.name.toLowerCase().endsWith(".html")) continue;
       const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
       const file = await entry.getFile();
       const url = URL.createObjectURL(file);
@@ -1826,8 +1842,12 @@ async function buildFileUrlMap(handle) {
   return { map, created };
 }
 
-async function materializePreviewHtml(html, handle) {
-  const { map, created } = await buildFileUrlMap(handle);
+// Rewrites one page's non-HTML src/href attributes to the matching asset
+// blob URL. Links to other crate-generated HTML pages are left as their
+// original relative path but flagged with data-r2c-page, so the click
+// listener installed by openPageInPreview can materialize *that* page (with
+// its own relative-path depth) on demand instead of needing it pre-rewritten.
+function rewritePageAssets(html, assetMap) {
   const doc = new DOMParser().parseFromString(html, "text/html");
   for (const el of doc.querySelectorAll("[src],[href]")) {
     for (const attr of ["src", "href"]) {
@@ -1836,11 +1856,53 @@ async function materializePreviewHtml(html, handle) {
       const { base, suffix } = splitUrlParts(raw);
       const key = normalizeRelativePath(base);
       if (!key) continue;
-      const mapped = map.get(key) || map.get(encodeURI(key));
+      if (key.toLowerCase().endsWith(".html")) {
+        el.setAttribute("data-r2c-page", key);
+        continue;
+      }
+      const mapped = assetMap.get(key) || assetMap.get(encodeURI(key));
       if (mapped) el.setAttribute(attr, mapped + suffix);
     }
   }
-  return { html: `<!doctype html>\n${doc.documentElement.outerHTML}`, created };
+  return `<!doctype html>\n${doc.documentElement.outerHTML}`;
+}
+
+async function getFileHandleAtPath(dirHandle, relativePath) {
+  const parts = relativePath.split("/").filter(Boolean);
+  const filename = parts.pop();
+  let dir = dirHandle;
+  for (const part of parts) dir = await dir.getDirectoryHandle(part, { create: false });
+  return dir.getFileHandle(filename, { create: false });
+}
+
+// Opens (or click-navigates to) one crate-generated HTML page inside `popup`:
+// reads it fresh from `handle`, rewrites its asset references via `assetMap`,
+// and wires up click-through to any other crate pages it links to. Reused
+// for both the initial "Open the HTML" page and every subsequent in-preview
+// navigation, so every page you can reach gets the same treatment — not just
+// the first one.
+async function openPageInPreview(popup, handle, assetMap, relativePath) {
+  const fileHandle = await getFileHandleAtPath(handle, relativePath);
+  const text = await (await fileHandle.getFile()).text();
+  const rewritten = rewritePageAssets(text, assetMap);
+
+  if (currentPageUrl) URL.revokeObjectURL(currentPageUrl);
+  currentPageUrl = URL.createObjectURL(new Blob([rewritten], { type: "text/html" }));
+
+  popup.addEventListener("load", function onLoad() {
+    try {
+      popup.document.addEventListener("click", (ev) => {
+        const link = ev.target.closest("[data-r2c-page]");
+        if (!link) return;
+        ev.preventDefault();
+        openPageInPreview(popup, handle, assetMap, link.getAttribute("data-r2c-page")).catch(console.error);
+      });
+    } catch {
+      // Popup navigated away/closed before load finished — nothing to wire up.
+    }
+  }, { once: true });
+
+  popup.location.replace(currentPageUrl);
 }
 
 async function openShow() {
@@ -1920,6 +1982,10 @@ async function renderShow(mode) {
 // Open HTML as a real document in a new browser tab. The generated
 // ro-crate-preview.html relies on in-page (:target) links to toggle tables,
 // which don't work inside an embedded/srcdoc frame, so it needs its own URL.
+// For a multipage build, this also wires up click-through navigation (see
+// openPageInPreview) so Collection/Document pages you click into get the
+// same asset-URL treatment as the first page, instead of showing broken
+// images/links.
 // Must be called synchronously from a click handler (no awaits before it) so
 // the browser doesn't treat window.open as an unsolicited popup.
 async function openHtmlInNewTab(html) {
@@ -1930,14 +1996,14 @@ async function openHtmlInNewTab(html) {
   popup.document.body.textContent = "Loading preview...";
   try {
     revokePreviewUrls();
-    let toOpen = html;
     if (dirHandle) {
-      const materialized = await materializePreviewHtml(html, dirHandle);
-      toOpen = materialized.html;
-      previewFileUrls = materialized.created;
+      const { map, created } = await buildAssetUrlMap(dirHandle);
+      previewFileUrls = created;
+      await openPageInPreview(popup, dirHandle, map, HTML_FILE);
+    } else {
+      previewUrl = URL.createObjectURL(new Blob([html], { type: "text/html" }));
+      popup.location.replace(previewUrl);
     }
-    previewUrl = URL.createObjectURL(new Blob([toOpen], { type: "text/html" }));
-    popup.location.replace(previewUrl);
   } catch (e) {
     popup.document.body.textContent = "Failed to open preview: " + (e && e.message ? e.message : e);
     console.error(e);
