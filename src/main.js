@@ -1858,6 +1858,12 @@ function rewritePageAssets(html, assetMap) {
       if (!key) continue;
       if (key.toLowerCase().endsWith(".html")) {
         el.setAttribute("data-r2c-page", key);
+        // Defang the raw relative href so that if click interception ever
+        // misses (event timing, a click that isn't a plain left-click, …)
+        // the browser's default action is a harmless in-page no-op instead
+        // of trying to navigate this blob: document to an unresolvable
+        // relative path.
+        if (attr === "href") el.setAttribute("href", "#");
         continue;
       }
       const mapped = assetMap.get(key) || assetMap.get(encodeURI(key));
@@ -1895,7 +1901,12 @@ async function openPageInPreview(popup, handle, assetMap, relativePath) {
         const link = ev.target.closest("[data-r2c-page]");
         if (!link) return;
         ev.preventDefault();
-        openPageInPreview(popup, handle, assetMap, link.getAttribute("data-r2c-page")).catch(console.error);
+        openPageInPreview(popup, handle, assetMap, link.getAttribute("data-r2c-page")).catch((e) => {
+          console.error("Preview navigation failed:", e);
+          try { popup.document.body.insertAdjacentHTML("afterbegin",
+            `<div style="position:sticky;top:0;background:#fee;color:#900;padding:8px;font:14px sans-serif;z-index:9999">Couldn't open that page: ${e && e.message ? e.message : e}</div>`); }
+          catch { /* popup gone */ }
+        });
       });
     } catch {
       // Popup navigated away/closed before load finished — nothing to wire up.
