@@ -59,6 +59,10 @@ function validateAndNormalizeConfig(config) {
       ...defaults,
       ...(config && isPlainObject(config.rootDataset) ? config.rootDataset : {}),
     },
+    // Maps a top-level collection folder name to the label shown for it in
+    // the generated site's navigation/cards (see buildCrateFromDocxFolder).
+    // Folders with no entry keep their raw folder name.
+    collectionLabels: isPlainObject(config && config.collectionLabels) ? config.collectionLabels : {},
   };
 
   const { rootDataset } = normalized;
@@ -330,7 +334,7 @@ function buildGroupedMediaParts(crate, mediaEntitiesAdded, idPrefix, source) {
 
 /* ---------- directory walking (FileSystemDirectoryHandle) ---------- */
 
-async function getSubDirectoryHandles(dirHandle) {
+export async function getSubDirectoryHandles(dirHandle) {
   const subDirs = [];
   for await (const entry of dirHandle.values()) {
     if (entry.kind === "directory" && !CONTROL_AND_GENERATED_NAMES.has(entry.name) && !entry.name.startsWith(".")) {
@@ -635,6 +639,7 @@ export async function buildCrateFromDocxFolder(rootHandle, config, onProgress = 
 
   for (const subDirHandle of subDirs) {
     const collectionId = `#${normalizeIdFromPath(subDirHandle.name)}`;
+    const collectionLabel = validatedConfig.collectionLabels[subDirHandle.name] || subDirHandle.name;
     const docxFiles = (await findDocxFilesInDir(subDirHandle))
       .filter(({ handle }) => !isNotesDocx(handle.name));
 
@@ -734,7 +739,7 @@ export async function buildCrateFromDocxFolder(rootHandle, config, onProgress = 
       collectionHasPart.push({ "@id": documentPartId });
     }
 
-    crate.addEntity({ "@id": collectionId, "@type": "Collection", name: subDirHandle.name, hasPart: collectionHasPart });
+    crate.addEntity({ "@id": collectionId, "@type": "Collection", name: collectionLabel, hasPart: collectionHasPart });
     rootHasPart.push({ "@id": collectionId });
   }
 

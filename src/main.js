@@ -29,6 +29,8 @@ const OPTION_SCHEMA = [
   { key: "makeHtml", label: "Generate ro-crate-preview.html", default: true, children: [
     { key: "templateRepoFolder", type: "select", label: "Template from rocss-template-repo",
       placeholder: "Loading folders…", hint: "Optional. Select one folder from the template repo." },
+    { key: "collectionLabelsBuilder", type: "collectionLabelsBuilder", label: "Set menu names for collections…",
+      hint: "Optional, for Structured Word documents mode. Map each top-level collection folder to a friendlier label shown in the site's navigation menu and cards (e.g. AnmWeb1_HOME → Home) — the raw folder name is used for anything left blank." },
     { key: "styledPreview", label: "Upload template files", default: false,
       hint: "Off = the library's plain preview.", children: [
       { key: "configFile", type: "file", label: "Config (JSON)", accept: ".json,.css,.html,application/json,text/css,text/html",
@@ -95,7 +97,7 @@ function applyThemeMode(value) {
 function defaultSettingsFromSchema(schema) {
   const defaults = {};
   for (const opt of schema) {
-    if (opt.type === "file" || opt.type === "mappingBuilder") continue;
+    if (opt.type === "file" || opt.type === "mappingBuilder" || opt.type === "collectionLabelsBuilder") continue;
     if (opt.type === "select") defaults[opt.key] = typeof opt.default === "string" ? opt.default : "";
     else defaults[opt.key] = !!opt.default;
     if (opt.children) Object.assign(defaults, defaultSettingsFromSchema(opt.children));
@@ -118,7 +120,7 @@ function loadSettingsState() {
 
 function applySettingsToUi(schema, values) {
   for (const opt of schema) {
-    if (opt.type === "file" || opt.type === "mappingBuilder") continue;
+    if (opt.type === "file" || opt.type === "mappingBuilder" || opt.type === "collectionLabelsBuilder") continue;
     const el = $("opt_" + opt.key);
     if (!el) continue;
     if (opt.type === "select") {
@@ -306,6 +308,7 @@ function renderOptions(schema, parent) {
     if (opt.type === "file") { parent.appendChild(buildFileField(opt)); continue; }
     if (opt.type === "select") { parent.appendChild(buildSelectField(opt)); continue; }
     if (opt.type === "mappingBuilder") { parent.appendChild(buildMappingBuilderField(opt)); continue; }
+    if (opt.type === "collectionLabelsBuilder") { parent.appendChild(buildCollectionLabelsField(opt)); continue; }
 
     const wrap = document.createElement("div");
     wrap.className = "field";
@@ -462,6 +465,115 @@ function buildMappingBuilderField(opt) {
 function updateMergeMappingStatus(mappingCount) {
   const el = $("mergeMappingStatus");
   if (el) el.textContent = `Custom mapping applied: ${mappingCount} column(s).`;
+}
+
+/* ---------- collection-labels builder field ---------- */
+let collectionLabelsBuilderBtn = null;
+function refreshCollectionLabelsBuilderBtn() {
+  if (collectionLabelsBuilderBtn) collectionLabelsBuilderBtn.disabled = !dirHandle;
+}
+function buildCollectionLabelsField(opt) {
+  const wrap = document.createElement("div");
+  wrap.className = "field";
+  const btn = document.createElement("button");
+  btn.type = "button"; btn.className = "secondary"; btn.style.width = "100%";
+  btn.textContent = opt.label;
+  btn.disabled = true;
+  btn.addEventListener("click", openCollectionLabelsModal);
+  collectionLabelsBuilderBtn = btn;
+  refreshCollectionLabelsBuilderBtn();
+  wrap.appendChild(btn);
+  const status = document.createElement("div");
+  status.className = "hint"; status.id = "collectionLabelsStatus";
+  status.textContent = "No custom names — folder names will be used as-is.";
+  wrap.appendChild(status);
+  if (opt.hint) wrap.appendChild(hintEl(opt.hint));
+  return wrap;
+}
+function updateCollectionLabelsStatus(count) {
+  const el = $("collectionLabelsStatus");
+  if (el) el.textContent = count > 0
+    ? `Custom names set for ${count} collection(s).`
+    : "No custom names — folder names will be used as-is.";
+}
+
+/* ---------- collection-labels builder modal ---------- */
+// The applied mapping (folder name -> label), threaded into effectiveConfig
+// in processFolder's docx-mode branch. Reset whenever a new folder is picked.
+let collectionLabelsOverride = null;
+// In-progress edits, kept alive across the modal being closed and reopened
+// so nothing typed is lost until a new folder is picked.
+let collectionLabelsDraft = {};
+
+async function openCollectionLabelsModal() {
+  if (!dirHandle) return;
+  let folderNames;
+  try {
+    const { getSubDirectoryHandles } = await import("./docx_crate.js");
+    const subDirs = await getSubDirectoryHandles(dirHandle);
+    folderNames = subDirs.map((h) => h.name).sort((a, b) => a.localeCompare(b));
+  } catch (e) {
+    alert("Could not read the folder's sub-directories: " + (e && e.message ? e.message : e));
+    return;
+  }
+  renderCollectionLabelsRows(folderNames);
+  $("collectionLabelsModal").classList.remove("hidden");
+}
+
+function renderCollectionLabelsRows(folderNames) {
+  const container = $("collectionLabelsBody");
+  container.innerHTML = "";
+
+  if (!folderNames.length) {
+    container.appendChild(hintEl("No sub-folders found directly inside the picked folder."));
+    return;
+  }
+
+  const head = document.createElement("div");
+  head.className = "mapping-head collection-labels-head";
+  head.innerHTML = "<span>Folder name</span><span></span><span>Menu label</span>";
+  container.appendChild(head);
+
+  folderNames.forEach((folderName) => {
+    const row = document.createElement("div");
+    row.className = "mapping-row collection-labels-row";
+    row.dataset.source = folderName;
+
+    const src = document.createElement("div");
+    src.className = "col-source";
+    src.textContent = folderName;
+
+    const label = document.createElement("input");
+    label.type = "text"; label.className = "map-target";
+    label.placeholder = folderName;
+    label.value = collectionLabelsDraft[folderName] !== undefined ? collectionLabelsDraft[folderName] : "";
+    label.addEventListener("input", () => { collectionLabelsDraft[folderName] = label.value; });
+
+    const copyBtn = document.createElement("button");
+    copyBtn.type = "button"; copyBtn.className = "map-copy-btn";
+    copyBtn.title = "Copy folder name to menu label";
+    copyBtn.textContent = "→";
+    copyBtn.addEventListener("click", () => {
+      label.value = folderName;
+      label.dispatchEvent(new Event("input", { bubbles: true }));
+      label.focus();
+    });
+
+    row.append(src, copyBtn, label);
+    container.appendChild(row);
+  });
+}
+
+function applyCollectionLabels() {
+  const container = $("collectionLabelsBody");
+  const labels = {};
+  container.querySelectorAll(".collection-labels-row").forEach((row) => {
+    const value = row.querySelector(".map-target").value.trim();
+    if (value) labels[row.dataset.source] = value;
+  });
+  collectionLabelsOverride = Object.keys(labels).length ? labels : null;
+  updateCollectionLabelsStatus(Object.keys(labels).length);
+  $("collectionLabelsModal").classList.add("hidden");
 }
 
 /* ---------- merge-mapping builder modal ---------- */
@@ -1339,9 +1451,11 @@ async function fetchTemplateBundle(owner, repo, ref, folderPath) {
 /* ---------- Build ---------- */
 async function processFolder(dirHandle, files, options) {
   const config = (await readJsonFromFolder(dirHandle, "config.json")) || DEFAULT_CONFIG;
-  const effectiveConfig = rootDatasetOverride
-    ? { ...config, rootDataset: { ...config.rootDataset, ...rootDatasetOverride } }
-    : config;
+  const effectiveConfig = {
+    ...config,
+    ...(rootDatasetOverride ? { rootDataset: { ...config.rootDataset, ...rootDatasetOverride } } : {}),
+    ...(collectionLabelsOverride ? { collectionLabels: collectionLabelsOverride } : {}),
+  };
 
   let crate;
   let sourceCount;
@@ -1589,6 +1703,10 @@ async function pickFolder(nextView = "view-mode") {
     return;
   }
   rootDatasetOverride = null;
+  collectionLabelsOverride = null;
+  collectionLabelsDraft = {};
+  updateCollectionLabelsStatus(0);
+  refreshCollectionLabelsBuilderBtn();
   buildHtml = null;
   lastHtmlTemplate = null;
   resetCrateDetailsForm();
@@ -1658,7 +1776,7 @@ function isBuildViewActive() {
 }
 
 function isModalOpen() {
-  const ids = ["modal", "settingsModal", "mergeMappingModal"];
+  const ids = ["modal", "settingsModal", "mergeMappingModal", "collectionLabelsModal"];
   return ids.some((id) => {
     const el = $(id);
     return !!(el && !el.classList.contains("hidden"));
@@ -2477,6 +2595,9 @@ function boot() {
   $("mergeMappingCancel").addEventListener("click", () => $("mergeMappingModal").classList.add("hidden"));
   $("mergeMappingApply").addEventListener("click", applyMergeMapping);
   $("mergeMappingModal").addEventListener("click", (e) => { if (e.target === $("mergeMappingModal")) $("mergeMappingModal").classList.add("hidden"); });
+  $("collectionLabelsCancel").addEventListener("click", () => $("collectionLabelsModal").classList.add("hidden"));
+  $("collectionLabelsApply").addEventListener("click", applyCollectionLabels);
+  $("collectionLabelsModal").addEventListener("click", (e) => { if (e.target === $("collectionLabelsModal")) $("collectionLabelsModal").classList.add("hidden"); });
   $("mappingConfigFile").addEventListener("change", (e) => {
     if (e.target.files && e.target.files.length) loadMappingConfigFile(e.target.files[0]);
   });

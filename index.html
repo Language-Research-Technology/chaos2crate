@@ -179,6 +179,7 @@
     background: var(--panel-2); color: var(--muted); font-size: 13px; line-height: 1; cursor: pointer;
   }
   .mapping-row .map-copy-btn:hover { color: var(--text); border-color: var(--accent); }
+  .collection-labels-head, .collection-labels-row { grid-template-columns: minmax(0,1fr) 24px minmax(0,1fr); }
   .edit-view { flex: 1; display: flex; flex-direction: column; padding: 24px 28px; min-height: 0; }
   .edit-view .bar { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
   .edit-dirty-badge { font-size: 12px; color: var(--warn); border: 1px solid var(--warn); border-radius: 999px; padding: 3px 10px; }
@@ -526,6 +527,18 @@
     <div class="actions">
       <button id="mergeMappingCancel" class="secondary" type="button">Cancel</button>
       <button id="mergeMappingApply" type="button">Apply mapping</button>
+    </div>
+  </div>
+</div>
+
+<div id="collectionLabelsModal" class="modal-overlay hidden">
+  <div class="modal mapping-modal">
+    <h3>Collection menu names</h3>
+    <p class="hint" style="margin:-8px 0 0;">Set the menu/card label shown for each top-level collection folder. Rows left blank use the folder name as-is.</p>
+    <div id="collectionLabelsBody" class="mapping-body"></div>
+    <div class="actions">
+      <button id="collectionLabelsCancel" class="secondary" type="button">Cancel</button>
+      <button id="collectionLabelsApply" type="button">Apply names</button>
     </div>
   </div>
 </div>
