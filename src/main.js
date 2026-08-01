@@ -1001,6 +1001,11 @@ const DEFAULT_LICENSE_URL = "https://creativecommons.org/licenses/by-nc-nd/4.0/"
 // Values collected from the crate-details form, merged into config.rootDataset
 // at build time. Populated when the user clicks Continue on that step.
 let rootDatasetOverride = null;
+// The existing crate's root entity (+ its @id → entity map, for resolving
+// linked names), if the picked folder already had one — see
+// populateCrateDetailsFromExistingCrate/buildDescribeField.
+let existingRootDatasetEntity = null;
+let existingRootDatasetById = null;
 
 function todayIsoDate() {
   const d = new Date();
@@ -1019,60 +1024,118 @@ function normalizeArcpId(input) {
   return `arcp://name,${slugify(trimmed) || "crate"}`;
 }
 
-function openCrateDetails() {
-  if (dirHandle) {
-    if (!$("cd_name").value.trim()) $("cd_name").value = dirHandle.name;
-    if (!$("cd_id").value.trim()) $("cd_id").value = slugify(dirHandle.name);
+// Renders one Describe-step field from a src/masp.js field-schema entry (see
+// toDescribeFieldSchema). Mirrors renderOptions()'s builder-dispatch pattern
+// used for the Build panel. Prefills from an existing crate's root entity
+// (existingRootDatasetEntity/existingRootDatasetById, set by
+// populateCrateDetailsFromExistingCrate) when a matching value is present.
+function buildDescribeField(field) {
+  const wrap = document.createElement("div");
+  wrap.className = "field";
+  wrap.id = "field_describe_" + field.key;
+
+  const label = document.createElement("label");
+  label.className = "file-label";
+  label.htmlFor = "describe_" + field.key;
+  label.textContent = field.label + (field.required ? " *" : "");
+  wrap.appendChild(label);
+
+  let input;
+  if (field.inputKind === "textarea") {
+    input = document.createElement("textarea");
+    input.rows = 3;
+  } else if (field.inputKind === "select") {
+    input = document.createElement("select");
+    const blank = document.createElement("option");
+    blank.value = ""; blank.textContent = "Select…";
+    input.appendChild(blank);
+    for (const v of field.values || []) {
+      const value = typeof v === "string" ? v : (v && (v.name || v["@id"])) || String(v);
+      const opt = document.createElement("option");
+      opt.value = value; opt.textContent = value;
+      input.appendChild(opt);
+    }
+  } else {
+    input = document.createElement("input");
+    input.type = field.inputKind === "date" ? "date" : field.inputKind === "url" ? "url" : "text";
+    if (field.inputKind === "entity-ref") {
+      input.placeholder = field.multiple ? "Comma-separated names" : "e.g. Jane Smith";
+    }
   }
-  if (!$("cd_datePublished").value) $("cd_datePublished").value = todayIsoDate();
-  if (!$("cd_license").value.trim()) $("cd_license").value = DEFAULT_LICENSE_URL;
+  input.id = "describe_" + field.key;
+
+  if (existingRootDatasetEntity) {
+    const raw = existingRootDatasetEntity[field.key];
+    if (field.inputKind === "entity-ref") {
+      const linkedName = resolveLinkedName(raw, existingRootDatasetById);
+      if (linkedName) input.value = linkedName;
+    } else if (typeof raw === "string" && raw.trim()) {
+      input.value = raw.trim();
+    } else if (raw && typeof raw === "object" && typeof raw["@id"] === "string") {
+      input.value = raw["@id"];
+    }
+  }
+
+  wrap.appendChild(input);
+  if (field.hint) wrap.appendChild(hintEl(field.hint));
+  return wrap;
+}
+
+function renderDescribeFields(fieldSchema) {
+  const container = $("crateDetailsBody");
+  container.innerHTML = "";
+  for (const field of fieldSchema) container.appendChild(buildDescribeField(field));
+}
+
+function openCrateDetails() {
+  if (!selectedProfileData) return;
+  renderDescribeFields(selectedProfileData.fieldSchema);
+  if (dirHandle && !$("cd_id").value.trim()) $("cd_id").value = slugify(dirHandle.name);
+  for (const field of selectedProfileData.fieldSchema) {
+    const el = $("describe_" + field.key);
+    if (!el) continue;
+    if (field.inputKind === "date" && !el.value) el.value = todayIsoDate();
+    if (field.key === "license" && !el.value.trim()) el.value = DEFAULT_LICENSE_URL;
+    if (field.key === "name" && !el.value.trim() && dirHandle) el.value = dirHandle.name;
+  }
   showView("view-crate-details");
 }
 
-// Builds the config.rootDataset fragment for this build. inLanguage and creator
-// become full entities (with @id derived from their free text) so the ro-crate
-// library registers them as linked nodes in the graph when assigned.
-function buildRootDatasetFromForm() {
-  const languageText = $("cd_inLanguage").value.trim();
-  const creatorText = $("cd_creator").value.trim();
+// Builds the config.rootDataset fragment for this build, from whatever
+// fields the selected profile rendered. An entity-ref field (e.g. "creator"
+// typed ["Person"]) becomes a full entity (with @id derived from its free
+// text) — comma-separated if `multiple` — so the ro-crate library registers
+// it as a linked node in the graph when assigned.
+function collectDescribeValues(fieldSchema) {
   const idText = $("cd_id").value.trim();
-  const name = $("cd_name").value.trim();
-  const portalName = $("cd_portalName").value.trim();
-  const portalDescription = $("cd_portalDescription").value.trim();
-  const rootDataset = {
-    "@id": normalizeArcpId(idText || name),
-    name,
-    description: $("cd_description").value.trim(),
-    datePublished: $("cd_datePublished").value || todayIsoDate(),
-    license: { "@id": $("cd_license").value.trim() || DEFAULT_LICENSE_URL },
-  };
-  if (portalName) {
-    rootDataset["custom:portalName"] = portalName;
-    rootDataset.portalName = portalName;
-  }
-  if (portalDescription) {
-    rootDataset["custom:portalDescription"] = portalDescription;
-    rootDataset.portalDescription = portalDescription;
-  }
-  if (languageText) {
-    rootDataset.inLanguage = { "@id": `#language-${slugify(languageText)}`, "@type": "Language", name: languageText };
-  }
-  if (creatorText) {
-    rootDataset.creator = { "@id": `#person-${slugify(creatorText)}`, "@type": "Person", name: creatorText };
+  const rootDataset = { "@id": normalizeArcpId(idText || (dirHandle && dirHandle.name) || "crate") };
+
+  for (const field of fieldSchema) {
+    const el = $("describe_" + field.key);
+    if (!el) continue;
+    const raw = el.value.trim();
+    if (!raw) continue;
+
+    if (field.inputKind === "entity-ref") {
+      const names = field.multiple ? raw.split(",").map((s) => s.trim()).filter(Boolean) : [raw];
+      const refs = names.map((name) => ({ "@id": `#${slugify(field.entityType)}-${slugify(name)}`, "@type": field.entityType, name }));
+      rootDataset[field.key] = field.multiple ? refs : refs[0];
+      continue;
+    }
+    if (field.key === "license") {
+      rootDataset.license = { "@id": raw };
+      continue;
+    }
+    rootDataset[field.key] = raw;
   }
   return rootDataset;
 }
 
 function resetCrateDetailsForm() {
   $("cd_id").value = "";
-  $("cd_name").value = "";
-  $("cd_description").value = "";
-  $("cd_portalName").value = "";
-  $("cd_portalDescription").value = "";
-  $("cd_datePublished").value = "";
-  $("cd_inLanguage").value = "";
-  $("cd_license").value = "";
-  $("cd_creator").value = "";
+  $("crateDetailsBody").innerHTML = "";
+  existingRootDatasetEntity = null;
+  existingRootDatasetById = null;
 }
 
 function resolveLinkedName(value, byId) {
@@ -1129,6 +1192,12 @@ function getRootDatasetEntity(crateJson) {
   return { root, byId };
 }
 
+// Only the fixed "Identifier" field can be prefilled here — the rest of the
+// Describe form doesn't exist yet at this point (pickFolder() runs before a
+// profile is chosen, and the profile-driven fields aren't rendered until
+// openCrateDetails()). Instead, remember the existing crate's root entity so
+// buildDescribeField() can prefill each rendered field from it once the form
+// does exist.
 async function populateCrateDetailsFromExistingCrate(handle) {
   const crateJson = await readJsonFromFolder(handle, JSON_FILE);
   if (!crateJson) return false;
@@ -1137,44 +1206,17 @@ async function populateCrateDetailsFromExistingCrate(handle) {
   if (!extracted) return false;
 
   const { root, byId } = extracted;
+  existingRootDatasetEntity = root;
+  existingRootDatasetById = byId;
+
   const rootId = typeof root["@id"] === "string" ? root["@id"].trim() : "";
-  if (rootId) {
-    $("cd_id").value = rootId.replace(/^arcp:\/\/name,/i, "");
-  }
-  if (typeof root.name === "string") $("cd_name").value = root.name;
-  if (typeof root.description === "string") $("cd_description").value = root.description;
-  const rootPortalName =
-    typeof root["custom:portalName"] === "string" ? root["custom:portalName"]
-      : (typeof root.portalName === "string" ? root.portalName : "");
-  if (rootPortalName) $("cd_portalName").value = rootPortalName;
-  const rootPortalDescription =
-    typeof root["custom:portalDescription"] === "string" ? root["custom:portalDescription"]
-      : (typeof root.portalDescription === "string" ? root.portalDescription : "");
-  if (rootPortalDescription) $("cd_portalDescription").value = rootPortalDescription;
-
-  if (typeof root.datePublished === "string" && root.datePublished.trim()) {
-    const isoDate = root.datePublished.trim().slice(0, 10);
-    if (/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) $("cd_datePublished").value = isoDate;
-  }
-
-  const license = root.license;
-  if (typeof license === "string" && license.trim()) {
-    $("cd_license").value = license.trim();
-  } else if (license && typeof license === "object" && typeof license["@id"] === "string") {
-    $("cd_license").value = license["@id"].trim();
-  }
-
-  const languageName = resolveLinkedName(root.inLanguage, byId);
-  if (languageName) $("cd_inLanguage").value = languageName;
-
-  const creatorName = resolveLinkedName(root.creator, byId);
-  if (creatorName) $("cd_creator").value = creatorName;
+  if (rootId) $("cd_id").value = rootId.replace(/^arcp:\/\/name,/i, "");
 
   return true;
 }
 
 function submitCrateDetails() {
-  rootDatasetOverride = buildRootDatasetFromForm();
+  rootDatasetOverride = collectDescribeValues(selectedProfileData.fieldSchema);
   refreshBuildStepActions();
   showView("view-mode");
 }
@@ -1804,8 +1846,11 @@ async function pickFolder(nextView = "view-mode") {
   lastHtmlTemplate = null;
   resetCrateDetailsForm();
   try {
-    const hasExistingCrate = await populateCrateDetailsFromExistingCrate(dirHandle);
-    if (hasExistingCrate) rootDatasetOverride = buildRootDatasetFromForm();
+    // Just remembers the existing root entity for buildDescribeField() to
+    // prefill from — can't set rootDatasetOverride yet, since that now
+    // requires a profile's field schema (chosen in the next step) to collect
+    // values through.
+    await populateCrateDetailsFromExistingCrate(dirHandle);
   } catch (e) {
     console.warn("Could not prefill describe form from existing crate JSON:", e);
   }

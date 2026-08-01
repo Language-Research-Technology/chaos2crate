@@ -361,7 +361,7 @@
           <div class="lead">Describe this crate</div>
         -->
         
-        <div class="sub">These details populate the RO-Crate root dataset.</div>
+        <div class="sub">These details populate the RO-Crate root dataset. Fields below the identifier come from the profile you selected.</div>
         <form id="crateDetailsForm" class="crate-form" autocomplete="off">
           <div class="field">
             <label class="file-label" for="cd_id">Identifier</label>
@@ -371,40 +371,7 @@
             </div>
             <div class="hint">Normalised to a slug and combined with the <code>arcp://name,</code> prefix when you continue.</div>
           </div>
-          <div class="field">
-            <label class="file-label" for="cd_name">Name</label>
-            <input type="text" id="cd_name" placeholder="Collection name" />
-          </div>
-          <div class="field">
-            <label class="file-label" for="cd_description">Description</label>
-            <textarea id="cd_description" rows="3" placeholder="Short description"></textarea>
-          </div>
-          <div class="field">
-            <label class="file-label" for="cd_portalName">Portal name</label>
-            <input type="text" id="cd_portalName" placeholder="Name shown in portal popup" />
-          </div>
-          <div class="field">
-            <label class="file-label" for="cd_portalDescription">Portal description</label>
-            <textarea id="cd_portalDescription" rows="3" placeholder="Description shown in portal popup"></textarea>
-          </div>
-          <div class="field">
-            <label class="file-label" for="cd_datePublished">Date published</label>
-            <input type="date" id="cd_datePublished" />
-          </div>
-          <div class="field">
-            <label class="file-label" for="cd_inLanguage">Language</label>
-            <input type="text" id="cd_inLanguage" placeholder="e.g. English" />
-            <div class="hint">Creates a Language entity.</div>
-          </div>
-          <div class="field">
-            <label class="file-label" for="cd_license">Licence</label>
-            <input type="url" id="cd_license" />
-          </div>
-          <div class="field">
-            <label class="file-label" for="cd_creator">Creator</label>
-            <input type="text" id="cd_creator" placeholder="e.g. Jane Smith" />
-            <div class="hint">Creates a Person entity.</div>
-          </div>
+          <div id="crateDetailsBody"></div>
         </form>
         <div class="crate-form-actions">
           <button id="crateDetailsBackBtn" class="secondary" type="button">&larr; Back</button>
