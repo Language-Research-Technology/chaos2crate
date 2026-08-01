@@ -8,9 +8,29 @@ import { nodePolyfills } from "vite-plugin-node-polyfills";
 // ro-crate-excel via its clean lib/workbook.js entry (never the package index,
 // which pulls in shelljs/fs-extra). The node polyfills below are a safety net
 // for Buffer/process/global that some transitive deps reference.
+// ro-crate-masp's lib/masp-validator.js (a library file, not a CLI entry
+// point) carries a leftover `#!/usr/bin/env node` shebang. Rollup normally
+// strips a shebang when it's the very first thing in a module, but
+// vite-plugin-node-polyfills injects an import above it first, pushing the
+// shebang to a later line where it's just an invalid `#` token. Strip it
+// ourselves, before that plugin runs (enforce: "pre").
+function stripLibraryShebangs() {
+  return {
+    name: "strip-library-shebangs",
+    enforce: "pre",
+    transform(code, id) {
+      if (id.includes("/node_modules/ro-crate-masp/") && code.startsWith("#!")) {
+        return code.replace(/^#!.*\n/, "");
+      }
+      return null;
+    },
+  };
+}
+
 export default defineConfig({
   base: "./",
   plugins: [
+    stripLibraryShebangs(),
     nodePolyfills({
       globals: { Buffer: true, global: true, process: true },
       protocolImports: true,
