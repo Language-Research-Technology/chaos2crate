@@ -557,6 +557,22 @@ async function parseStructuredChapters(fileHandle, mediaLookup, collectionRelPat
       continue;
     }
     if (imageInfo.hasImage) {
+      const lastImageSection = currentChapter.imageSections[currentChapter.imageSections.length - 1];
+      const followsEmbeddedImage = lastImageSection && !lastImageSection.imageToken && lastImageSection.imagePath;
+
+      if (followsEmbeddedImage) {
+        // A typed filename line directly after a pasted/embedded image is
+        // almost always just a redundant label for that same photo, not a
+        // second one — fold any caption text into the embedded image's
+        // entry instead of creating a duplicate.
+        if (imageInfo.inlineCaption) {
+          lastImageSection.caption = lastImageSection.caption
+            ? `${lastImageSection.caption}\n${imageInfo.inlineCaption}`
+            : imageInfo.inlineCaption;
+        }
+        continue;
+      }
+
       currentChapter.imageSections.push({
         imageToken: imageInfo.imageToken,
         imagePath: await findImageReference(imageInfo.imageToken, mediaLookup, collectionRelPath, filesDirHandle),
