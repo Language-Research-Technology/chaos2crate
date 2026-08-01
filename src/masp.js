@@ -95,7 +95,8 @@ function toDescribeField(input) {
   const entityType = types.find((t) => !SCALAR_TYPES.has(t));
   if (entityType) return { ...base, inputKind: "entity-ref", entityType };
 
-  return { ...base, inputKind: input.name === "description" ? "textarea" : "text" };
+  const isLongText = input.name === "description" || input.name === "portalDescription";
+  return { ...base, inputKind: isLongText ? "textarea" : "text" };
 }
 
 function describeLabel(propName) {

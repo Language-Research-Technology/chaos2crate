@@ -1065,7 +1065,9 @@ function buildDescribeField(field) {
   input.id = "describe_" + field.key;
 
   if (existingRootDatasetEntity) {
-    const raw = existingRootDatasetEntity[field.key];
+    // portalName/portalDescription were historically written under a
+    // "custom:" prefix as well as the plain key — check both.
+    const raw = existingRootDatasetEntity[field.key] ?? existingRootDatasetEntity["custom:" + field.key];
     if (field.inputKind === "entity-ref") {
       const linkedName = resolveLinkedName(raw, existingRootDatasetById);
       if (linkedName) input.value = linkedName;
@@ -1127,6 +1129,10 @@ function collectDescribeValues(fieldSchema) {
       continue;
     }
     rootDataset[field.key] = raw;
+    // Some templates read the portal popup fields under a "custom:" prefix.
+    if (field.key === "portalName" || field.key === "portalDescription") {
+      rootDataset["custom:" + field.key] = raw;
+    }
   }
   return rootDataset;
 }
