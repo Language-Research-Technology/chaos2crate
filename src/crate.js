@@ -305,6 +305,12 @@ function fixEncodedSlashes(html) {
 
 export async function crateToPreviewHtml(crate, opts = {}) {
   const { layouts = { default: DEFAULT_LAYOUT }, template = null, config = null, css = "" } = opts;
+  // Property/type term resolution (crate.resolveTerm, used throughout
+  // roCrateToJSON) requires this to have run first — without it, property
+  // lookups can silently miss depending on internal resolution timing,
+  // which shows up as some entities' properties (e.g. images) rendering
+  // and others not, in a way that looks arbitrary per-entity.
+  await crate.resolveContext();
   expandCompactPropertiesForRender(crate);
   let html;
   if (template) {
@@ -332,6 +338,7 @@ export async function crateToPreviewHtml(crate, opts = {}) {
 // Returns { rootHtml, pages: [{ id, path, html }] }, both already run
 // through the same %2F fixup crateToPreviewHtml applies.
 export async function crateToMultiPageHtml(crate, { config, css = "", pageTemplates = {} }) {
+  await crate.resolveContext();
   expandCompactPropertiesForRender(crate);
   const cfg = config || {};
   const layout = (Array.isArray(cfg.propertyGroups) && cfg.propertyGroups.length)
