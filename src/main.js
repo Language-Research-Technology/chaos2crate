@@ -1730,6 +1730,21 @@ async function processFolder(dirHandle, files, options) {
     }
   }
 
+  if (selectedProfileData) {
+    try {
+      const { validateBuiltCrate } = await import("./masp.js");
+      const result = await validateBuiltCrate(selectedProfileData.validator, crate);
+      if (result.ok) {
+        log("Profile validation passed — crate conforms to the selected profile.", "ok");
+      } else {
+        log(`Profile validation found ${result.errors.length} issue(s):`, "warn");
+        for (const e of result.errors) log(`  • ${e.message}`, "warn");
+      }
+    } catch (e) {
+      log(`Profile validation could not run: ${e.message}`, "warn");
+    }
+  }
+
   const graph = crate.getJson()["@graph"] || [];
   const entities = graph.length;
   const typeCounts = collectTypeCounts(graph);
