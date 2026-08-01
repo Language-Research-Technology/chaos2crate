@@ -306,6 +306,49 @@ function refreshTemplateUploadVisibility() {
   }
 }
 
+function collectSchemaKeys(schema, set) {
+  for (const opt of schema) {
+    set.add(opt.key);
+    if (opt.children) collectSchemaKeys(opt.children, set);
+  }
+}
+
+// Shows/hides Build-panel and Settings fields per the selected profile's
+// crate-o-mode.json buildOptions (see masp-profiles), and pre-fills whatever
+// checkboxes/selects it declares values for. Keys named in
+// buildOptions.hiddenOptionKeys are hidden entirely (hiding a parent field,
+// e.g. "merge", takes its children — mergeFile/mergeMappingBuilder — with
+// it, since they render inside its subpanel). inputMode is force-locked
+// rather than merely pre-selected, since Describe's field set and the docx
+// vs. generic parsing path both depend on it matching the profile.
+// With no profile selected — e.g. the Show/Edit "Rebuild" shortcut, which
+// can reach Build without going through profile selection — everything is
+// shown and nothing is forced, matching pre-profile behaviour.
+function applyBuildOptionsFromProfile(buildOptions) {
+  const allKeys = new Set();
+  collectSchemaKeys(OPTION_SCHEMA, allKeys);
+  collectSchemaKeys(SETTINGS_SCHEMA, allKeys);
+  const hidden = new Set((buildOptions && buildOptions.hiddenOptionKeys) || []);
+  for (const key of allKeys) {
+    const field = $("field_opt_" + key);
+    if (field) field.classList.toggle("hidden", hidden.has(key));
+  }
+
+  const inputModeEl = $("opt_inputMode");
+  if (inputModeEl) inputModeEl.disabled = false;
+  if (!buildOptions) return;
+
+  for (const [key, value] of Object.entries(buildOptions)) {
+    if (key === "hiddenOptionKeys") continue;
+    const el = $("opt_" + key);
+    if (!el) continue;
+    if (el.tagName === "SELECT") el.value = value;
+    else el.checked = !!value;
+    el.dispatchEvent(new Event("change"));
+  }
+  if (inputModeEl && buildOptions.inputMode) inputModeEl.disabled = true;
+}
+
 function renderOptions(schema, parent) {
   for (const opt of schema) {
     if (opt.type === "file") { parent.appendChild(buildFileField(opt)); continue; }
@@ -342,6 +385,7 @@ function renderOptions(schema, parent) {
 function buildFileField(opt) {
   const wrap = document.createElement("div");
   wrap.className = "field file-field";
+  wrap.id = "field_opt_" + opt.key;
   wrap.appendChild(Object.assign(document.createElement("div"), { className: "file-label", textContent: opt.label }));
 
   const drop = document.createElement("label");
@@ -413,6 +457,7 @@ function buildFileField(opt) {
 function buildSelectField(opt) {
   const wrap = document.createElement("div");
   wrap.className = "field";
+  wrap.id = "field_opt_" + opt.key;
   wrap.appendChild(Object.assign(document.createElement("div"), { className: "file-label", textContent: opt.label }));
 
   const select = document.createElement("select");
@@ -450,6 +495,7 @@ function buildSelectField(opt) {
 function buildMappingBuilderField(opt) {
   const wrap = document.createElement("div");
   wrap.className = "field";
+  wrap.id = "field_opt_" + opt.key;
   const btn = document.createElement("button");
   btn.type = "button"; btn.className = "secondary"; btn.style.width = "100%";
   btn.textContent = opt.label;
@@ -478,6 +524,7 @@ function refreshCollectionLabelsBuilderBtn() {
 function buildCollectionLabelsField(opt) {
   const wrap = document.createElement("div");
   wrap.className = "field";
+  wrap.id = "field_opt_" + opt.key;
   const btn = document.createElement("button");
   btn.type = "button"; btn.className = "secondary"; btn.style.width = "100%";
   btn.textContent = opt.label;
@@ -1889,6 +1936,7 @@ function openBuild() {
   $("showHtmlBtn").classList.add("hidden");
   $("saveLogBtn").disabled = true;
   log("Set your options, then click Build RO-Crate.", "muted");
+  applyBuildOptionsFromProfile(selectedProfileData ? selectedProfileData.workflow.buildOptions : null);
   refreshModeCards();
   showView("view-build");
 }
