@@ -180,6 +180,16 @@
   }
   .mapping-row .map-copy-btn:hover { color: var(--text); border-color: var(--accent); }
   .collection-labels-head, .collection-labels-row { grid-template-columns: minmax(0,1fr) 24px minmax(0,1fr); }
+  .profile-options { display: flex; flex-direction: column; gap: 10px; margin: 14px 0; }
+  .profile-option {
+    text-align: left; width: 100%; padding: 12px 14px; border-radius: 10px;
+    border: 1px solid var(--border); background: var(--panel-2); color: var(--text); cursor: pointer;
+  }
+  .profile-option .t { font-weight: 600; }
+  .profile-option .d { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+  .profile-option:hover { border-color: var(--accent); }
+  .profile-option.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .profile-option:disabled { opacity: 0.5; cursor: not-allowed; }
   .edit-view { flex: 1; display: flex; flex-direction: column; padding: 24px 28px; min-height: 0; }
   .edit-view .bar { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
   .edit-dirty-badge { font-size: 12px; color: var(--warn); border: 1px solid var(--warn); border-radius: 999px; padding: 3px 10px; }
@@ -305,12 +315,16 @@
               <span class="step-index">1</span>
               <div class="step-text">Choose folder</div>
             </button>
-            <button id="buildStepDescribe" class="build-step" type="button" disabled>
+            <button id="buildStepProfile" class="build-step" type="button" disabled>
               <span class="step-index">2</span>
+              <div class="step-text">Select profile</div>
+            </button>
+            <button id="buildStepDescribe" class="build-step" type="button" disabled>
+              <span class="step-index">3</span>
               <div class="step-text">Describe</div>
             </button>
             <button id="buildStepOpenBuild" class="build-step" type="button" disabled>
-              <span class="step-index">3</span>
+              <span class="step-index">4</span>
               <div class="step-text">Build</div>
             </button>
           </div>
@@ -324,6 +338,18 @@
           <div class="ic">&#9998;&#65039;</div>
           <div class="t">Edit</div>
           <div class="d">Edit entities and properties in the existing <code>ro-crate-metadata.json</code>.</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-select-profile" class="form-step hidden">
+      <div class="form-step-inner">
+        <div class="sub">Choose the profile that matches this data. It determines which fields Describe asks for and which Build options are shown.</div>
+        <div id="profileOptionsBody" class="profile-options"></div>
+        <div id="profileStatus" class="hint"></div>
+        <div class="crate-form-actions">
+          <button id="profileBackBtn" class="secondary" type="button">&larr; Back</button>
+          <button id="profileContinueBtn" class="big" type="button" disabled>Continue</button>
         </div>
       </div>
     </section>

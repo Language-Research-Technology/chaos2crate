@@ -23,6 +23,9 @@ const HTML_FILE = "ro-crate-preview.html";
 const TEMPLATE_REPO_OWNER = "benfoley";
 const TEMPLATE_REPO_NAME = "rocss-template-repo";
 const TEMPLATE_REPO_REF = "main";
+const MASP_PROFILES_REPO_OWNER = "benfoley";
+const MASP_PROFILES_REPO_NAME = "masp-profiles";
+const MASP_PROFILES_REPO_REF = "main";
 const APP_VERSION = packageJson.version || "dev";
 
 const OPTION_SCHEMA = [
@@ -217,7 +220,7 @@ function renderTypeStatus(typeCounts) {
 }
 
 /* ---------- view routing ---------- */
-const VIEWS = ["view-mode", "view-crate-details", "view-build", "view-show", "view-edit"];
+const VIEWS = ["view-mode", "view-select-profile", "view-crate-details", "view-build", "view-show", "view-edit"];
 function showView(name) {
   for (const v of VIEWS) $(v).classList.toggle("hidden", v !== name);
   $("contextBar").classList.toggle("hidden", !dirHandle);
@@ -909,6 +912,89 @@ function readOptions() {
   return o;
 }
 
+/* ---------- select-profile step ---------- */
+// The chosen profile's folder name (in masp-profiles) and everything loaded
+// from it: { validator, workflow (crate-o-mode.json, carries buildOptions),
+// rootClassDefinition, fieldSchema }. Both reset in pickFolder() on every new
+// folder pick — a profile chosen for one folder shouldn't silently carry over
+// to the next.
+let selectedProfile = null;
+let selectedProfileData = null;
+
+async function openProfileSelection() {
+  if (!dirHandle) return;
+  $("profileContinueBtn").disabled = !selectedProfile;
+  const status = $("profileStatus");
+  status.textContent = "";
+  const container = $("profileOptionsBody");
+  container.innerHTML = "";
+  container.appendChild(hintEl("Loading profiles…"));
+  try {
+    const entries = await listGitHubFolder(MASP_PROFILES_REPO_OWNER, MASP_PROFILES_REPO_NAME, MASP_PROFILES_REPO_REF, "");
+    const folderNames = entries.filter((e) => e && e.type === "dir").map((e) => e.name).sort((a, b) => a.localeCompare(b));
+    renderProfileOptions(folderNames);
+  } catch (e) {
+    container.innerHTML = "";
+    container.appendChild(hintEl("Could not load profiles: " + (e && e.message ? e.message : e)));
+  }
+  showView("view-select-profile");
+}
+
+function renderProfileOptions(folderNames) {
+  const container = $("profileOptionsBody");
+  container.innerHTML = "";
+  if (!folderNames.length) {
+    container.appendChild(hintEl("No profiles found."));
+    return;
+  }
+  for (const folderName of folderNames) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "profile-option";
+    btn.dataset.profile = folderName;
+    btn.classList.toggle("selected", folderName === selectedProfile);
+    const t = document.createElement("div");
+    t.className = "t";
+    t.textContent = folderName;
+    const d = document.createElement("div");
+    d.className = "d";
+    d.textContent = "Click to use this profile.";
+    btn.append(t, d);
+    btn.addEventListener("click", () => { void chooseProfile(folderName); });
+    container.appendChild(btn);
+  }
+}
+
+async function chooseProfile(folderName) {
+  const status = $("profileStatus");
+  const continueBtn = $("profileContinueBtn");
+  continueBtn.disabled = true;
+  status.textContent = `Loading ${folderName}…`;
+  setProfileOptionsDisabled(true);
+  try {
+    const masp = await import("./masp.js");
+    const { profileJson, modeJson } = await masp.fetchProfile(MASP_PROFILES_REPO_OWNER, MASP_PROFILES_REPO_NAME, MASP_PROFILES_REPO_REF, folderName);
+    const validator = await masp.loadValidator(profileJson, modeJson);
+    const rootClassDefinition = masp.getRootClassDefinition(validator);
+    const fieldSchema = masp.toDescribeFieldSchema(rootClassDefinition);
+    selectedProfile = folderName;
+    selectedProfileData = { validator, workflow: modeJson, rootClassDefinition, fieldSchema };
+    status.textContent = `Ready: ${rootClassDefinition.name} (${fieldSchema.length} field(s)).`;
+    continueBtn.disabled = false;
+  } catch (e) {
+    selectedProfile = null;
+    selectedProfileData = null;
+    status.textContent = "Could not load profile: " + (e && e.message ? e.message : e);
+  } finally {
+    setProfileOptionsDisabled(false);
+    renderProfileOptions(Array.from($("profileOptionsBody").querySelectorAll(".profile-option")).map((b) => b.dataset.profile));
+    refreshBuildStepActions();
+  }
+}
+function setProfileOptionsDisabled(disabled) {
+  $("profileOptionsBody").querySelectorAll(".profile-option").forEach((b) => { b.disabled = disabled; });
+}
+
 /* ---------- crate details (root dataset) form ---------- */
 const DEFAULT_LICENSE_URL = "https://creativecommons.org/licenses/by-nc-nd/4.0/";
 
@@ -1094,13 +1180,16 @@ function submitCrateDetails() {
 }
 
 function refreshBuildStepActions() {
+  const profileBtn = $("buildStepProfile");
   const describeBtn = $("buildStepDescribe");
   const buildBtn = $("buildStepOpenBuild");
-  if (!describeBtn || !buildBtn) return;
+  if (!profileBtn || !describeBtn || !buildBtn) return;
   const hasFolder = !!dirHandle;
+  const hasProfile = !!selectedProfile;
   const hasDescribe = !!rootDatasetOverride;
-  describeBtn.disabled = !hasFolder;
-  buildBtn.disabled = !(hasFolder && hasDescribe);
+  profileBtn.disabled = !hasFolder;
+  describeBtn.disabled = !(hasFolder && hasProfile);
+  buildBtn.disabled = !(hasFolder && hasProfile && hasDescribe);
 }
 
 /* ---------- File System Access ---------- */
@@ -1703,6 +1792,10 @@ async function pickFolder(nextView = "view-mode") {
     return;
   }
   rootDatasetOverride = null;
+  selectedProfile = null;
+  selectedProfileData = null;
+  $("profileStatus").textContent = "";
+  $("profileContinueBtn").disabled = true;
   collectionLabelsOverride = null;
   collectionLabelsDraft = {};
   updateCollectionLabelsStatus(0);
@@ -2616,12 +2709,18 @@ function boot() {
     }
   });
   $("buildStepChooseFolder").addEventListener("click", () => { void pickFolder("view-mode"); });
+  $("buildStepProfile").addEventListener("click", () => { void openProfileSelection(); });
+  $("profileBackBtn").addEventListener("click", () => { showView("view-mode"); });
+  $("profileContinueBtn").addEventListener("click", () => {
+    if (!selectedProfile) return;
+    openCrateDetails();
+  });
   $("buildStepDescribe").addEventListener("click", () => {
-    if (!dirHandle) return;
+    if (!dirHandle || !selectedProfile) return;
     openCrateDetails();
   });
   $("buildStepOpenBuild").addEventListener("click", () => {
-    if (!dirHandle || !rootDatasetOverride) return;
+    if (!dirHandle || !selectedProfile || !rootDatasetOverride) return;
     openBuild();
   });
   $("cardShow").addEventListener("click", openShow);
