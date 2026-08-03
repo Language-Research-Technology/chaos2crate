@@ -5,7 +5,7 @@
 
 import {
   crateToJsonString, crateToXlsxBytes, crateToPreviewHtml,
-  readXlsxHeaders, readXlsxContextPrefixes, loadCrateFromJson, GENERATED_FILENAMES, CONTROL_FILENAMES,
+  loadCrateFromJson, GENERATED_FILENAMES, CONTROL_FILENAMES,
 } from "./crate.js";
 import {
   writeFile, verifyPermission, fileExists, readFileText, readJsonFromFolder,
@@ -17,6 +17,7 @@ import { createHookBus } from "./plugins/hooks.js";
 import { registerAllPlugins, composeOptionSchema, composeSettingsSchema } from "./plugins/index.js";
 import { runPipeline } from "./plugins/pipeline.js";
 import { resetUploadedConfigDirHandle } from "./plugins/ro-crate-html-output/index.js";
+import { readXlsxHeaders, readXlsxContextPrefixes } from "./plugins/merge/xlsx.js";
 
 // The hook bus is created once and plugins registered once — all
 // build-specific state lives in the fresh ctx object passed to emit() on

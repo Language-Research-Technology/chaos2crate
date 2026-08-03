@@ -1,9 +1,9 @@
 // Merges metadata from an uploaded spreadsheet into matching crate entities
-// (by @id) — mergeXlsxIntoCrate itself (crate.js) is an untouched, already-
-// clean crate-mutating primitive; this plugin only owns the "when/how to
-// gather options for it" logic that used to live inline in processFolder.
+// (by @id) — mergeXlsxIntoCrate itself (./xlsx.js) is the crate-mutating
+// primitive; this file owns the "when/how to gather options for it" logic
+// that used to live inline in processFolder.
 import { HOOKS } from "../hooks.js";
-import { mergeXlsxIntoCrate } from "../../crate.js";
+import { mergeXlsxIntoCrate } from "./xlsx.js";
 import { readJsonFromFolder } from "../../fs_helpers.js";
 import MERGE_CONFIG from "./merge_config.json";
 

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import ExcelJS from "exceljs";
-import { buildFileMetadata, buildCrate, crateToJsonString, mergeXlsxIntoCrate } from "./src/crate.js";
+import { buildFileMetadata, buildCrate, crateToJsonString } from "./src/crate.js";
+import { mergeXlsxIntoCrate } from "./src/plugins/merge/xlsx.js";
 import { DEFAULT_CONFIG } from "./src/defaults.js";
 
 const workbook = new ExcelJS.Workbook();
