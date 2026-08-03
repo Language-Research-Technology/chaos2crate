@@ -110,16 +110,54 @@ export function toDescribeFieldSchema(classDefinition) {
   return (classDefinition.inputs || []).map(toDescribeField).filter(Boolean);
 }
 
+// Property names (root class only) whose declared type is the primitive
+// URL. ro-crate-masp's validatePropertyValue() (lib/masp-validator.js) has
+// no valid-value path for this type: its object/reference branch requires
+// a matching entity node in the target crate (which a bare URL reference,
+// the normal way to represent one, never has), and its primitive-scalar
+// branch only checks Text/Integer/Number/Boolean/Date/DateTime — never
+// URL. Confirmed by testing both value shapes directly against the real
+// validator (commit af4962d7, current HEAD of Language-Research-Technology
+// /ro-crate-masp) — neither passes, regardless of the URL's validity. So a
+// property-error naming one of these is a known validator limitation, not
+// necessarily a real problem with the crate.
+function urlTypedPropertyNames(validator) {
+  const names = new Set();
+  try {
+    const rootDef = getRootClassDefinition(validator);
+    for (const input of rootDef.inputs || []) {
+      const types = Array.isArray(input.type) ? input.type : [input.type].filter(Boolean);
+      if (types.includes("URL")) names.add(input.name);
+    }
+  } catch { /* best-effort only — validation still runs without this */ }
+  return names;
+}
+
 // Thin wrapper over validator.validateCrate() with a simpler result shape
-// for the build log. Error messages from ro-crate-masp are cardinality-
-// phrased ("Expected at least 1 instances of X, found 0") rather than always
-// naming the specific missing field — confirmed against the real validator —
-// so callers should treat these as "something in this class didn't
-// conform," not a precise field-level diagnosis.
+// for the build log. Top-level errors from ro-crate-masp are cardinality-
+// phrased ("Expected at least 1 instances of X, found 0") rather than
+// naming the specific missing field, so this also pulls in the per-property
+// detail buried in results.rules (which does name the field) and flags any
+// that concern a URL-typed property with the known-limitation note above.
 export async function validateBuiltCrate(validator, crate) {
   const results = await validator.validateCrate(crate);
-  return {
-    ok: results.error.length === 0,
-    errors: results.error.map((e) => ({ message: e.message, entity: e.entity })),
-  };
+  const urlProps = urlTypedPropertyNames(validator);
+
+  const errors = results.error.map((e) => ({ message: e.message, entity: e.entity }));
+  for (const byEntity of Object.values(results.rules || {})) {
+    for (const detail of Object.values(byEntity)) {
+      for (const propError of (detail && detail["property-errors"]) || []) {
+        const match = /^Property "([^"]+)" validation failed/.exec(propError.message || "");
+        const isUrlProp = match && urlProps.has(match[1]);
+        errors.push({
+          message: isUrlProp
+            ? `${propError.message} (known limitation: ro-crate-masp doesn't correctly validate URL-typed properties — this may be a false positive, not necessarily a problem with your data)`
+            : propError.message,
+          entity: null,
+        });
+      }
+    }
+  }
+
+  return { ok: results.error.length === 0, errors };
 }
