@@ -10,6 +10,8 @@ import { plugin as validateCratePlugin } from "./validate-crate/index.js";
 import { plugin as jsonOutputPlugin } from "./ro-crate-json-output/index.js";
 import { plugin as xlsxOutputPlugin } from "./ro-crate-xlsx-output/index.js";
 import { plugin as htmlOutputPlugin } from "./ro-crate-html-output/index.js";
+import { plugin as genericInputPlugin } from "./generic-input/index.js";
+import { plugin as docxInputPlugin } from "./docx-input/index.js";
 
 export const PLUGINS = [
   austlangPlugin,
@@ -19,6 +21,15 @@ export const PLUGINS = [
   xlsxOutputPlugin,
   htmlOutputPlugin,
 ];
+
+// Input-mode plugins are a separate registry from PLUGINS above: they're
+// mutually exclusive (exactly one runs per build, dispatched by
+// pipeline.js on ctx.options.inputMode), not additive hook taps that all
+// coexist — so they don't go through registerAllPlugins/composeOptionSchema.
+export const INPUT_PLUGINS = {
+  [genericInputPlugin.inputMode]: genericInputPlugin,
+  [docxInputPlugin.inputMode]: docxInputPlugin,
+};
 
 export function registerAllPlugins(hookBus, plugins = PLUGINS) {
   for (const plugin of plugins) {

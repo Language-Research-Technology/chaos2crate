@@ -28,7 +28,7 @@
 import mammoth from "mammoth";
 import * as cheerio from "cheerio";
 import { ROCrate } from "ro-crate";
-import { writeFileAtPath } from "./fs_helpers.js";
+import { writeFileAtPath } from "../../fs_helpers.js";
 
 const CONTROL_AND_GENERATED_NAMES = new Set([
   "files",

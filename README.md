@@ -64,7 +64,10 @@ it still requires a profile to be selected first (redirecting to Select profile 
 
 `src/crate.js` is a dependency-light, **isomorphic** module (runs in the browser *and* Node)
 that assembles the crate using the `ROCrate` class (generic-folder mode; there's a separate
-`src/docx_crate.js` path for Structured Word Documents mode — see Settings):
+`src/plugins/docx-input/docx_crate.js` path for Structured Word Documents mode — see Settings).
+Which one runs is an input-mode plugin dispatch (`src/plugins/index.js`'s `INPUT_PLUGINS`,
+keyed by `inputMode`) — a different registry from the additive hook-tapping plugins below,
+since input mode is mutually exclusive rather than something multiple plugins can all tap:
 
 - root dataset, its `@type`/`conformsTo` and the metadata descriptor's license all come from
   the selected profile plus the Describe step (see "Configuration" below) — `pcdm:hasMember`/

@@ -5,7 +5,7 @@
 // merge, JSON/XLSX/HTML output, profile validation) lives in a plugin
 // (src/plugins/*.js) tapping one of those hooks.
 import { HOOKS } from "./hooks.js";
-import { buildFileMetadata, buildCrate } from "../crate.js";
+import { INPUT_PLUGINS } from "./index.js";
 
 function collectTypeCounts(graph) {
   const counts = new Map();
@@ -35,46 +35,9 @@ function collectTypeCounts(graph) {
 export async function runPipeline(ctx, hookBus) {
   await hookBus.emit(HOOKS.CONFIG_PREPARE, ctx);
 
-  if (ctx.options.inputMode === "docx") {
-    ctx.log(`Config: ${ctx.configSource}.`, "muted");
-    ctx.log("Parsing structured Word documents (Heading 1/2/3 → Collections/Chapters)…", "info");
-    const { buildCrateFromDocxFolder, scanDocxFolder } = await import("../docx_crate.js");
-    const scan = await scanDocxFolder(ctx.dirHandle);
-    if (scan.docxCount === 0) {
-      throw new Error(
-        "No .docx files found in this folder's sub-folders. Expected one folder per collection " +
-        "directly inside the picked folder, each containing structured .docx files."
-      );
-    }
-    if (!scan.hasHeadingStyles) {
-      ctx.log(
-        "Warning: none of the sampled .docx files use Word's Heading 1/2/3 paragraph styles — " +
-        "structure (Collections/Chapters) may come out empty. See the README for the required authoring conventions.",
-        "warn"
-      );
-    }
-    const result = await buildCrateFromDocxFolder(ctx.dirHandle, ctx.config, (msg) => ctx.log(msg, "muted"));
-    if (!result) {
-      throw new Error(
-        "No collection sub-folders with .docx files were found. Expected one folder per collection " +
-        "directly inside the picked folder, each containing structured .docx files — see " +
-        "corpus-tools-person-centred-collections-docx's README for the folder layout."
-      );
-    }
-    ctx.crate = result.crate;
-    ctx.sourceCount = result.documentPartCount;
-    ctx.log(`Built crate: ${result.collectionCount} collection(s), ${result.documentPartCount} document(s).`, "ok");
-  } else {
-    ctx.log(`Config: ${ctx.configSource}.`, "muted");
-    ctx.files.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
-    ctx.filesWithMeta = buildFileMetadata(ctx.files);
-    ctx.log(`Scanned ${ctx.filesWithMeta.length} file(s).`, "info");
-    ctx.sourceCount = ctx.filesWithMeta.length;
-
-    await hookBus.emit(HOOKS.FILES_ANALYZE, ctx);
-
-    ctx.crate = buildCrate(ctx.filesWithMeta, ctx.config, ctx.log, { topLevelFolderType: ctx.options.topLevelFolderType });
-  }
+  ctx.log(`Config: ${ctx.configSource}.`, "muted");
+  const inputPlugin = INPUT_PLUGINS[ctx.options.inputMode] || INPUT_PLUGINS.generic;
+  await inputPlugin.buildCrate(ctx, hookBus);
 
   await hookBus.emit(HOOKS.CRATE_BUILT, ctx);
 

@@ -529,7 +529,7 @@ async function openCollectionLabelsModal() {
   if (!dirHandle) return;
   let folderNames;
   try {
-    const { getSubDirectoryHandles } = await import("./docx_crate.js");
+    const { getSubDirectoryHandles } = await import("./plugins/docx-input/docx_crate.js");
     const subDirs = await getSubDirectoryHandles(dirHandle);
     folderNames = subDirs.map((h) => h.name).sort((a, b) => a.localeCompare(b));
   } catch (e) {

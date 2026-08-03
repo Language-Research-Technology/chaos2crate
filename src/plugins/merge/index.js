@@ -5,7 +5,7 @@
 import { HOOKS } from "../hooks.js";
 import { mergeXlsxIntoCrate } from "./xlsx.js";
 import { readJsonFromFolder } from "../../fs_helpers.js";
-import MERGE_CONFIG from "./merge_config.json";
+import MERGE_CONFIG from "./merge_config.json" with { type: "json" };
 
 export const plugin = {
   name: "merge",
