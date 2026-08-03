@@ -11,7 +11,6 @@ import { ROCrate } from "ro-crate";
 import { renderSinglePage, renderTemplate, renderMultiPage, roCrateToJSON } from "ro-crate-static-site";
 import Workbook from "ro-crate-excel/lib/workbook.js";
 import { CUSTOM_PROPERTIES } from "./defaults.js";
-import { DEFAULT_LAYOUT } from "./default_layout.js";
 
 /* Files that are generated output or local control files — never treated as
  * corpus data (mirrors GENERATED_FILENAMES in the original). */
@@ -304,7 +303,7 @@ function fixEncodedSlashes(html) {
 }
 
 export async function crateToPreviewHtml(crate, opts = {}) {
-  const { layouts = { default: DEFAULT_LAYOUT }, template = null, config = null, css = "" } = opts;
+  const { layouts = null, template = null, config = null, css = "" } = opts;
   // Property/type term resolution (crate.resolveTerm, used throughout
   // roCrateToJSON) requires this to have run first — without it, property
   // lookups can silently miss depending on internal resolution timing,
@@ -315,14 +314,19 @@ export async function crateToPreviewHtml(crate, opts = {}) {
   let html;
   if (template) {
     const cfg = config || {};
-    const layout = (Array.isArray(cfg.propertyGroups) && cfg.propertyGroups.length)
-      ? cfg.propertyGroups : DEFAULT_LAYOUT;
+    if (!Array.isArray(cfg.propertyGroups) || !cfg.propertyGroups.length) {
+      throw new Error("crateToPreviewHtml: config.propertyGroups is required — no default layout fallback. Pass the selected profile's resolved property groups.");
+    }
+    const layout = cfg.propertyGroups;
     const data = await roCrateToJSON(crate, cfg, layout);
     data.cratePath = "";
     data.layout = layout;
     data.hasLayout = true;
     html = await renderTemplate({ data, template, config: { ...cfg, propertyGroups: layout }, css, layout });
   } else {
+    if (!layouts || !Array.isArray(layouts.default) || !layouts.default.length) {
+      throw new Error("crateToPreviewHtml: opts.layouts.default is required — no default layout fallback. Pass the selected profile's resolved property groups.");
+    }
     html = await renderSinglePage({ crate, layouts });
   }
   return fixEncodedSlashes(html);
@@ -341,8 +345,10 @@ export async function crateToMultiPageHtml(crate, { config, css = "", pageTempla
   await crate.resolveContext();
   expandCompactPropertiesForRender(crate);
   const cfg = config || {};
-  const layout = (Array.isArray(cfg.propertyGroups) && cfg.propertyGroups.length)
-    ? cfg.propertyGroups : DEFAULT_LAYOUT;
+  if (!Array.isArray(cfg.propertyGroups) || !cfg.propertyGroups.length) {
+    throw new Error("crateToMultiPageHtml: config.propertyGroups is required — no default layout fallback. Pass the selected profile's resolved property groups.");
+  }
+  const layout = cfg.propertyGroups;
   const crateLite = {
     ...(await roCrateToJSON(crate, cfg, layout)),
     cratePath: "",

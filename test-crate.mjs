@@ -3,6 +3,13 @@ import fs from "fs";
 import { buildFileMetadata, buildCrate, crateToJsonString, crateToXlsxBytes, crateToPreviewHtml } from "./src/crate.js";
 import { DEFAULT_CONFIG } from "./src/defaults.js";
 
+// crate.js no longer falls back to a generic layout — pass an explicit one.
+const TEST_LAYOUT = [{ name: "Test", inputs: [
+  "http://schema.org/name", "http://schema.org/description",
+  "http://schema.org/creator", "arcp://name,custom/terms#possibleDuplicate",
+  "arcp://name,custom/terms#participant",
+] }];
+
 const files = [
   { fileName: "dyirbal-dictionary.pdf", relativePath: "Dyirbal/dyirbal-dictionary.pdf" },
   { fileName: "wordlist.csv", relativePath: "Dyirbal/lists/wordlist.csv" },
@@ -35,7 +42,7 @@ try {
 
 console.log("\n=== HTML ===");
 try {
-  const html = await crateToPreviewHtml(crate);
+  const html = await crateToPreviewHtml(crate, { layouts: { default: TEST_LAYOUT } });
   console.log("html bytes:", html.length, "| looks like html:", /<html|<!doctype/i.test(html));
   fs.writeFileSync("/tmp/ro-crate-preview.html", html);
 } catch (e) {

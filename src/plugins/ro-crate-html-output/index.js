@@ -9,7 +9,7 @@ import { HOOKS } from "../hooks.js";
 import { crateToPreviewHtml, crateToMultiPageHtml } from "../../crate.js";
 import { writeFile, writeFileAtPath, readJsonFromFolder, readFileTextFromDirectory, verifyPermission, fileExists } from "../../fs_helpers.js";
 import { bustCacheUrl, buildGitHubTreeUrl, fetchGitHubTextFile, listGitHubFolder } from "../../github.js";
-import { resolveProfileGroups, buildProfileAwareLayout } from "./layout.js";
+import { resolveProfileGroups } from "./layout.js";
 
 const HTML_FILE = "ro-crate-preview.html";
 const TEMPLATE_REPO_OWNER = "benfoley";
@@ -303,10 +303,9 @@ export const plugin = {
         // the layout has already been computed; safe/idempotent to call twice.
         await crate.resolveContext();
         const profilePropertyGroups = ctx.selectedProfileData?.workflow?.propertyGroups;
-        const resolvedProfileGroups = resolveProfileGroups(crate, profilePropertyGroups);
-        const layout = buildProfileAwareLayout(crate, profilePropertyGroups);
-        if (resolvedProfileGroups.length) {
-          log(`Preview: profile layout applied (${resolvedProfileGroups.length} group(s): ${resolvedProfileGroups.map((g) => g.name).join(", ")}).`, "muted");
+        const layout = resolveProfileGroups(crate, profilePropertyGroups);
+        if (layout.length) {
+          log(`Preview: profile layout applied (${layout.length} group(s): ${layout.map((g) => g.name).join(", ")}).`, "muted");
         }
 
         let html;

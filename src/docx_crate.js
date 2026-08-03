@@ -221,7 +221,7 @@ function toImageMediaEntry(imageSection) {
   const sectionEntry = {};
   const { captionText, photoText } = splitCaptionAndPhoto(caption);
   if (imagePath) { sectionEntry.image = { "@id": imagePath }; sectionEntry.filePart = { "@id": imagePath }; }
-  else if (imageToken) sectionEntry.imageReference = imageToken;
+  else if (imageToken) sectionEntry["custom:imageReference"] = imageToken;
   if (captionText) sectionEntry.caption = captionText;
   if (photoText) sectionEntry.creditText = photoText;
   return Object.keys(sectionEntry).length === 0 ? null : sectionEntry;
@@ -316,13 +316,13 @@ function buildGroupedMediaParts(crate, mediaEntitiesAdded, idPrefix, source) {
     const mediaPartId = `${idPrefix}-media-${sectionIndex + 1}`;
     let mediaPartType = "CreativeWork";
     if (section.audio || section.mediaReference) mediaPartType = ["CreativeWork", "AudioObject"];
-    else if (section.image || section.imageReference) mediaPartType = ["CreativeWork", "ImageObject"];
+    else if (section.image || section["custom:imageReference"]) mediaPartType = ["CreativeWork", "ImageObject"];
 
     const mediaPartEntity = { "@id": mediaPartId, "@type": mediaPartType };
     if (section.audio) mediaPartEntity.audio = section.audio;
     if (section.image) mediaPartEntity.image = section.image;
     if (section.filePart) mediaPartEntity.hasPart = [section.filePart];
-    if (section.imageReference) mediaPartEntity.imageReference = section.imageReference;
+    if (section["custom:imageReference"]) mediaPartEntity["custom:imageReference"] = section["custom:imageReference"];
     if (section.caption) mediaPartEntity.caption = section.caption;
     if (section.creditText) mediaPartEntity.creditText = section.creditText;
 
@@ -623,6 +623,7 @@ export async function buildCrateFromDocxFolder(rootHandle, config, onProgress = 
 
   const crate = new ROCrate({ array: true, link: true });
   addContextPrefix(crate, "bibo", "http://purl.org/ontology/bibo/");
+  addContextPrefix(crate, "custom", "arcp://name,custom/terms#");
 
   const today = new Date().toISOString().split("T")[0];
   crate.rootDataset.name = validatedConfig.rootDataset.name;

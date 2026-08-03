@@ -1388,6 +1388,7 @@ async function refreshModeCards() {
   refreshBuildStepActions();
 }
 function openBuild() {
+  if (!selectedProfile) { void openProfileSelection(); return; }
   if (!confirmLeaveEditIfDirty()) return;
   clearLog();
   $("showHtmlBtn").classList.add("hidden");
@@ -2214,8 +2215,7 @@ async function saveEdit() {
         await writeFile(dirHandle, HTML_FILE, html);
         notes.push(`Updated ${HTML_FILE} (styled template from this session's last build: ${lastHtmlTemplate.source}).`);
       } else {
-        await writeFile(dirHandle, HTML_FILE, await crateToPreviewHtml(editCrate));
-        notes.push(`Updated ${HTML_FILE} (plain template — Build in this session with template options first to reuse a styled one here).`);
+        notes.push(`${HTML_FILE} left unchanged — no layout available this session (Build once with this folder open to refresh it).`);
       }
     }
     editDirty = false;
