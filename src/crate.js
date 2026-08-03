@@ -188,7 +188,7 @@ function addFileEntities(crate, filesWithMeta) {
 
 // Adds every matched Language (+ its Geometry, if any) as its own entity,
 // then links each matched file to them via ldac:subjectLanguage. Exported
-// for the austlang plugin (src/plugins/austlang.js) to call as a post-build
+// for the austlang plugin (src/plugins/austlang/index.js) to call as a post-build
 // step — this is the one place crate.js used to know about AUSTLANG
 // specifically (addFileEntities used to set ldac:subjectLanguage inline at
 // file-creation time); now it's an ordinary post-hoc mutation, the same

@@ -1,10 +1,11 @@
 // Identifies subject languages by filename against a bundled, offline copy
 // of the AUSTLANG data pack. The actual matching logic + the ~730kB data
-// pack (src/austlang.js) is dynamically imported only when this plugin's
-// option is on, so it stays out of the main bundle regardless of whether
-// the plugin file itself is statically imported into the registry.
-import { HOOKS } from "./hooks.js";
-import { addLanguageEntities } from "../crate.js";
+// pack (matcher.js + austlang-data.json, both in this folder) is
+// dynamically imported only when this plugin's option is on, so it stays
+// out of the main bundle regardless of whether the plugin file itself is
+// statically imported into the registry.
+import { HOOKS } from "../hooks.js";
+import { addLanguageEntities } from "../../crate.js";
 
 export const plugin = {
   name: "austlang",
@@ -19,7 +20,7 @@ export const plugin = {
   hooks: {
     [HOOKS.FILES_ANALYZE]: async (ctx) => {
       if (!ctx.options.enableLanguageLookups) return;
-      const { identifyAllLanguages } = await import("../austlang.js");
+      const { identifyAllLanguages } = await import("./matcher.js");
       ctx.langByIndex = await identifyAllLanguages(ctx.filesWithMeta, ctx.options.includeAlternateNames, ctx.log);
     },
     [HOOKS.CRATE_BUILT]: (ctx) => {

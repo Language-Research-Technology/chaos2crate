@@ -1,8 +1,8 @@
 // Offline AUSTLANG language identification (filename-based only).
 //
 // Language matching runs entirely against a bundled copy of the Austlang data
-// pack (src/austlang-data.json), so there is NO network request, NO CORS issue,
-// and NO API key in the client. Refresh the bundled data with:
+// pack (austlang-data.json, this folder), so there is NO network request, NO
+// CORS issue, and NO API key in the client. Refresh the bundled data with:
 //   npm run update:austlang
 //
 // The data pack ships with @describo/data-packs and is derived from the AIATSIS

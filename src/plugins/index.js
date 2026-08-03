@@ -4,7 +4,7 @@
 // enough to reproduce the original processFolder sequence — no explicit
 // priority numbers needed): language identification before merge (both tap
 // crate:built), then JSON before XLSX before HTML (all tap output:write).
-import { plugin as austlangPlugin } from "./austlang.js";
+import { plugin as austlangPlugin } from "./austlang/index.js";
 import { plugin as mergePlugin } from "./merge.js";
 import { plugin as validateCratePlugin } from "./validate-crate.js";
 import { plugin as jsonOutputPlugin } from "./ro-crate-json-output.js";
