@@ -904,11 +904,7 @@ async function loadTemplateRepoFolderOptions() {
   if (!select) return;
   select.disabled = true;
   try {
-    const apiUrl = `https://api.github.com/repos/${TEMPLATE_REPO_OWNER}/${TEMPLATE_REPO_NAME}/contents?ref=${encodeURIComponent(TEMPLATE_REPO_REF)}`;
-    const res = await fetch(apiUrl, { headers: { Accept: "application/vnd.github+json" }, cache: "no-store" });
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-    const entries = await res.json();
-    if (!Array.isArray(entries)) throw new Error("Unexpected API response");
+    const entries = await listGitHubFolder(TEMPLATE_REPO_OWNER, TEMPLATE_REPO_NAME, TEMPLATE_REPO_REF, "");
     const folders = entries
       .filter((e) => e && e.type === "dir" && typeof e.name === "string")
       .map((e) => e.name)
@@ -1557,13 +1553,27 @@ async function fetchGitHubTextFile(owner, repo, ref, filePath, downloadUrl = "")
   return await res.text();
 }
 
+// Folder listings go through the GitHub Contents API, which — unlike the
+// raw.githubusercontent.com fetches used everywhere else — is rate-limited
+// to 60 unauthenticated requests/hour per IP. The same few folders
+// (profiles list, template-repo folder list, a chosen template's contents)
+// get re-listed every time their step is revisited in a session, so cache
+// by (owner, repo, ref, folderPath) for the lifetime of the page load.
+// Only successful results are cached — a failure (rate limit, network
+// blip) should still be retried next time, not remembered as permanent.
+const githubFolderCache = new Map();
+
 async function listGitHubFolder(owner, repo, ref, folderPath) {
+  const cacheKey = `${owner}/${repo}/${ref}/${folderPath}`;
+  if (githubFolderCache.has(cacheKey)) return githubFolderCache.get(cacheKey);
+
   const encodedFolder = folderPath.split("/").map((p) => encodeURIComponent(p)).join("/");
   const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${encodedFolder}?ref=${encodeURIComponent(ref)}`;
   const res = await fetch(apiUrl, { headers: { Accept: "application/vnd.github+json" }, cache: "no-store" });
   if (!res.ok) throw new Error(`Could not list template folder "${folderPath}" (${res.status} ${res.statusText}).`);
   const entries = await res.json();
   if (!Array.isArray(entries)) throw new Error(`Unexpected API response for template folder "${folderPath}".`);
+  githubFolderCache.set(cacheKey, entries);
   return entries;
 }
 
