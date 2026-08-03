@@ -95,7 +95,8 @@ function toDescribeField(input) {
   const entityType = types.find((t) => !SCALAR_TYPES.has(t));
   if (entityType) return { ...base, inputKind: "entity-ref", entityType };
 
-  const isLongText = input.name === "description" || input.name === "portalDescription";
+  const bareName = String(input.name || "").replace(/^[a-z][\w.-]*:/i, ""); // strip a prefix like "custom:"
+  const isLongText = bareName === "description" || bareName === "portalDescription";
   return { ...base, inputKind: isLongText ? "textarea" : "text" };
 }
 

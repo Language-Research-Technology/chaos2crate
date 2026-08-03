@@ -1073,9 +1073,12 @@ function buildDescribeField(field) {
   input.id = "describe_" + field.key;
 
   if (existingRootDatasetEntity) {
-    // portalName/portalDescription were historically written under a
-    // "custom:" prefix as well as the plain key — check both.
-    const raw = existingRootDatasetEntity[field.key] ?? existingRootDatasetEntity["custom:" + field.key];
+    // Fields like portalName/portalDescription are declared "custom:"-
+    // prefixed by the profile but, for template compatibility, also get
+    // written under the bare key (see collectDescribeValues) — check both,
+    // in whichever direction field.key isn't already.
+    const bareKey = field.key.replace(/^custom:/, "");
+    const raw = existingRootDatasetEntity[field.key] ?? existingRootDatasetEntity[bareKey] ?? existingRootDatasetEntity["custom:" + field.key];
     if (field.inputKind === "entity-ref") {
       const linkedName = resolveLinkedName(raw, existingRootDatasetById);
       if (linkedName) input.value = linkedName;
@@ -1137,9 +1140,10 @@ function collectDescribeValues(fieldSchema) {
       continue;
     }
     rootDataset[field.key] = raw;
-    // Some templates read the portal popup fields under a "custom:" prefix.
-    if (field.key === "portalName" || field.key === "portalDescription") {
-      rootDataset["custom:" + field.key] = raw;
+    // Some templates read "custom:"-prefixed fields (e.g. portalName/
+    // portalDescription) under the bare key instead — write both.
+    if (field.key.startsWith("custom:")) {
+      rootDataset[field.key.slice("custom:".length)] = raw;
     }
   }
   return rootDataset;
