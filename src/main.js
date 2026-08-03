@@ -11,7 +11,6 @@ import {
   writeFile, verifyPermission, fileExists, readFileText, readJsonFromFolder,
 } from "./fs_helpers.js";
 import { listGitHubFolder } from "./github.js";
-import { DEFAULT_CONFIG } from "./defaults.js";
 import packageJson from "../package.json";
 import { createHookBus } from "./plugins/hooks.js";
 import { registerAllPlugins, composeOptionSchema, composeSettingsSchema } from "./plugins/index.js";
@@ -1263,23 +1262,33 @@ async function walkDirectory(handle, prefix = "") {
   return files;
 }
 /* ---------- Build ---------- */
-// Thin wrapper: reads config.json, applies the Describe-step/collection-
-// labels overrides, builds the shared pipeline context, and hands off to
+// Thin wrapper: assembles rootDataset/metadataLicence entirely from the
+// selected profile (its crate-o-mode.json rootDataset.type/conformsTo and
+// metadataLicence, plus the Describe-step values) and the collection-labels
+// override, builds the shared pipeline context, and hands off to
 // runPipeline() (src/plugins/pipeline.js) — everything else (which input
 // mode to parse, AUSTLANG, merge, JSON/XLSX/HTML output, profile
-// validation) happens via hook-tapping plugins from there.
+// validation) happens via hook-tapping plugins from there. openBuild()
+// guarantees a profile is always selected before this runs (see
+// selectedProfile check there) — there is no "no profile" case to handle.
 async function processFolder(dirHandle, files, options) {
-  const config = (await readJsonFromFolder(dirHandle, "config.json")) || DEFAULT_CONFIG;
+  const profileWorkflow = selectedProfileData.workflow;
+  const profileRootDataset = profileWorkflow.rootDataset || {};
+  const rootDataset = {
+    ...(profileRootDataset.type ? { "@type": profileRootDataset.type } : {}),
+    ...(profileRootDataset.conformsTo ? { conformsTo: { "@id": profileRootDataset.conformsTo } } : {}),
+    ...rootDatasetOverride,
+  };
   const effectiveConfig = {
-    ...config,
-    ...(rootDatasetOverride ? { rootDataset: { ...config.rootDataset, ...rootDatasetOverride } } : {}),
+    rootDataset,
+    ...(profileWorkflow.metadataLicence ? { metadataLicence: profileWorkflow.metadataLicence } : {}),
     ...(collectionLabelsOverride ? { collectionLabels: collectionLabelsOverride } : {}),
   };
 
   const ctx = {
     dirHandle, files, options, log,
     config: effectiveConfig,
-    configSource: config === DEFAULT_CONFIG ? "built-in default" : "config.json from folder",
+    configSource: `"${selectedProfile}" profile`,
     selectedProfileData,
   };
 

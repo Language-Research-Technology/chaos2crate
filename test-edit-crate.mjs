@@ -6,7 +6,24 @@ import fs from "fs";
 import {
   buildFileMetadata, buildCrate, crateToJsonString, crateToXlsxBytes, crateToPreviewHtml, loadCrateFromJson,
 } from "./src/crate.js";
-import { DEFAULT_CONFIG } from "./src/defaults.js";
+
+// main.js no longer supplies a built-in default config — rootDataset now
+// comes entirely from the selected profile + Describe form. Stand in with a
+// minimal config here since this test calls buildCrate() directly.
+const TEST_CONFIG = {
+  rootDataset: {
+    "@id": "arcp://name,test-crate",
+    "@type": ["Dataset", "RepositoryCollection"],
+    name: "Test Crate",
+    description: "A test crate for the resources2crate test suite.",
+    datePublished: "2026-01-01",
+  },
+  metadataLicence: {
+    "@id": "https://creativecommons.org/licenses/by/4.0/",
+    "@type": "ldac:DataReuseLicense",
+    name: "Attribution 4.0 International (CC BY 4.0)",
+  },
+};
 
 // crate.js no longer falls back to a generic layout — pass an explicit one.
 const TEST_LAYOUT = [{ name: "Test", inputs: [
@@ -20,7 +37,7 @@ const files = [
   { fileName: "wordlist.csv", relativePath: "Dyirbal/lists/wordlist.csv" },
 ];
 const meta = buildFileMetadata(files);
-const built = buildCrate(meta, DEFAULT_CONFIG, () => {});
+const built = buildCrate(meta, TEST_CONFIG, () => {});
 const originalJson = JSON.parse(crateToJsonString(built));
 
 console.log("=== load existing crate JSON for editing ===");

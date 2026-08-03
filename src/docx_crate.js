@@ -59,6 +59,7 @@ function validateAndNormalizeConfig(config) {
       ...defaults,
       ...(config && isPlainObject(config.rootDataset) ? config.rootDataset : {}),
     },
+    metadataLicence: config && isPlainObject(config.metadataLicence) ? config.metadataLicence : null,
     // Maps a top-level collection folder name to the label shown for it in
     // the generated site's navigation/cards (see buildCrateFromDocxFolder).
     // Folders with no entry keep their raw folder name.
@@ -88,8 +89,14 @@ function validateAndNormalizeConfig(config) {
     }
   }
 
-  if (!Array.isArray(rootDataset.creators)) {
-    rootDataset.creators = [];
+  // The profile/Describe form writes a singular "creator" key (one ref, or
+  // an array of refs, each shaped { "@id", "@type", name } — same
+  // entity-ref convention collectDescribeValues() uses everywhere else),
+  // not this function's own internal "creators" (plural) shape — bridge it
+  // rather than silently dropping Describe-entered creators.
+  if (!Array.isArray(rootDataset.creators) || rootDataset.creators.length === 0) {
+    const raw = rootDataset.creator;
+    rootDataset.creators = raw ? (Array.isArray(raw) ? raw : [raw]) : [];
   }
 
   return normalized;
@@ -117,7 +124,7 @@ function applyRootDatasetCreators(crate, creators) {
       creatorName = creator.trim();
     } else if (creator && typeof creator === "object") {
       creatorName = String(creator.name || "").trim();
-      creatorId = String(creator.id || "").trim();
+      creatorId = String(creator["@id"] || creator.id || "").trim();
     }
     if (!creatorName) return;
 
@@ -146,7 +153,7 @@ function applyRootDatasetLicense(crate, licenseConfig) {
   }
 
   if (typeof licenseConfig === "object") {
-    const licenseId = String(licenseConfig.id || licenseConfig.url || "").trim();
+    const licenseId = String(licenseConfig["@id"] || licenseConfig.id || licenseConfig.url || "").trim();
     const licenseName = String(licenseConfig.name || "").trim();
     if (!licenseId && !licenseName) return;
 
@@ -631,8 +638,14 @@ export async function buildCrateFromDocxFolder(rootHandle, config, onProgress = 
   crate.rootDataset.datePublished =
     validatedConfig.rootDataset.datePublished === "today" || !validatedConfig.rootDataset.datePublished
       ? today : validatedConfig.rootDataset.datePublished;
+  if (validatedConfig.rootDataset["@type"]) crate.rootDataset["@type"] = validatedConfig.rootDataset["@type"];
+  if (validatedConfig.rootDataset.conformsTo) crate.rootDataset.conformsTo = validatedConfig.rootDataset.conformsTo;
   applyRootDatasetCreators(crate, validatedConfig.rootDataset.creators);
   applyRootDatasetLicense(crate, validatedConfig.rootDataset.license);
+  if (validatedConfig.metadataLicence?.["@id"]) {
+    crate.descriptor.license = { "@id": validatedConfig.metadataLicence["@id"] };
+    crate.addEntity(validatedConfig.metadataLicence);
+  }
 
   const rootHasPart = [];
   const mediaEntitiesAdded = new Set();

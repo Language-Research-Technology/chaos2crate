@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 
 import { buildFileMetadata, buildCrate } from "./src/crate.js";
-import { DEFAULT_CONFIG } from "./src/defaults.js";
+
+// main.js no longer supplies a built-in default config — rootDataset now
+// comes entirely from the selected profile + Describe form. Stand in with a
+// minimal config here since this test calls buildCrate() directly.
+const TEST_CONFIG = {
+  rootDataset: { "@id": "arcp://name,test-crate", "@type": ["Dataset", "RepositoryCollection"], name: "Test Crate" },
+};
 
 function asTypes(entity) {
   if (!entity) return [];
@@ -26,7 +32,7 @@ function testObjectMode() {
     { fileName: "b.pdf", relativePath: "Top/sub/b.pdf" },
   ];
   const meta = buildFileMetadata(files);
-  const crate = buildCrate(meta, DEFAULT_CONFIG, () => {}, {
+  const crate = buildCrate(meta, TEST_CONFIG, () => {}, {
     topLevelFolderType: "object",
   });
   const graph = crate.getJson()["@graph"];
@@ -51,7 +57,7 @@ function testCollectionMode() {
     { fileName: "c.pdf", relativePath: "Top/sub/c.pdf" },
   ];
   const meta = buildFileMetadata(files);
-  const crate = buildCrate(meta, DEFAULT_CONFIG, () => {}, {
+  const crate = buildCrate(meta, TEST_CONFIG, () => {}, {
     topLevelFolderType: "collection",
   });
   const graph = crate.getJson()["@graph"];

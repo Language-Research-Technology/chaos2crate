@@ -103,12 +103,15 @@ Future work: surface an explicit note/example in the merge UI for `placeLookup.p
 
 ### Configuration
 
-Root-dataset metadata and sample data come from built-in defaults (`src/defaults.js`,
-the Dyirbal workshop config). Drop `config.json` and/or `sample-data.json` into the folder to
-override them per-folder (same shapes as `corpus-tools-dyirbal`). `config.dataDir` is ignored
-— the chosen folder is the data dir. If “Include sample data entities” is off, `sample-data.json`
-and built-in sample entities (including custom property definitions) are not added to the crate.
-Generated outputs and these two control files are skipped during the scan.
+Root-dataset metadata (name, description, license, etc.) and root-level config
+(`@type`, `conformsTo`, the metadata descriptor's own license) come entirely from the
+selected MASP profile: `@type`/`conformsTo`/`metadataLicence` from that profile's
+`crate-o-mode.json`, everything else from the values entered on the Describe step (driven
+by the profile's schema). There is no built-in fallback and no folder-level `config.json`
+override — a profile must be selected before Build is reachable, so this is always
+fully determined. `src/defaults.js` now only holds `CUSTOM_PROPERTIES`, the always-on
+`rdf:Property` definitions for the file-level custom fields (`participant`, `compiler`,
+`possibleDuplicate`) and AUSTLANG-derived language fields this app always writes.
 
 ---
 

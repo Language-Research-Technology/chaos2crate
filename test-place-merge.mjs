@@ -2,7 +2,13 @@ import assert from "node:assert/strict";
 import ExcelJS from "exceljs";
 import { buildFileMetadata, buildCrate, crateToJsonString } from "./src/crate.js";
 import { mergeXlsxIntoCrate } from "./src/plugins/merge/xlsx.js";
-import { DEFAULT_CONFIG } from "./src/defaults.js";
+
+// main.js no longer supplies a built-in default config — rootDataset now
+// comes entirely from the selected profile + Describe form. Stand in with a
+// minimal config here since this test calls buildCrate() directly.
+const TEST_CONFIG = {
+  rootDataset: { "@id": "arcp://name,test-crate", "@type": ["Dataset", "RepositoryCollection"], name: "Test Crate" },
+};
 
 const workbook = new ExcelJS.Workbook();
 const sheet = workbook.addWorksheet("Files");
@@ -11,7 +17,7 @@ sheet.addRow(["Dyirbal/dyirbal-dictionary.pdf", "Brisbane"]);
 const xlsxBytes = await workbook.xlsx.writeBuffer();
 
 const files = [{ fileName: "dyirbal-dictionary.pdf", relativePath: "Dyirbal/dyirbal-dictionary.pdf" }];
-const crate = buildCrate(buildFileMetadata(files), DEFAULT_CONFIG, () => {});
+const crate = buildCrate(buildFileMetadata(files), TEST_CONFIG, () => {});
 
 const stats = await mergeXlsxIntoCrate(crate, xlsxBytes, {
   sheet: "Files",
