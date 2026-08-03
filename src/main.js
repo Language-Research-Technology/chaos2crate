@@ -35,11 +35,17 @@ const MASP_PROFILES_REPO_NAME = "masp-profiles";
 const MASP_PROFILES_REPO_REF = "main";
 const APP_VERSION = packageJson.version || "dev";
 
-// Build-panel options come entirely from the plugin registry (src/plugins) —
-// each plugin owns its own optionSchema/settingsSchema fragment. Settings
-// modal fields with no plugin behavior attached (app/session preferences,
-// not build-time features) stay as a small static core array here.
-const OPTION_SCHEMA = composeOptionSchema();
+// Build-panel options mostly come from the plugin registry (src/plugins) —
+// each plugin owns its own optionSchema/settingsSchema fragment. This core
+// array is for build-time options that don't belong to any plugin — right
+// now just collectionLabelsBuilder, consumed directly by docx_crate.js's
+// crate-building (it sets each Collection entity's own `name`, not just an
+// HTML-rendering label), which isn't itself a plugin (see docx_crate.js).
+const CORE_OPTION_SCHEMA = [
+  { key: "collectionLabelsBuilder", type: "collectionLabelsBuilder", label: "Set menu names for collections…",
+    hint: "Optional, for Structured Word documents mode. Map each top-level collection folder to a friendlier label shown in the site's navigation menu and cards (e.g. AnmWeb1_HOME → Home) — the raw folder name is used for anything left blank." },
+];
+const OPTION_SCHEMA = [...composeOptionSchema(), ...CORE_OPTION_SCHEMA];
 
 // Shown in the Settings modal (accessed from the button next to Menu).
 const CORE_SETTINGS_SCHEMA = [

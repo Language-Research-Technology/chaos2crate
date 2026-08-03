@@ -279,8 +279,6 @@ export const plugin = {
     children: [
       { key: "templateRepoFolder", type: "select", label: "Template from rocss-template-repo",
         placeholder: "Loading folders…", hint: "Optional. Select one folder from the template repo." },
-      { key: "collectionLabelsBuilder", type: "collectionLabelsBuilder", label: "Set menu names for collections…",
-        hint: "Optional, for Structured Word documents mode. Map each top-level collection folder to a friendlier label shown in the site's navigation menu and cards (e.g. AnmWeb1_HOME → Home) — the raw folder name is used for anything left blank." },
       { key: "styledPreview", label: "Upload template files", default: false,
         hint: "Off = the library's plain preview.", children: [
         { key: "configFile", type: "file", label: "Config (JSON)", accept: ".json,.css,.html,application/json,text/css,text/html",
