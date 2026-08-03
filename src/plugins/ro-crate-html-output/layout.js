@@ -4,22 +4,21 @@
 // always showing the same six generic categories.
 import { DEFAULT_LAYOUT } from "../../default_layout.js";
 
-// Resolves one group's short property names (e.g. "inLanguage", "portalName")
+// Resolves one group's property names (e.g. "inLanguage", "custom:portalName")
 // to full URIs against the built crate's own context — the same context
 // collectDescribeValues() wrote the actual properties under, so the
-// resolved URI is guaranteed to match what's really on the entity.
-// crate.resolveTerm() only resolves terms it can actually find in the
-// context (confirmed by testing): real schema.org terms resolve directly,
-// but this app's own invented fields (portalName/portalDescription) only
-// resolve via a "custom:" prefix, matching how collectDescribeValues()
-// writes them. An input that still doesn't resolve either way is dropped
-// rather than guessed at.
+// resolved URI is guaranteed to match what's really on the entity. Profiles
+// are expected to declare properly prefixed names for anything that isn't a
+// real schema.org term (crate.resolveTerm() only resolves terms it can
+// actually find — confirmed by testing that a bare, invented name like
+// "portalName" resolves to undefined). An input that doesn't resolve is
+// dropped rather than guessed at.
 export function resolveProfileGroups(crate, propertyGroups) {
   if (!Array.isArray(propertyGroups)) return [];
   return propertyGroups
     .map((group) => {
       const inputs = (group.inputs || [])
-        .map((name) => crate.resolveTerm(name) || crate.resolveTerm(`custom:${name}`))
+        .map((name) => crate.resolveTerm(name))
         .filter(Boolean);
       return { name: group.name, inputs };
     })

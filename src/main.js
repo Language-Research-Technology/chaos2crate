@@ -1073,12 +1073,12 @@ function buildDescribeField(field) {
   input.id = "describe_" + field.key;
 
   if (existingRootDatasetEntity) {
-    // Fields like portalName/portalDescription are declared "custom:"-
-    // prefixed by the profile but, for template compatibility, also get
-    // written under the bare key (see collectDescribeValues) — check both,
-    // in whichever direction field.key isn't already.
-    const bareKey = field.key.replace(/^custom:/, "");
-    const raw = existingRootDatasetEntity[field.key] ?? existingRootDatasetEntity[bareKey] ?? existingRootDatasetEntity["custom:" + field.key];
+    // field.key is exactly what the profile declared and exactly what
+    // collectDescribeValues() writes onto the entity — no bare-name
+    // fallback; profiles are expected to declare properly prefixed names
+    // (e.g. "custom:portalName") for anything that isn't a real schema.org
+    // term.
+    const raw = existingRootDatasetEntity[field.key];
     if (field.inputKind === "entity-ref") {
       const linkedName = resolveLinkedName(raw, existingRootDatasetById);
       if (linkedName) input.value = linkedName;
@@ -1140,11 +1140,6 @@ function collectDescribeValues(fieldSchema) {
       continue;
     }
     rootDataset[field.key] = raw;
-    // Some templates read "custom:"-prefixed fields (e.g. portalName/
-    // portalDescription) under the bare key instead — write both.
-    if (field.key.startsWith("custom:")) {
-      rootDataset[field.key.slice("custom:".length)] = raw;
-    }
   }
   return rootDataset;
 }
