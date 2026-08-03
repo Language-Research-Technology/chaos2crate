@@ -984,7 +984,7 @@ async function chooseProfile(folderName) {
     const { profileJson, modeJson } = await masp.fetchProfile(MASP_PROFILES_REPO_OWNER, MASP_PROFILES_REPO_NAME, MASP_PROFILES_REPO_REF, folderName);
     const validator = await masp.loadValidator(profileJson, modeJson);
     const rootClassDefinition = masp.getRootClassDefinition(validator);
-    const fieldSchema = masp.toDescribeFieldSchema(rootClassDefinition);
+    const fieldSchema = masp.toDescribeFieldSchema(rootClassDefinition, modeJson.longTextInputs);
     selectedProfile = folderName;
     selectedProfileData = { validator, workflow: modeJson, rootClassDefinition, fieldSchema };
     status.textContent = `Ready: ${rootClassDefinition.name} (${fieldSchema.length} field(s)).`;

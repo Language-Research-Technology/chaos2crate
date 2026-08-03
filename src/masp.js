@@ -72,7 +72,11 @@ export function getRootClassDefinition(validator) {
 // {"@id","@type","name"} sub-entity on submit — same pattern the old static
 // Describe form already used for creator/inLanguage. A ["Value"]-typed input
 // (PropertyValue-fixed) is structural, not user-editable, and is skipped.
-function toDescribeField(input) {
+// longTextInputs is the exact set of property names (matching input.name,
+// including any prefix) the profile's own crate-o-mode.json declares as
+// multiline — MASP's own editor-definition shape has no such hint, and
+// resources2crate has no business guessing from the property's name.
+function toDescribeField(input, longTextInputs) {
   const types = Array.isArray(input.type) ? input.type : [input.type].filter(Boolean);
 
   if (types.includes("Value")) return null; // fixed/structural — nothing to render
@@ -95,9 +99,7 @@ function toDescribeField(input) {
   const entityType = types.find((t) => !SCALAR_TYPES.has(t));
   if (entityType) return { ...base, inputKind: "entity-ref", entityType };
 
-  const bareName = String(input.name || "").replace(/^[a-z][\w.-]*:/i, ""); // strip a prefix like "custom:"
-  const isLongText = bareName === "description" || bareName === "portalDescription";
-  return { ...base, inputKind: isLongText ? "textarea" : "text" };
+  return { ...base, inputKind: longTextInputs.has(input.name) ? "textarea" : "text" };
 }
 
 function describeLabel(propName) {
@@ -107,8 +109,12 @@ function describeLabel(propName) {
 }
 
 // The full Describe-step field schema for a profile's root class.
-export function toDescribeFieldSchema(classDefinition) {
-  return (classDefinition.inputs || []).map(toDescribeField).filter(Boolean);
+// longTextInputNames: modeJson.longTextInputs (crate-o-mode.json) — property
+// names the profile wants rendered as a textarea instead of a single-line
+// input. Defaults to none, not a guess.
+export function toDescribeFieldSchema(classDefinition, longTextInputNames = []) {
+  const longTextInputs = new Set(longTextInputNames);
+  return (classDefinition.inputs || []).map((input) => toDescribeField(input, longTextInputs)).filter(Boolean);
 }
 
 // Property names (root class only) whose declared type is the primitive
