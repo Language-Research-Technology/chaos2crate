@@ -9,6 +9,7 @@ import { HOOKS } from "../hooks.js";
 import { crateToPreviewHtml, crateToMultiPageHtml } from "../../crate.js";
 import { writeFile, writeFileAtPath, readJsonFromFolder, readFileTextFromDirectory, verifyPermission, fileExists } from "../../fs_helpers.js";
 import { bustCacheUrl, buildGitHubTreeUrl, fetchGitHubTextFile, listGitHubFolder } from "../../github.js";
+import { resolveProfileGroups, buildProfileAwareLayout } from "./layout.js";
 
 const HTML_FILE = "ro-crate-preview.html";
 const TEMPLATE_REPO_OWNER = "benfoley";
@@ -296,6 +297,18 @@ export const plugin = {
         return;
       }
       try {
+        // resolveTerm() (used below to place profile-declared property
+        // names) needs the context resolved first — crateToPreviewHtml/
+        // crateToMultiPageHtml also call this themselves, but only after
+        // the layout has already been computed; safe/idempotent to call twice.
+        await crate.resolveContext();
+        const profilePropertyGroups = ctx.selectedProfileData?.workflow?.propertyGroups;
+        const resolvedProfileGroups = resolveProfileGroups(crate, profilePropertyGroups);
+        const layout = buildProfileAwareLayout(crate, profilePropertyGroups);
+        if (resolvedProfileGroups.length) {
+          log(`Preview: profile layout applied (${resolvedProfileGroups.length} group(s): ${resolvedProfileGroups.map((g) => g.name).join(", ")}).`, "muted");
+        }
+
         let html;
         const selectedFolder = (options.templateRepoFolder || "").trim();
         const repoSelected = !!selectedFolder;
@@ -343,9 +356,16 @@ export const plugin = {
             if (resolved.template) { template = resolved.template; templateSrc = resolved.templateSrc; }
             if (resolved.css) { css = resolved.css; cssSrc = resolved.cssSrc; }
           }
+          // A template's own config.json-declared propertyGroups (the most
+          // specific, deliberate customization) still wins over the
+          // profile's — the profile only fills in when the template didn't
+          // set its own.
+          const cfgHasOwnGroups = !!(cfg && Array.isArray(cfg.propertyGroups) && cfg.propertyGroups.length);
+          const effectiveCfg = cfg && !cfgHasOwnGroups ? { ...cfg, propertyGroups: layout } : cfg;
+
           if (pageTemplates && !options.configUpload && cfg && cfg.multipage !== false) {
             log(`Preview: multipage template bundle (repo ${selectedFolder}) · config ${cfgSrc}.`, "muted");
-            const multi = await crateToMultiPageHtml(crate, { config: cfg, css, pageTemplates });
+            const multi = await crateToMultiPageHtml(crate, { config: effectiveCfg, css, pageTemplates });
             for (const page of multi.pages) {
               await writeFileAtPath(dirHandle, page.path, page.html);
             }
@@ -354,16 +374,16 @@ export const plugin = {
             ctx.lastHtmlTemplate = null;
           } else if (template) {
             log(`Preview: styled tabular · template ${templateSrc} · config ${cfgSrc} · style ${cssSrc}.`, "muted");
-            html = await crateToPreviewHtml(crate, { template, config: cfg, css });
-            ctx.lastHtmlTemplate = { template, config: cfg, css, source: templateSrc };
+            html = await crateToPreviewHtml(crate, { template, config: effectiveCfg, css });
+            ctx.lastHtmlTemplate = { template, config: effectiveCfg, css, source: templateSrc };
           } else {
             log("Preview: plain (library default template; no custom template file provided).", "muted");
-            html = await crateToPreviewHtml(crate);
+            html = await crateToPreviewHtml(crate, { layouts: { default: layout } });
             ctx.lastHtmlTemplate = null;
           }
         } else {
           log("Preview: plain (library default template).", "muted");
-          html = await crateToPreviewHtml(crate);
+          html = await crateToPreviewHtml(crate, { layouts: { default: layout } });
           ctx.lastHtmlTemplate = null;
         }
         await writeFile(dirHandle, HTML_FILE, html);
