@@ -71,11 +71,14 @@ that assembles the crate using the `ROCrate` class (generic-folder mode; there's
   `hasPart` link it to one `RepositoryObject` per top-level folder (standalone top-level files
   get a synthetic object), or, in Collections mode, a `RepositoryCollection` with child folder
   objects and a `Files` object for direct files;
-- one `File` entity per file (`@id` = relative path, `isPartOf`, `custom:possibleDuplicate`);
-- always-on custom `rdf:Property` definitions for the file-level custom fields this app writes
-  (`src/defaults.js`'s `CUSTOM_PROPERTIES`);
+- one `File` entity per file (`@id` = relative path, `isPartOf`); which custom fields (e.g.
+  `custom:participant`, `custom:possibleDuplicate`) get blank-initialized on every file, and
+  their `rdf:Property` definitions, also come from the selected profile
+  (`crate-o-mode.json`'s `fileProperties`) — nothing is added unconditionally;
 - hash `@id`s of `RepositoryObject`s rewritten to `arcp://…/<name>` on export;
-- optional AUSTLANG subject-language identification (filename-based; see options).
+- optional AUSTLANG subject-language identification (filename-based; see options) — its own
+  `rdf:Property` definitions (`custom:austlangCode` etc.) are only added when a language was
+  actually identified, not for every build.
 
 The crate object is then serialized with `crate.getJson()` (JSON), fed to `ro-crate-excel`'s
 `Workbook` (xlsx), and to `ro-crate-static-site`'s `renderSinglePage`/`renderTemplate`/
@@ -132,14 +135,14 @@ Future work: surface an explicit note/example in the merge UI for `placeLookup.p
 ### Configuration
 
 Root-dataset metadata (name, description, license, etc.) and root-level config
-(`@type`, `conformsTo`, the metadata descriptor's own license) come entirely from the
-selected MASP profile: `@type`/`conformsTo`/`metadataLicence` from that profile's
+(`@type`, `conformsTo`, the metadata descriptor's own license, and which per-file custom
+properties get written) come entirely from the selected MASP profile:
+`@type`/`conformsTo`/`metadataLicence`/`fileProperties` from that profile's
 `crate-o-mode.json`, everything else from the values entered on the Describe step (driven
 by the profile's schema). There is no built-in fallback and no folder-level `config.json`
-override — a profile must be selected before Build is reachable, so this is always
-fully determined. `src/defaults.js` now only holds `CUSTOM_PROPERTIES`, the always-on
-`rdf:Property` definitions for the file-level custom fields (`participant`, `compiler`,
-`possibleDuplicate`) and AUSTLANG-derived language fields this app always writes.
+override — a profile must be selected before Build is reachable, so this is always fully
+determined. There's no `src/defaults.js` anymore — the AUSTLANG plugin owns its own
+`rdf:Property` definitions too (added only when it actually identifies a language).
 
 ---
 

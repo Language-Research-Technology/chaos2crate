@@ -7,6 +7,17 @@
 import { HOOKS } from "../hooks.js";
 import { addLanguageEntities } from "../../crate.js";
 
+// rdf:Property definitions for the custom fields matcher.js's shapeMatch()
+// writes onto matched Language entities (custom:austlangCode/iso639-3/
+// glottologCode) — plugin-exclusive, so they're only added to the crate
+// when this plugin actually identified at least one language, not
+// unconditionally for every build regardless of whether AUSTLANG ran.
+const LANGUAGE_PROPERTY_DEFINITIONS = [
+  { "@id": "arcp://name,custom/terms#austlangCode", "@type": "rdf:Property", name: "Austlang Code", description: "The AUSTLANG code for a language." },
+  { "@id": "arcp://name,custom/terms#iso639-3", "@type": "rdf:Property", name: "ISO 639-3", description: "The ISO 639-3 code for a language." },
+  { "@id": "arcp://name,custom/terms#glottologCode", "@type": "rdf:Property", name: "Glottolog Code", description: "The Glottolog code for a language." },
+];
+
 export const plugin = {
   name: "austlang",
   optionSchema: {
@@ -26,6 +37,7 @@ export const plugin = {
     [HOOKS.CRATE_BUILT]: (ctx) => {
       if (!ctx.langByIndex) return;
       const n = addLanguageEntities(ctx.crate, ctx.filesWithMeta, ctx.langByIndex);
+      if (n) for (const p of LANGUAGE_PROPERTY_DEFINITIONS) ctx.crate.addEntity(p);
       ctx.log(`Identified ${n} unique language(s).`, n ? "ok" : "muted");
     },
   },

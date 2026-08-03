@@ -18,6 +18,12 @@ const TEST_CONFIG = {
     "@type": "ldac:DataReuseLicense",
     name: "Attribution 4.0 International (CC BY 4.0)",
   },
+  // fileProperties no longer come from a shared defaults.js — the selected
+  // profile declares them (see masp-profiles' language-resources crate-o-mode.json).
+  fileProperties: [
+    { key: "custom:participant", definition: { "@id": "arcp://name,custom/terms#participant", "@type": "rdf:Property", name: "Participant", description: "A participant associated with the file." } },
+    { key: "custom:possibleDuplicate", definition: { "@id": "arcp://name,custom/terms#possibleDuplicate", "@type": "rdf:Property", name: "Possible Duplicate", description: "Filename of a possible duplicate." } },
+  ],
 };
 
 // crate.js no longer falls back to a generic layout — pass an explicit one.

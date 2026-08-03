@@ -190,9 +190,10 @@ function generatedGeometryId(placeEntity, placeName) {
 // Merge a spreadsheet's rows into matching crate entities (by an "@id" column),
 // applying the config's column→property mappings. Typed mappings split on comma
 // or slash and generate linked entities. Any "custom:" target property that's
-// actually used but has no rdf:Property entity yet (the hand-written ones in
-// defaults.js, or a prior merge) gets a minimal one generated so it's not left
-// undocumented in the graph. Mutates `crate` in place; returns stats.
+// actually used but has no rdf:Property entity yet (the profile-declared ones
+// from config.fileProperties, or a prior merge) gets a minimal one generated
+// so it's not left undocumented in the graph. Mutates `crate` in place;
+// returns stats.
 export async function mergeXlsxIntoCrate(crate, xlsxData, mergeConfig, log = () => {}) {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(xlsxData);

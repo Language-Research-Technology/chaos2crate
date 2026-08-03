@@ -1282,6 +1282,7 @@ async function processFolder(dirHandle, files, options) {
   const effectiveConfig = {
     rootDataset,
     ...(profileWorkflow.metadataLicence ? { metadataLicence: profileWorkflow.metadataLicence } : {}),
+    ...(profileWorkflow.fileProperties ? { fileProperties: profileWorkflow.fileProperties } : {}),
     ...(collectionLabelsOverride ? { collectionLabels: collectionLabelsOverride } : {}),
   };
 

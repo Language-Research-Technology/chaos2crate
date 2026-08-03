@@ -10,7 +10,6 @@
 import { ROCrate } from "ro-crate";
 import { renderSinglePage, renderTemplate, renderMultiPage, roCrateToJSON } from "ro-crate-static-site";
 import Workbook from "ro-crate-excel/lib/workbook.js";
-import { CUSTOM_PROPERTIES } from "./defaults.js";
 
 /* Files that are generated output or local control files — never treated as
  * corpus data (mirrors GENERATED_FILENAMES in the original). */
@@ -164,19 +163,28 @@ function addFolderEntities(crate, filesWithMeta, opts = {}) {
   crate.rootDataset["pcdm:hasMember"] = memberIds.map((memberId) => ({ "@id": memberId }));
 }
 
-function addFileEntities(crate, filesWithMeta) {
+// fileProperties: the selected profile's declared per-file custom fields
+// (config.fileProperties, from crate-o-mode.json — see buildCrate) — each
+// { key, definition } pairs the compact property key written onto every
+// File entity with the rdf:Property entity documenting it. Blank-initialized
+// for every file, except "custom:possibleDuplicate" which is only written
+// (and only if the profile actually wants it) when duplicates were found.
+function addFileEntities(crate, filesWithMeta, fileProperties = []) {
+  const blankKeys = fileProperties.map((fp) => fp.key).filter((k) => k !== "custom:possibleDuplicate");
+  const wantsPossibleDuplicate = fileProperties.some((fp) => fp.key === "custom:possibleDuplicate");
   filesWithMeta.forEach((file) => {
+    const stubs = {};
+    for (const key of blankKeys) stubs[key] = "";
     crate.addEntity({
       "@id": file.id,
       "@type": "File",
       name: file.fileName,
       description: "",
       datePublished: "",
-      "custom:participant": "",
-      "custom:compiler": "",
+      ...stubs,
       contentLocation: "",
       isPartOf: { "@id": file.isPartOfId },
-      ...(file.possibleDuplicates.length
+      ...(wantsPossibleDuplicate && file.possibleDuplicates.length
         ? { "custom:possibleDuplicate": file.possibleDuplicates.map((id) => ({ "@id": id })) }
         : {}),
     });
@@ -265,9 +273,10 @@ export function buildCrate(filesWithMeta, config, log = () => {}, opts = {}) {
     crate.addEntity(config.metadataLicence);
   }
 
-  for (const p of CUSTOM_PROPERTIES) crate.addEntity(p);
+  const fileProperties = config.fileProperties || [];
+  for (const fp of fileProperties) crate.addEntity(fp.definition);
   addFolderEntities(crate, filesWithMeta, opts);
-  addFileEntities(crate, filesWithMeta);
+  addFileEntities(crate, filesWithMeta, fileProperties);
   rewriteHashIdsForExport(crate);
   return crate;
 }
