@@ -1,5 +1,55 @@
-// Small File System Access API helpers shared between the UI (main.js) and
-// the docx crate builder (docx_crate.js).
+// Small File System Access API helpers shared between the UI (main.js), the
+// docx crate builder (docx_crate.js), and build plugins (src/plugins/*.js).
+
+export async function verifyPermission(handle, readWrite) {
+  const opts = { mode: readWrite ? "readwrite" : "read" };
+  if ((await handle.queryPermission(opts)) === "granted") return true;
+  if ((await handle.requestPermission(opts)) === "granted") return true;
+  return false;
+}
+
+export async function fileExists(handle, filename) {
+  try { await handle.getFileHandle(filename, { create: false }); return true; }
+  catch { return false; }
+}
+
+export async function readFileText(handle, filename) {
+  try {
+    const fh = await handle.getFileHandle(filename, { create: false });
+    return await (await fh.getFile()).text();
+  } catch (e) {
+    if (e && e.name === "NotFoundError") return null;
+    throw e;
+  }
+}
+
+export async function readFileTextFromDirectory(handle, relativePath) {
+  if (!handle) return null;
+  const parts = String(relativePath || "").replace(/\\/g, "/").split("/").filter(Boolean);
+  if (!parts.length) return null;
+  let dir = handle;
+  for (let i = 0; i < parts.length - 1; i++) {
+    try { dir = await dir.getDirectoryHandle(parts[i], { create: false }); }
+    catch (e) {
+      if (e && e.name === "NotFoundError") return null;
+      throw e;
+    }
+  }
+  try {
+    const fh = await dir.getFileHandle(parts[parts.length - 1], { create: false });
+    return await (await fh.getFile()).text();
+  } catch (e) {
+    if (e && e.name === "NotFoundError") return null;
+    throw e;
+  }
+}
+
+export async function readJsonFromFolder(handle, filename) {
+  const text = await readFileText(handle, filename);
+  if (text === null) return null;
+  try { return JSON.parse(text); }
+  catch (e) { throw new Error(`${filename} in the folder is not valid JSON: ${e.message}`); }
+}
 
 export async function writeFile(handle, filename, contents) {
   const fh = await handle.getFileHandle(filename, { create: true });

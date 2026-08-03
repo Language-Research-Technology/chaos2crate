@@ -167,9 +167,8 @@ function addFolderEntities(crate, filesWithMeta, opts = {}) {
   crate.rootDataset["pcdm:hasMember"] = memberIds.map((memberId) => ({ "@id": memberId }));
 }
 
-function addFileEntities(crate, filesWithMeta, langByIndex) {
-  filesWithMeta.forEach((file, index) => {
-    const matched = langByIndex ? langByIndex[index].matchedLanguages : [];
+function addFileEntities(crate, filesWithMeta) {
+  filesWithMeta.forEach((file) => {
     crate.addEntity({
       "@id": file.id,
       "@type": "File",
@@ -183,19 +182,30 @@ function addFileEntities(crate, filesWithMeta, langByIndex) {
       ...(file.possibleDuplicates.length
         ? { "custom:possibleDuplicate": file.possibleDuplicates.map((id) => ({ "@id": id })) }
         : {}),
-      ...(matched.length
-        ? { "ldac:subjectLanguage": matched.map((l) => ({ "@id": l["@id"] })) }
-        : {}),
     });
   });
 }
 
-function addLanguageEntities(crate, langByIndex) {
+// Adds every matched Language (+ its Geometry, if any) as its own entity,
+// then links each matched file to them via ldac:subjectLanguage. Exported
+// for the austlang plugin (src/plugins/austlang.js) to call as a post-build
+// step — this is the one place crate.js used to know about AUSTLANG
+// specifically (addFileEntities used to set ldac:subjectLanguage inline at
+// file-creation time); now it's an ordinary post-hoc mutation, the same
+// entity-lookup + direct-assignment idiom mergeXlsxIntoCrate already uses
+// below (graphEntityById + entity[key] = value).
+export function addLanguageEntities(crate, filesWithMeta, langByIndex) {
   const identified = new Map();
   langByIndex.forEach((r) => r.matchedLanguages.forEach((l) => identified.set(l["@id"], l)));
   identified.forEach((language) => {
     crate.addEntity(language);
     if (language.geo) crate.addEntity(language.geo);
+  });
+  filesWithMeta.forEach((file, index) => {
+    const matched = langByIndex[index].matchedLanguages;
+    if (!matched.length) return;
+    const entity = graphEntityById(crate, file.id);
+    if (entity) entity["ldac:subjectLanguage"] = matched.map((l) => ({ "@id": l["@id"] }));
   });
   return identified.size;
 }
@@ -235,7 +245,7 @@ export function loadCrateFromJson(json) {
 }
 
 /* ---------- top-level: build the ROCrate ---------- */
-export function buildCrate(filesWithMeta, config, langByIndex, log = () => {}, opts = {}) {
+export function buildCrate(filesWithMeta, config, log = () => {}, opts = {}) {
   const crate = new ROCrate({ array: true, link: true });
   crate.addContext({ ldac: "https://w3id.org/ldac/terms#" });
   crate.addContext({ pcdm: "http://pcdm.org/models#" });
@@ -253,11 +263,7 @@ export function buildCrate(filesWithMeta, config, langByIndex, log = () => {}, o
 
   for (const p of CUSTOM_PROPERTIES) crate.addEntity(p);
   addFolderEntities(crate, filesWithMeta, opts);
-  addFileEntities(crate, filesWithMeta, langByIndex);
-  if (langByIndex) {
-    const n = addLanguageEntities(crate, langByIndex);
-    log(`Identified ${n} unique language(s).`, n ? "ok" : "muted");
-  }
+  addFileEntities(crate, filesWithMeta);
   rewriteHashIdsForExport(crate);
   return crate;
 }

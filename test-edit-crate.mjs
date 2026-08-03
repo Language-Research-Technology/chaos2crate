@@ -13,7 +13,7 @@ const files = [
   { fileName: "wordlist.csv", relativePath: "Dyirbal/lists/wordlist.csv" },
 ];
 const meta = buildFileMetadata(files);
-const built = buildCrate(meta, DEFAULT_CONFIG, null, () => {});
+const built = buildCrate(meta, DEFAULT_CONFIG, () => {});
 const originalJson = JSON.parse(crateToJsonString(built));
 
 console.log("=== load existing crate JSON for editing ===");

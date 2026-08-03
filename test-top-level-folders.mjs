@@ -26,7 +26,7 @@ function testObjectMode() {
     { fileName: "b.pdf", relativePath: "Top/sub/b.pdf" },
   ];
   const meta = buildFileMetadata(files);
-  const crate = buildCrate(meta, DEFAULT_CONFIG, null, () => {}, {
+  const crate = buildCrate(meta, DEFAULT_CONFIG, () => {}, {
     topLevelFolderType: "object",
   });
   const graph = crate.getJson()["@graph"];
@@ -51,7 +51,7 @@ function testCollectionMode() {
     { fileName: "c.pdf", relativePath: "Top/sub/c.pdf" },
   ];
   const meta = buildFileMetadata(files);
-  const crate = buildCrate(meta, DEFAULT_CONFIG, null, () => {}, {
+  const crate = buildCrate(meta, DEFAULT_CONFIG, () => {}, {
     topLevelFolderType: "collection",
   });
   const graph = crate.getJson()["@graph"];

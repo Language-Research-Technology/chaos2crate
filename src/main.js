@@ -4,18 +4,25 @@
 // and the stepped Build/Show UI.
 
 import {
-  buildFileMetadata, buildCrate, crateToJsonString, crateToXlsxBytes, crateToPreviewHtml, crateToMultiPageHtml,
-  mergeXlsxIntoCrate, readXlsxHeaders, readXlsxContextPrefixes, loadCrateFromJson, GENERATED_FILENAMES, CONTROL_FILENAMES,
+  crateToJsonString, crateToXlsxBytes, crateToPreviewHtml,
+  readXlsxHeaders, readXlsxContextPrefixes, loadCrateFromJson, GENERATED_FILENAMES, CONTROL_FILENAMES,
 } from "./crate.js";
-import { writeFile, writeFileAtPath } from "./fs_helpers.js";
-// ./austlang.js (and its bundled AUSTLANG data pack) is loaded lazily via
-// dynamic import() only when language lookups are enabled — see run() — so the
-// ~730 kB data pack stays out of the main bundle.
+import {
+  writeFile, verifyPermission, fileExists, readFileText, readJsonFromFolder,
+} from "./fs_helpers.js";
+import { listGitHubFolder } from "./github.js";
 import { DEFAULT_CONFIG } from "./defaults.js";
 import packageJson from "../package.json";
-// Default column→property mapping for the spreadsheet merge. A folder may
-// override it with its own merge-config.json (see processFolder).
-import MERGE_CONFIG from "./merge_config.json";
+import { createHookBus } from "./plugins/hooks.js";
+import { registerAllPlugins, composeOptionSchema, composeSettingsSchema } from "./plugins/index.js";
+import { runPipeline } from "./plugins/pipeline.js";
+import { resetUploadedConfigDirHandle } from "./plugins/ro-crate-html-output.js";
+
+// The hook bus is created once and plugins registered once — all
+// build-specific state lives in the fresh ctx object passed to emit() on
+// each build, not in the handlers themselves. See src/plugins/hooks.js.
+const hookBus = createHookBus();
+registerAllPlugins(hookBus);
 
 const JSON_FILE = "ro-crate-metadata.json";
 const XLSX_FILE = "ro-crate-metadata.xlsx";
@@ -28,37 +35,14 @@ const MASP_PROFILES_REPO_NAME = "masp-profiles";
 const MASP_PROFILES_REPO_REF = "main";
 const APP_VERSION = packageJson.version || "dev";
 
-const OPTION_SCHEMA = [
-  { key: "makeHtml", label: "Generate ro-crate-preview.html", default: true, children: [
-    { key: "templateRepoFolder", type: "select", label: "Template from rocss-template-repo",
-      placeholder: "Loading folders…", hint: "Optional. Select one folder from the template repo." },
-    { key: "collectionLabelsBuilder", type: "collectionLabelsBuilder", label: "Set menu names for collections…",
-      hint: "Optional, for Structured Word documents mode. Map each top-level collection folder to a friendlier label shown in the site's navigation menu and cards (e.g. AnmWeb1_HOME → Home) — the raw folder name is used for anything left blank." },
-    { key: "styledPreview", label: "Upload template files", default: false,
-      hint: "Off = the library's plain preview.", children: [
-      { key: "configFile", type: "file", label: "Config (JSON)", accept: ".json,.css,.html,application/json,text/css,text/html",
-        hint: "Required. If config uses relative paths, include sibling template/style files in the same upload/drop." },
-    ] },
-  ] },
-  { key: "enableLanguageLookups", label: "Identify subject languages (AUSTLANG, by filename)", default: false,
-    hint: "Matches filenames against a bundled copy of the AUSTLANG data pack — fully offline, no network.", children: [
-    { key: "includeAlternateNames", label: "Match Austlang alternate names", default: false,
-      hint: "More matches, more false positives." },
-  ] },
-  { key: "merge", label: "Merge metadata from a spreadsheet", default: false,
-    hint: "Reads an .xlsx and merges its columns into matching entities (by their @id) before generating outputs.", children: [
-    { key: "mergeFile", type: "file", label: "Spreadsheet (XLSX)", binary: true,
-      accept: ".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      hint: "Rows are matched to entities by the @id column." },
-    { key: "mergeMappingBuilder", type: "mappingBuilder", label: "Build mapping from spreadsheet columns…",
-      hint: "Reads the column headers from the spreadsheet above and lets you set a target property (and type) for each one. You can also load an existing mapping config.json from inside that dialog." },
-    { key: "doPlaceLookups", label: "Do placenames lookup", default: true,
-      hint: "When on, merged Place entities try to look up coordinates and generate linked Geometry entities." },
-  ] },
-];
+// Build-panel options come entirely from the plugin registry (src/plugins) —
+// each plugin owns its own optionSchema/settingsSchema fragment. Settings
+// modal fields with no plugin behavior attached (app/session preferences,
+// not build-time features) stay as a small static core array here.
+const OPTION_SCHEMA = composeOptionSchema();
 
 // Shown in the Settings modal (accessed from the button next to Menu).
-const SETTINGS_SCHEMA = [
+const CORE_SETTINGS_SCHEMA = [
   { key: "inputMode", type: "select", label: "Input type", default: "generic",
     options: [
       { value: "generic", label: "Generic folder of files" },
@@ -78,10 +62,10 @@ const SETTINGS_SCHEMA = [
     ],
     hint: "When Collections is selected, child folders are emitted as RepositoryObjects; files directly inside a top-level folder are grouped into an object named Files." },
   { key: "overwrite", label: "Overwrite existing outputs", default: true },
-  { key: "makeXlsx", label: "Generate ro-crate-metadata.xlsx", default: true },
   { key: "enableLocalTemplateUpload", label: "Enable local template upload", default: false,
     hint: "Shows or hides the Upload template files option in Build settings." },
 ];
+const SETTINGS_SCHEMA = [...CORE_SETTINGS_SCHEMA, ...composeSettingsSchema()];
 
 /* ---------- DOM helpers ---------- */
 const $ = (id) => document.getElementById(id);
@@ -174,25 +158,6 @@ function clearLog() {
   syncLogActionButtons();
 }
 
-function collectTypeCounts(graph) {
-  const counts = new Map();
-  for (const entity of graph || []) {
-    const raw = entity && entity["@type"];
-    const types = Array.isArray(raw) ? raw : (raw ? [raw] : []);
-    if (!types.length) {
-      counts.set("(none)", (counts.get("(none)") || 0) + 1);
-      continue;
-    }
-    for (const type of types) {
-      const key = String(type || "").trim() || "(none)";
-      counts.set(key, (counts.get(key) || 0) + 1);
-    }
-  }
-  return Array.from(counts.entries())
-    .map(([type, count]) => ({ type, count }))
-    .sort((a, b) => (b.count - a.count) || a.type.localeCompare(b.type));
-}
-
 function renderTypeStatus(typeCounts) {
   const host = $("typeStatus");
   if (!host) return;
@@ -233,7 +198,6 @@ function showView(name) {
 /* ---------- options form ---------- */
 // Uploaded files (from dropzones), keyed by option key.
 const uploads = {};
-let uploadedConfigDirHandle = null;
 // The "Build mapping…" button — only enabled once a merge spreadsheet is uploaded.
 let mergeMappingBuilderBtn = null;
 function refreshMergeMappingBuilderBtn() {
@@ -244,7 +208,7 @@ function hintEl(text) { const h = document.createElement("div"); h.className = "
 
 function buildForm() {
   Object.keys(uploads).forEach((k) => delete uploads[k]);
-  uploadedConfigDirHandle = null;
+  resetUploadedConfigDirHandle();
   const form = $("optionsForm");
   form.innerHTML = "";
   renderOptions(OPTION_SCHEMA, form);
@@ -409,7 +373,7 @@ function buildFileField(opt) {
     const files = Array.from(fileList || []);
     if (!files.length) return;
     if (opt.key === "configFile") {
-      uploadedConfigDirHandle = null;
+      resetUploadedConfigDirHandle();
       const cfg = files.find((f) => f.name.toLowerCase() === "config.json")
         || files.find((f) => f.name.toLowerCase().endsWith(".json"))
         || files[0];
@@ -1286,12 +1250,6 @@ function refreshBuildStepActions() {
 /* ---------- File System Access ---------- */
 let dirHandle = null;
 
-async function verifyPermission(handle, readWrite) {
-  const opts = { mode: readWrite ? "readwrite" : "read" };
-  if ((await handle.queryPermission(opts)) === "granted") return true;
-  if ((await handle.requestPermission(opts)) === "granted") return true;
-  return false;
-}
 async function walkDirectory(handle, prefix = "") {
   const files = [];
   for await (const entry of handle.values()) {
@@ -1304,345 +1262,12 @@ async function walkDirectory(handle, prefix = "") {
   }
   return files;
 }
-async function fileExists(handle, filename) {
-  try { await handle.getFileHandle(filename, { create: false }); return true; }
-  catch { return false; }
-}
-async function readFileText(handle, filename) {
-  try {
-    const fh = await handle.getFileHandle(filename, { create: false });
-    return await (await fh.getFile()).text();
-  } catch (e) {
-    if (e && e.name === "NotFoundError") return null;
-    throw e;
-  }
-}
-
-async function readFileTextFromDirectory(handle, relativePath) {
-  if (!handle) return null;
-  const parts = String(relativePath || "").replace(/\\/g, "/").split("/").filter(Boolean);
-  if (!parts.length) return null;
-  let dir = handle;
-  for (let i = 0; i < parts.length - 1; i++) {
-    try { dir = await dir.getDirectoryHandle(parts[i], { create: false }); }
-    catch (e) {
-      if (e && e.name === "NotFoundError") return null;
-      throw e;
-    }
-  }
-  try {
-    const fh = await dir.getFileHandle(parts[parts.length - 1], { create: false });
-    return await (await fh.getFile()).text();
-  } catch (e) {
-    if (e && e.name === "NotFoundError") return null;
-    throw e;
-  }
-}
-
-async function readJsonFromFolder(handle, filename) {
-  const text = await readFileText(handle, filename);
-  if (text === null) return null;
-  try { return JSON.parse(text); }
-  catch (e) { throw new Error(`${filename} in the folder is not valid JSON: ${e.message}`); }
-}
-
-// raw.githubusercontent.com is served through a CDN that caches per exact URL
-// for a few minutes, so a recent push can otherwise still serve stale content;
-// a unique query param forces a fresh fetch from origin.
-function bustCacheUrl(rawUrl) {
-  return `${rawUrl}${rawUrl.includes("?") ? "&" : "?"}_=${Date.now()}`;
-}
-
-function pickPreferredFile(files, ext, hints = []) {
-  const byExt = files.filter((f) => f && f.type === "file" && typeof f.name === "string" && f.name.toLowerCase().endsWith(ext));
-  if (!byExt.length) return null;
-  for (const h of hints) {
-    const found = byExt.find((f) => f.name.toLowerCase().includes(h));
-    if (found) return found;
-  }
-  return byExt[0];
-}
-
-function preferredUploadedFile(uploadedFiles, ext, hints = []) {
-  if (!uploadedFiles) return null;
-  const uniqueFiles = [];
-  const seen = new Set();
-  uploadedFiles.forEach((file) => {
-    if (!file || seen.has(file)) return;
-    seen.add(file);
-    uniqueFiles.push(file);
-  });
-  return pickPreferredFile(uniqueFiles, ext, hints);
-}
-
-function getNestedValue(obj, path) {
-  let cur = obj;
-  for (const key of path.split(".")) {
-    if (!cur || typeof cur !== "object") return null;
-    cur = cur[key];
-  }
-  return cur;
-}
-
-function pickConfigString(cfg, paths) {
-  for (const p of paths) {
-    const v = getNestedValue(cfg, p);
-    if (typeof v === "string" && v.trim()) return v.trim();
-  }
-  return null;
-}
-
-function isLikelyInlineTemplate(text) {
-  return /<[a-z!/][^>]*>/i.test(text);
-}
-
-function isLikelyInlineCss(text) {
-  return /[{;}]/.test(text) && /\s/.test(text);
-}
-
-function isAbsolutePathSpec(value) {
-  return /^\//.test(value) || /^[A-Za-z]:[\\/]/.test(value) || /^~\//.test(value);
-}
-
-function pathTailCandidates(value) {
-  const rel = String(value || "").replace(/^~\//, "").replace(/^[A-Za-z]:[\\/]/, "").replace(/^\/+/, "").replace(/\\/g, "/");
-  const parts = rel.split("/").filter(Boolean);
-  const out = [];
-  for (let i = 0; i < parts.length; i++) out.push(parts.slice(i).join("/"));
-  return out;
-}
-
-function hasUploadedMatch(uploadedFiles, spec) {
-  if (!uploadedFiles) return false;
-  const rel = String(spec || "").replace(/^\.\//, "").replace(/^~\//, "").replace(/^[A-Za-z]:[\\/]/, "").replace(/^\/+/, "").replace(/\\/g, "/");
-  const base = rel.split("/").pop();
-  return !!(uploadedFiles.get(rel) || uploadedFiles.get(base));
-}
-
-function needsLocalTemplateFolder(cfg, uploadedFiles) {
-  const refs = [
-    pickConfigString(cfg, ["root:template", "root.template", "template", "templateFile", "templatePath", "templateUrl", "files.template", "paths.template", "assets.template"]),
-    pickConfigString(cfg, ["style", "css", "styleFile", "stylePath", "styleUrl", "cssFile", "cssPath", "cssUrl", "files.style", "files.css", "paths.style", "paths.css", "assets.style", "assets.css"]),
-  ].filter(Boolean);
-  for (const v of refs) {
-    if (/^https?:\/\//i.test(v)) continue;
-    if (isLikelyInlineTemplate(v) || isLikelyInlineCss(v)) continue;
-    if (hasUploadedMatch(uploadedFiles, v)) continue;
-    return true;
-  }
-  return false;
-}
-
-async function ensureUploadedConfigDirectoryHandle() {
-  if (uploadedConfigDirHandle) {
-    const ok = await verifyPermission(uploadedConfigDirHandle, false);
-    if (ok) return uploadedConfigDirHandle;
-    uploadedConfigDirHandle = null;
-  }
-  try {
-    const picked = await window.showDirectoryPicker({ mode: "read" });
-    const ok = await verifyPermission(picked, false);
-    if (!ok) throw new Error("Permission to read the config folder was denied.");
-    uploadedConfigDirHandle = picked;
-    return uploadedConfigDirHandle;
-  } catch (e) {
-    if (e && e.name === "AbortError") throw new Error("Config folder selection was cancelled.");
-    throw e;
-  }
-}
-
-async function resolveTemplateAsset(spec, kind, { dirHandle = null, baseRawUrl = "", uploadedFiles = null } = {}) {
-  const val = String(spec || "").trim();
-  if (!val) return { text: kind === "css" ? "" : null, source: "none" };
-
-  if (kind === "template" && isLikelyInlineTemplate(val)) return { text: val, source: "inline config" };
-  if (kind === "css" && isLikelyInlineCss(val)) return { text: val, source: "inline config" };
-
-  if (/^https?:\/\//i.test(val)) {
-    const res = await fetch(bustCacheUrl(val), { cache: "no-store" });
-    if (!res.ok) throw new Error(`Could not download ${kind} from URL (${res.status} ${res.statusText}).`);
-    return { text: await res.text(), source: `url (${val})` };
-  }
-
-  if (baseRawUrl) {
-    const url = new URL(val.replace(/^\.\//, ""), baseRawUrl).toString();
-    const res = await fetch(bustCacheUrl(url), { cache: "no-store" });
-    if (!res.ok) throw new Error(`Could not download ${kind} from config path "${val}" (${res.status} ${res.statusText}).`);
-    return { text: await res.text(), source: `url (${url})` };
-  }
-
-  if (uploadedFiles) {
-    const rel = val.replace(/^\.\//, "").replace(/^~\//, "").replace(/^[A-Za-z]:[\\/]/, "").replace(/^\/+/, "").replace(/\\/g, "/");
-    const base = rel.split("/").pop();
-    const uploaded = uploadedFiles.get(rel) || uploadedFiles.get(base);
-    if (uploaded) return { text: await uploaded.text(), source: `upload (${rel})` };
-  }
-
-  if (dirHandle) {
-    if (isAbsolutePathSpec(val)) {
-      for (const candidate of pathTailCandidates(val)) {
-        const text = await readFileTextFromDirectory(dirHandle, candidate);
-        if (text !== null) return { text, source: `folder (${candidate})` };
-      }
-    } else {
-      const rel = val.replace(/^\.\//, "");
-      const text = await readFileTextFromDirectory(dirHandle, rel);
-      if (text !== null) return { text, source: `folder (${rel})` };
-    }
-  }
-
-  throw new Error(`Could not resolve ${kind} from config value "${val}".`);
-}
-
-async function resolveTemplateBundleFromConfig(cfg, opts = {}) {
-  const templateRef = pickConfigString(cfg, [
-    "root:template", "root.template",
-    "template", "templateFile", "templatePath", "templateUrl",
-    "files.template", "paths.template", "assets.template",
-  ]);
-  const styleRef = pickConfigString(cfg, [
-    "style", "css", "styleFile", "stylePath", "styleUrl", "cssFile", "cssPath", "cssUrl",
-    "files.style", "files.css", "paths.style", "paths.css", "assets.style", "assets.css",
-  ]);
-
-  let templateResolved = templateRef ? await resolveTemplateAsset(templateRef, "template", opts) : { text: null, source: "none" };
-  let styleResolved = styleRef ? await resolveTemplateAsset(styleRef, "css", opts) : { text: "", source: "none" };
-
-  if (!templateRef && opts.uploadedFiles) {
-    const uploadedTemplate = preferredUploadedFile(opts.uploadedFiles, ".html", ["template", "preview"]);
-    if (uploadedTemplate) {
-      templateResolved = {
-        text: await uploadedTemplate.text(),
-        source: `upload (${uploadedTemplate.name})`,
-      };
-    }
-  }
-
-  if (!styleRef && opts.uploadedFiles) {
-    const uploadedStyle = preferredUploadedFile(opts.uploadedFiles, ".css", ["style", "preview"]);
-    if (uploadedStyle) {
-      styleResolved = {
-        text: await uploadedStyle.text(),
-        source: `upload (${uploadedStyle.name})`,
-      };
-    }
-  }
-
-  return {
-    template: templateResolved.text,
-    css: styleResolved.text || "",
-    templateSrc: templateResolved.source,
-    cssSrc: styleResolved.source,
-  };
-}
-
-function buildGitHubTreeUrl(owner, repo, ref, folderPath) {
-  const safePath = String(folderPath || "").split("/").map((p) => encodeURIComponent(p)).join("/");
-  return `https://github.com/${owner}/${repo}/tree/${encodeURIComponent(ref)}/${safePath}`;
-}
-
-function buildGitHubRawUrl(owner, repo, ref, filePath) {
-  const safePath = String(filePath || "").split("/").map((p) => encodeURIComponent(p)).join("/");
-  return `https://raw.githubusercontent.com/${owner}/${repo}/${encodeURIComponent(ref)}/${safePath}`;
-}
-
-async function fetchGitHubTextFile(owner, repo, ref, filePath, downloadUrl = "") {
-  const url = downloadUrl || buildGitHubRawUrl(owner, repo, ref, filePath);
-  const res = await fetch(bustCacheUrl(url), { cache: "no-store" });
-  if (!res.ok) throw new Error(`Could not download ${filePath} (${res.status} ${res.statusText}).`);
-  return await res.text();
-}
-
-// Folder listings go through the GitHub Contents API, which — unlike the
-// raw.githubusercontent.com fetches used everywhere else — is rate-limited
-// to 60 unauthenticated requests/hour per IP. The same few folders
-// (profiles list, template-repo folder list, a chosen template's contents)
-// get re-listed every time their step is revisited in a session, so cache
-// by (owner, repo, ref, folderPath) for the lifetime of the page load.
-// Only successful results are cached — a failure (rate limit, network
-// blip) should still be retried next time, not remembered as permanent.
-const githubFolderCache = new Map();
-
-async function listGitHubFolder(owner, repo, ref, folderPath) {
-  const cacheKey = `${owner}/${repo}/${ref}/${folderPath}`;
-  if (githubFolderCache.has(cacheKey)) return githubFolderCache.get(cacheKey);
-
-  const encodedFolder = folderPath.split("/").map((p) => encodeURIComponent(p)).join("/");
-  const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${encodedFolder}?ref=${encodeURIComponent(ref)}`;
-  const res = await fetch(apiUrl, { headers: { Accept: "application/vnd.github+json" }, cache: "no-store" });
-  if (!res.ok) throw new Error(`Could not list template folder "${folderPath}" (${res.status} ${res.statusText}).`);
-  const entries = await res.json();
-  if (!Array.isArray(entries)) throw new Error(`Unexpected API response for template folder "${folderPath}".`);
-  githubFolderCache.set(cacheKey, entries);
-  return entries;
-}
-
-async function fetchTemplateBundle(owner, repo, ref, folderPath) {
-  const safeFolder = String(folderPath || "").replace(/^\/+|\/+$/g, "");
-  if (!safeFolder) throw new Error("No template folder selected.");
-
-  const entries = await listGitHubFolder(owner, repo, ref, safeFolder);
-
-  const files = entries
-    .filter((e) => e && e.type === "file" && typeof e.name === "string")
-    .map((e) => ({
-      name: e.name,
-      path: e.path || `${safeFolder}/${e.name}`,
-      downloadUrl: typeof e.download_url === "string" ? e.download_url : "",
-      type: "file",
-    }));
-
-  const templateFile = pickPreferredFile(files, ".html", ["template", "tabular", "preview", "index"]);
-  const configFile = pickPreferredFile(files, ".json", ["config", "preview"]);
-  const styleFile = pickPreferredFile(files, ".css", ["style", "preview", "default"]);
-
-  const template = templateFile
-    ? await fetchGitHubTextFile(owner, repo, ref, templateFile.path, templateFile.downloadUrl)
-    : null;
-  const configText = configFile
-    ? await fetchGitHubTextFile(owner, repo, ref, configFile.path, configFile.downloadUrl)
-    : null;
-  const css = styleFile
-    ? await fetchGitHubTextFile(owner, repo, ref, styleFile.path, styleFile.downloadUrl)
-    : "";
-
-  let config = null;
-  if (configText !== null) {
-    try { config = JSON.parse(configText); }
-    catch (e) { throw new Error(`Template config ${configFile.name} is not valid JSON: ${e.message}`); }
-  }
-
-  // Multipage bundles (see rocss-template-repo's README) keep their per-role
-  // templates in a templates/ subfolder, referenced from config.json as
-  // e.g. "templates/root-template.html" — a path relative to this folder.
-  // Fetch every .html file there, keyed by that same relative path, so
-  // crateToMultiPageHtml's pageTemplates lookup can resolve them directly.
-  const pageTemplates = {};
-  const templatesSubfolder = entries.find((e) => e && e.type === "dir" && e.name === "templates");
-  if (templatesSubfolder) {
-    const subEntries = await listGitHubFolder(owner, repo, ref, `${safeFolder}/templates`);
-    const subHtmlFiles = subEntries.filter((e) => e && e.type === "file" && /\.html?$/i.test(e.name || ""));
-    for (const entry of subHtmlFiles) {
-      const text = await fetchGitHubTextFile(owner, repo, ref, entry.path, entry.download_url || "");
-      pageTemplates[`templates/${entry.name}`] = text;
-    }
-  }
-
-  return {
-    template,
-    config,
-    css,
-    pageTemplates,
-    files: {
-      template: templateFile ? templateFile.name : null,
-      config: configFile ? configFile.name : null,
-      style: styleFile ? styleFile.name : null,
-    },
-    source: buildGitHubTreeUrl(owner, repo, ref, safeFolder),
-  };
-}
-
 /* ---------- Build ---------- */
+// Thin wrapper: reads config.json, applies the Describe-step/collection-
+// labels overrides, builds the shared pipeline context, and hands off to
+// runPipeline() (src/plugins/pipeline.js) — everything else (which input
+// mode to parse, AUSTLANG, merge, JSON/XLSX/HTML output, profile
+// validation) happens via hook-tapping plugins from there.
 async function processFolder(dirHandle, files, options) {
   const config = (await readJsonFromFolder(dirHandle, "config.json")) || DEFAULT_CONFIG;
   const effectiveConfig = {
@@ -1651,202 +1276,19 @@ async function processFolder(dirHandle, files, options) {
     ...(collectionLabelsOverride ? { collectionLabels: collectionLabelsOverride } : {}),
   };
 
-  let crate;
-  let sourceCount;
+  const ctx = {
+    dirHandle, files, options, log,
+    config: effectiveConfig,
+    configSource: config === DEFAULT_CONFIG ? "built-in default" : "config.json from folder",
+    selectedProfileData,
+  };
 
-  if (options.inputMode === "docx") {
-    log(`Config: ${config === DEFAULT_CONFIG ? "built-in default" : "config.json from folder"}.`, "muted");
-    log("Parsing structured Word documents (Heading 1/2/3 → Collections/Chapters)…", "info");
-    const { buildCrateFromDocxFolder, scanDocxFolder } = await import("./docx_crate.js");
-    const scan = await scanDocxFolder(dirHandle);
-    if (scan.docxCount === 0) {
-      throw new Error(
-        "No .docx files found in this folder's sub-folders. Expected one folder per collection " +
-        "directly inside the picked folder, each containing structured .docx files."
-      );
-    }
-    if (!scan.hasHeadingStyles) {
-      log(
-        "Warning: none of the sampled .docx files use Word's Heading 1/2/3 paragraph styles — " +
-        "structure (Collections/Chapters) may come out empty. See the README for the required authoring conventions.",
-        "warn"
-      );
-    }
-    const result = await buildCrateFromDocxFolder(dirHandle, effectiveConfig, (msg) => log(msg, "muted"));
-    if (!result) {
-      throw new Error(
-        "No collection sub-folders with .docx files were found. Expected one folder per collection " +
-        "directly inside the picked folder, each containing structured .docx files — see " +
-        "corpus-tools-person-centred-collections-docx's README for the folder layout."
-      );
-    }
-    crate = result.crate;
-    sourceCount = result.documentPartCount;
-    log(`Built crate: ${result.collectionCount} collection(s), ${result.documentPartCount} document(s).`, "ok");
-  } else {
-    log(`Config: ${config === DEFAULT_CONFIG ? "built-in default" : "config.json from folder"}.`, "muted");
+  const result = await runPipeline(ctx, hookBus);
 
-    files.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
-    const filesWithMeta = buildFileMetadata(files);
-    log(`Scanned ${filesWithMeta.length} file(s).`, "info");
-    sourceCount = filesWithMeta.length;
+  if ("buildHtml" in ctx) buildHtml = ctx.buildHtml;
+  if ("lastHtmlTemplate" in ctx) lastHtmlTemplate = ctx.lastHtmlTemplate;
 
-    let langByIndex = null;
-    if (options.enableLanguageLookups) {
-      const { identifyAllLanguages } = await import("./austlang.js");
-      langByIndex = await identifyAllLanguages(filesWithMeta, options.includeAlternateNames, log);
-    }
-
-    crate = buildCrate(filesWithMeta, effectiveConfig, langByIndex, log, {
-      topLevelFolderType: options.topLevelFolderType,
-    });
-
-    // Optional: merge metadata from an uploaded spreadsheet (before outputs).
-    if (options.merge && options.mergeUpload) {
-      // Mapping config precedence: uploaded file → folder file → bundled default.
-      let mergeConfig = MERGE_CONFIG, mcSrc = "bundled default";
-      if (options.mergeConfigUpload) {
-        const mcText = await options.mergeConfigUpload.file.text();
-        try { mergeConfig = JSON.parse(mcText); }
-        catch (e) { throw new Error(`uploaded merge config "${options.mergeConfigUpload.name}" is not valid JSON: ${e.message}`); }
-        mcSrc = `uploaded (${options.mergeConfigUpload.name})`;
-      } else {
-        const folderMc = await readJsonFromFolder(dirHandle, "merge-config.json");
-        if (folderMc) { mergeConfig = folderMc; mcSrc = "merge-config.json from folder"; }
-      }
-      log(`Merging ${options.mergeUpload.name} · mapping ${mcSrc}.`, "muted");
-      const bytes = await options.mergeUpload.file.arrayBuffer();
-      const effectiveMergeConfig = {
-        ...mergeConfig,
-        placeLookup: {
-          ...(mergeConfig && typeof mergeConfig.placeLookup === "object" ? mergeConfig.placeLookup : {}),
-          enabled: options.doPlaceLookups !== false,
-        },
-      };
-      if (options.doPlaceLookups === false) log("Placename lookup disabled by settings.", "muted");
-      await mergeXlsxIntoCrate(crate, bytes, effectiveMergeConfig, log);
-    } else if (options.merge && !options.mergeUpload) {
-      log("Merge is on but no spreadsheet was selected — skipping merge.", "warn");
-    }
-  }
-
-  if (selectedProfileData) {
-    try {
-      const { validateBuiltCrate } = await import("./masp.js");
-      const result = await validateBuiltCrate(selectedProfileData.validator, crate);
-      if (result.ok) {
-        log("Profile validation passed — crate conforms to the selected profile.", "ok");
-      } else {
-        log(`Profile validation found ${result.errors.length} issue(s):`, "warn");
-        for (const e of result.errors) log(`  • ${e.message}`, "warn");
-      }
-    } catch (e) {
-      log(`Profile validation could not run: ${e.message}`, "warn");
-    }
-  }
-
-  const graph = crate.getJson()["@graph"] || [];
-  const entities = graph.length;
-  const typeCounts = collectTypeCounts(graph);
-
-  // ro-crate-metadata.json
-  if (options.overwrite || !(await fileExists(dirHandle, JSON_FILE))) {
-    await writeFile(dirHandle, JSON_FILE, crateToJsonString(crate));
-    log(`Wrote ${JSON_FILE}.`, "ok");
-  } else log(`${JSON_FILE} exists and overwrite is off — skipped.`, "warn");
-
-  // ro-crate-metadata.xlsx
-  if (options.makeXlsx) {
-    if (options.overwrite || !(await fileExists(dirHandle, XLSX_FILE))) {
-      const bytes = await crateToXlsxBytes(crate);
-      await writeFile(dirHandle, XLSX_FILE, bytes);
-      log(`Wrote ${XLSX_FILE}.`, "ok");
-    } else log(`${XLSX_FILE} exists and overwrite is off — skipped.`, "warn");
-  }
-
-  // ro-crate-preview.html
-  if (options.makeHtml) {
-    if (options.overwrite || !(await fileExists(dirHandle, HTML_FILE))) {
-      try {
-        let html;
-        const selectedFolder = (options.templateRepoFolder || "").trim();
-        const repoSelected = !!selectedFolder;
-        let pageTemplates = null;
-        if (options.styledPreview || repoSelected) {
-          // Precedence for template/config/style: repo folder → uploaded file → local folder.
-          let template = null, templateSrc = "none";
-          let cfg = null, cfgSrc = "none";
-          let css = "", cssSrc = "none";
-
-          if (repoSelected) {
-            const remote = await fetchTemplateBundle(TEMPLATE_REPO_OWNER, TEMPLATE_REPO_NAME, TEMPLATE_REPO_REF, selectedFolder);
-            template = remote.template;
-            cfg = remote.config;
-            css = remote.css;
-            if (remote.pageTemplates && Object.keys(remote.pageTemplates).length > 0) {
-              pageTemplates = remote.pageTemplates;
-            }
-            const base = `repo (${selectedFolder})`;
-            templateSrc = remote.files.template ? `${base}/${remote.files.template}` : `${base}; no template found`;
-            cfgSrc = remote.files.config ? `${base}/${remote.files.config}` : "none";
-            cssSrc = remote.files.style ? `${base}/${remote.files.style}` : "none";
-          }
-
-          if (options.styledPreview && options.configUpload) {
-            const cfgText = await options.configUpload.file.text();
-            try { cfg = JSON.parse(cfgText); }
-            catch (e) { throw new Error(`uploaded config "${options.configUpload.name}" is not valid JSON: ${e.message}`); }
-            cfgSrc = `uploaded (${options.configUpload.name})`;
-          } else if (!repoSelected) {
-            const folderCfg = await readJsonFromFolder(dirHandle, "preview-config.json");
-            if (folderCfg) { cfg = folderCfg; cfgSrc = "preview-config.json from folder"; }
-          }
-
-          if (options.styledPreview && cfg) {
-            const uploadedFiles = options.configUpload?.siblingFiles || null;
-            let configDirHandle = null;
-            if (needsLocalTemplateFolder(cfg, uploadedFiles)) {
-              configDirHandle = await ensureUploadedConfigDirectoryHandle();
-            }
-            const resolved = await resolveTemplateBundleFromConfig(cfg, {
-              uploadedFiles,
-              dirHandle: configDirHandle,
-            });
-            if (resolved.template) { template = resolved.template; templateSrc = resolved.templateSrc; }
-            if (resolved.css) { css = resolved.css; cssSrc = resolved.cssSrc; }
-          }
-          if (pageTemplates && !options.configUpload && cfg && cfg.multipage !== false) {
-            log(`Preview: multipage template bundle (repo ${selectedFolder}) · config ${cfgSrc}.`, "muted");
-            const multi = await crateToMultiPageHtml(crate, { config: cfg, css, pageTemplates });
-            for (const page of multi.pages) {
-              await writeFileAtPath(dirHandle, page.path, page.html);
-            }
-            log(`Wrote ${multi.pages.length} page(s) under ro-crate-preview_html/.`, "ok");
-            html = multi.rootHtml;
-            lastHtmlTemplate = null;
-          } else if (template) {
-            log(`Preview: styled tabular · template ${templateSrc} · config ${cfgSrc} · style ${cssSrc}.`, "muted");
-            html = await crateToPreviewHtml(crate, { template, config: cfg, css });
-            lastHtmlTemplate = { template, config: cfg, css, source: templateSrc };
-          } else {
-            log("Preview: plain (library default template; no custom template file provided).", "muted");
-            html = await crateToPreviewHtml(crate);
-            lastHtmlTemplate = null;
-          }
-        } else {
-          log("Preview: plain (library default template).", "muted");
-          html = await crateToPreviewHtml(crate);
-          lastHtmlTemplate = null;
-        }
-        await writeFile(dirHandle, HTML_FILE, html);
-        log(`Wrote ${HTML_FILE}.`, "ok");
-      } catch (e) {
-        log(`HTML preview failed: ${e.message}`, "err");
-      }
-    } else log(`${HTML_FILE} exists and overwrite is off — skipped.`, "warn");
-  }
-
-  return { files: sourceCount, entities, typeCounts };
+  return result;
 }
 
 let buildHtml = null;  // ro-crate-preview.html captured after the last successful build

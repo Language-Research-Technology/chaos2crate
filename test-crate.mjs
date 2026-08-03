@@ -11,7 +11,7 @@ const files = [
 ];
 
 const meta = buildFileMetadata(files);
-const crate = buildCrate(meta, DEFAULT_CONFIG, null, (m) => console.log("  [log]", m));
+const crate = buildCrate(meta, DEFAULT_CONFIG, (m) => console.log("  [log]", m));
 
 console.log("\n=== JSON ===");
 const json = crateToJsonString(crate);
