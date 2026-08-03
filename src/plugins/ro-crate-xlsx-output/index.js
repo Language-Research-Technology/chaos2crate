@@ -2,9 +2,9 @@
 // Settings toggle (settingsSchema, not optionSchema — it stays in the
 // Settings modal, its current location; only the fields explicitly asked to
 // move to Build options — placename/Austlang lookups — changed location).
-import { HOOKS } from "./hooks.js";
-import { crateToXlsxBytes } from "../crate.js";
-import { writeFile, fileExists } from "../fs_helpers.js";
+import { HOOKS } from "../hooks.js";
+import { crateToXlsxBytes } from "../../crate.js";
+import { writeFile, fileExists } from "../../fs_helpers.js";
 
 const XLSX_FILE = "ro-crate-metadata.xlsx";
 

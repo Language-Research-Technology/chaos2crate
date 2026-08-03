@@ -3,7 +3,7 @@
 // optionSchema. ro-crate-masp is a heavy dependency (pulls in the whole
 // validator library), so it's still dynamically imported here, same as
 // before this was extracted from processFolder.
-import { HOOKS } from "./hooks.js";
+import { HOOKS } from "../hooks.js";
 
 export const plugin = {
   name: "validate-crate",
@@ -12,7 +12,7 @@ export const plugin = {
       const { crate, selectedProfileData, log } = ctx;
       if (!selectedProfileData) return;
       try {
-        const { validateBuiltCrate } = await import("../masp.js");
+        const { validateBuiltCrate } = await import("../../masp.js");
         const result = await validateBuiltCrate(selectedProfileData.validator, crate);
         if (result.ok) {
           log("Profile validation passed — crate conforms to the selected profile.", "ok");

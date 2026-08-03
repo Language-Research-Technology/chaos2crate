@@ -16,7 +16,7 @@ import packageJson from "../package.json";
 import { createHookBus } from "./plugins/hooks.js";
 import { registerAllPlugins, composeOptionSchema, composeSettingsSchema } from "./plugins/index.js";
 import { runPipeline } from "./plugins/pipeline.js";
-import { resetUploadedConfigDirHandle } from "./plugins/ro-crate-html-output.js";
+import { resetUploadedConfigDirHandle } from "./plugins/ro-crate-html-output/index.js";
 
 // The hook bus is created once and plugins registered once — all
 // build-specific state lives in the fresh ctx object passed to emit() on

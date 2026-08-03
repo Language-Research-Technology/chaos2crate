@@ -5,10 +5,10 @@
 // only the shared GitHub-fetch primitives (also used for the profile list
 // and template-repo folder dropdown) and generic FSA read/write helpers are
 // imported from neutral modules rather than duplicated here.
-import { HOOKS } from "./hooks.js";
-import { crateToPreviewHtml, crateToMultiPageHtml } from "../crate.js";
-import { writeFile, writeFileAtPath, readJsonFromFolder, readFileTextFromDirectory, verifyPermission, fileExists } from "../fs_helpers.js";
-import { bustCacheUrl, buildGitHubTreeUrl, fetchGitHubTextFile, listGitHubFolder } from "../github.js";
+import { HOOKS } from "../hooks.js";
+import { crateToPreviewHtml, crateToMultiPageHtml } from "../../crate.js";
+import { writeFile, writeFileAtPath, readJsonFromFolder, readFileTextFromDirectory, verifyPermission, fileExists } from "../../fs_helpers.js";
+import { bustCacheUrl, buildGitHubTreeUrl, fetchGitHubTextFile, listGitHubFolder } from "../../github.js";
 
 const HTML_FILE = "ro-crate-preview.html";
 const TEMPLATE_REPO_OWNER = "benfoley";
