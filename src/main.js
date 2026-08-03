@@ -312,25 +312,26 @@ function collectSchemaKeys(schema, set) {
   }
 }
 
-// Shows/hides Build-panel and Settings fields per the selected profile's
-// crate-o-mode.json buildOptions (see masp-profiles), and pre-fills whatever
-// checkboxes/selects it declares values for. Keys named in
-// buildOptions.hiddenOptionKeys are hidden entirely (hiding a parent field,
-// e.g. "merge", takes its children — mergeFile/mergeMappingBuilder — with
-// it, since they render inside its subpanel). inputMode is force-locked
-// rather than merely pre-selected, since Describe's field set and the docx
-// vs. generic parsing path both depend on it matching the profile.
+// Shows/hides Build-panel fields (Settings are a separate, profile-
+// independent surface) per the selected profile's crate-o-mode.json
+// buildOptions (see masp-profiles), and pre-fills whatever checkboxes/
+// selects it declares values for. Build options are hidden by DEFAULT —
+// a key (top-level or nested) is only shown if it's named in
+// buildOptions.enabledOptionKeys, so each profile opts into exactly the
+// options relevant to its workflow rather than excluding the rest.
+// inputMode is force-locked rather than merely pre-selected, since
+// Describe's field set and the docx vs. generic parsing path both depend
+// on it matching the profile.
 // With no profile selected — e.g. the Show/Edit "Rebuild" shortcut, which
 // can reach Build without going through profile selection — everything is
 // shown and nothing is forced, matching pre-profile behaviour.
 function applyBuildOptionsFromProfile(buildOptions) {
   const allKeys = new Set();
   collectSchemaKeys(OPTION_SCHEMA, allKeys);
-  collectSchemaKeys(SETTINGS_SCHEMA, allKeys);
-  const hidden = new Set((buildOptions && buildOptions.hiddenOptionKeys) || []);
+  const enabled = buildOptions ? new Set(buildOptions.enabledOptionKeys || []) : null;
   for (const key of allKeys) {
     const field = $("field_opt_" + key);
-    if (field) field.classList.toggle("hidden", hidden.has(key));
+    if (field) field.classList.toggle("hidden", !!enabled && !enabled.has(key));
   }
 
   const inputModeEl = $("opt_inputMode");
@@ -338,7 +339,7 @@ function applyBuildOptionsFromProfile(buildOptions) {
   if (!buildOptions) return;
 
   for (const [key, value] of Object.entries(buildOptions)) {
-    if (key === "hiddenOptionKeys") continue;
+    if (key === "enabledOptionKeys") continue;
     const el = $("opt_" + key);
     if (!el) continue;
     if (el.tagName === "SELECT") el.value = value;
@@ -1941,6 +1942,12 @@ function openBuild() {
   $("saveLogBtn").disabled = true;
   log("Set your options, then click Build RO-Crate.", "muted");
   applyBuildOptionsFromProfile(selectedProfileData ? selectedProfileData.workflow.buildOptions : null);
+  // applyBuildOptionsFromProfile() just reset every Build-option field's
+  // visibility from scratch (including "Upload template files", shown
+  // whenever a profile enables "styledPreview"), which would otherwise
+  // override the separate "Enable local template upload" setting that's
+  // meant to keep it hidden until turned on — reassert that now.
+  refreshTemplateUploadVisibility();
   refreshModeCards();
   showView("view-build");
 }
