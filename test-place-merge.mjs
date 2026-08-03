@@ -10,9 +10,7 @@ sheet.addRow(["Dyirbal/dyirbal-dictionary.pdf", "Brisbane"]);
 const xlsxBytes = await workbook.xlsx.writeBuffer();
 
 const files = [{ fileName: "dyirbal-dictionary.pdf", relativePath: "Dyirbal/dyirbal-dictionary.pdf" }];
-const crate = buildCrate(buildFileMetadata(files), DEFAULT_CONFIG, null, null, () => {}, {
-  includeSampleData: false,
-});
+const crate = buildCrate(buildFileMetadata(files), DEFAULT_CONFIG, null, () => {});
 
 const stats = await mergeXlsxIntoCrate(crate, xlsxBytes, {
   sheet: "Files",

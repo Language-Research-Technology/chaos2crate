@@ -6,14 +6,14 @@ import fs from "fs";
 import {
   buildFileMetadata, buildCrate, crateToJsonString, crateToXlsxBytes, crateToPreviewHtml, loadCrateFromJson,
 } from "./src/crate.js";
-import { DEFAULT_CONFIG, DEFAULT_SAMPLE_DATA } from "./src/defaults.js";
+import { DEFAULT_CONFIG } from "./src/defaults.js";
 
 const files = [
   { fileName: "dyirbal-dictionary.pdf", relativePath: "Dyirbal/dyirbal-dictionary.pdf" },
   { fileName: "wordlist.csv", relativePath: "Dyirbal/lists/wordlist.csv" },
 ];
 const meta = buildFileMetadata(files);
-const built = buildCrate(meta, DEFAULT_CONFIG, DEFAULT_SAMPLE_DATA, null, () => {});
+const built = buildCrate(meta, DEFAULT_CONFIG, null, () => {});
 const originalJson = JSON.parse(crateToJsonString(built));
 
 console.log("=== load existing crate JSON for editing ===");

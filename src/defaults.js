@@ -1,5 +1,5 @@
-// Built-in defaults, from corpus-tools-dyirbal config.json / sample-data.json.
-// Overridden by config.json / sample-data.json in the chosen folder if present.
+// Built-in defaults, from corpus-tools-dyirbal's config.json.
+// Overridden by config.json in the chosen folder if present.
 // config.dataDir is intentionally ignored — the chosen folder is the data dir.
 
 export const DEFAULT_CONFIG = {
@@ -31,24 +31,6 @@ export const DEFAULT_CONFIG = {
     metadataIsPublic: true,
     allowTextIndex: true,
   },
-};
-
-export const DEFAULT_SAMPLE_DATA = {
-  people: [
-    { "@id": "#ben-foley", "@type": "Person", name: "Ben Foley" },
-    { "@id": "#tati-florez", "@type": "Person", name: "Tati Florez" },
-    { "@id": "#des-crump", "@type": "Person", name: "Des Crump" },
-  ],
-  places: [
-    { "@id": "#place-tully-river", "@type": "Place", name: "Tully River", description: "A river in Far North Queensland, Australia, flowing from the Atherton Tableland to the Coral Sea near Tully.", geo: { "@id": "#locality-tully-river" } },
-    { "@id": "#place-brisbane", "@type": "Place", name: "Brisbane", description: "The capital city of Queensland, Australia.", geo: { "@id": "#locality-brisbane" } },
-    { "@id": "#place-palm-island", "@type": "Place", name: "Palm Island", description: "An Aboriginal community on the Great Palm Island group, off the coast of Queensland near Townsville.", geo: { "@id": "#locality-palm-island" } },
-  ],
-  localities: [
-    { "@id": "#locality-tully-river", "@type": "Geometry", asWKT: "POINT(145.9167 -17.9333)" },
-    { "@id": "#locality-brisbane", "@type": "Geometry", asWKT: "POINT(153.0251 -27.4698)" },
-    { "@id": "#locality-palm-island", "@type": "Geometry", asWKT: "POINT(146.5833 -18.75)" },
-  ]
 };
 
 // Custom rdf:Property definitions added to the graph (as in the original index.js).

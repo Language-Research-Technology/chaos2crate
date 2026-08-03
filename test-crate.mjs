@@ -1,7 +1,7 @@
 // Node test of the isomorphic crate pipeline against the real ro-crate libraries.
 import fs from "fs";
 import { buildFileMetadata, buildCrate, crateToJsonString, crateToXlsxBytes, crateToPreviewHtml } from "./src/crate.js";
-import { DEFAULT_CONFIG, DEFAULT_SAMPLE_DATA } from "./src/defaults.js";
+import { DEFAULT_CONFIG } from "./src/defaults.js";
 
 const files = [
   { fileName: "dyirbal-dictionary.pdf", relativePath: "Dyirbal/dyirbal-dictionary.pdf" },
@@ -11,7 +11,7 @@ const files = [
 ];
 
 const meta = buildFileMetadata(files);
-const crate = buildCrate(meta, DEFAULT_CONFIG, DEFAULT_SAMPLE_DATA, null, (m) => console.log("  [log]", m));
+const crate = buildCrate(meta, DEFAULT_CONFIG, null, (m) => console.log("  [log]", m));
 
 console.log("\n=== JSON ===");
 const json = crateToJsonString(crate);

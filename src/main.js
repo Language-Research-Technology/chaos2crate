@@ -11,7 +11,7 @@ import { writeFile, writeFileAtPath } from "./fs_helpers.js";
 // ./austlang.js (and its bundled AUSTLANG data pack) is loaded lazily via
 // dynamic import() only when language lookups are enabled — see run() — so the
 // ~730 kB data pack stays out of the main bundle.
-import { DEFAULT_CONFIG, DEFAULT_SAMPLE_DATA } from "./defaults.js";
+import { DEFAULT_CONFIG } from "./defaults.js";
 import packageJson from "../package.json";
 // Default column→property mapping for the spreadsheet merge. A folder may
 // override it with its own merge-config.json (see processFolder).
@@ -41,7 +41,10 @@ const OPTION_SCHEMA = [
     ] },
   ] },
   { key: "enableLanguageLookups", label: "Identify subject languages (AUSTLANG, by filename)", default: false,
-    hint: "Matches filenames against a bundled copy of the AUSTLANG data pack — fully offline, no network." },
+    hint: "Matches filenames against a bundled copy of the AUSTLANG data pack — fully offline, no network.", children: [
+    { key: "includeAlternateNames", label: "Match Austlang alternate names", default: false,
+      hint: "More matches, more false positives." },
+  ] },
   { key: "merge", label: "Merge metadata from a spreadsheet", default: false,
     hint: "Reads an .xlsx and merges its columns into matching entities (by their @id) before generating outputs.", children: [
     { key: "mergeFile", type: "file", label: "Spreadsheet (XLSX)", binary: true,
@@ -49,6 +52,8 @@ const OPTION_SCHEMA = [
       hint: "Rows are matched to entities by the @id column." },
     { key: "mergeMappingBuilder", type: "mappingBuilder", label: "Build mapping from spreadsheet columns…",
       hint: "Reads the column headers from the spreadsheet above and lets you set a target property (and type) for each one. You can also load an existing mapping config.json from inside that dialog." },
+    { key: "doPlaceLookups", label: "Do placenames lookup", default: true,
+      hint: "When on, merged Place entities try to look up coordinates and generate linked Geometry entities." },
   ] },
 ];
 
@@ -74,14 +79,8 @@ const SETTINGS_SCHEMA = [
     hint: "When Collections is selected, child folders are emitted as RepositoryObjects; files directly inside a top-level folder are grouped into an object named Files." },
   { key: "overwrite", label: "Overwrite existing outputs", default: true },
   { key: "makeXlsx", label: "Generate ro-crate-metadata.xlsx", default: true },
-  { key: "includeSampleData", label: "Include sample data entities", default: false,
-    hint: "Adds entities from sample-data.json (or built-in defaults) to the crate graph." },
-  { key: "doPlaceLookups", label: "Do placenames lookup", default: true,
-    hint: "When on, merged Place entities try to look up coordinates and generate linked Geometry entities." },
   { key: "enableLocalTemplateUpload", label: "Enable local template upload", default: false,
     hint: "Shows or hides the Upload template files option in Build settings." },
-  { key: "includeAlternateNames", label: "Match Austlang alternate names", default: false,
-    hint: "Only applies when \u201cIdentify subject languages\u201d is on. More matches, more false positives." },
 ];
 
 /* ---------- DOM helpers ---------- */
@@ -1674,16 +1673,7 @@ async function processFolder(dirHandle, files, options) {
     sourceCount = result.documentPartCount;
     log(`Built crate: ${result.collectionCount} collection(s), ${result.documentPartCount} document(s).`, "ok");
   } else {
-    const sampleData = options.includeSampleData
-      ? ((await readJsonFromFolder(dirHandle, "sample-data.json")) || DEFAULT_SAMPLE_DATA)
-      : null;
-    log(
-      `Config: ${config === DEFAULT_CONFIG ? "built-in default" : "config.json from folder"} · ` +
-      (options.includeSampleData
-        ? `Sample data: ${sampleData === DEFAULT_SAMPLE_DATA ? "built-in default" : "sample-data.json from folder"}.`
-        : "Sample data: disabled by settings."),
-      "muted"
-    );
+    log(`Config: ${config === DEFAULT_CONFIG ? "built-in default" : "config.json from folder"}.`, "muted");
 
     files.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
     const filesWithMeta = buildFileMetadata(files);
@@ -1696,9 +1686,8 @@ async function processFolder(dirHandle, files, options) {
       langByIndex = await identifyAllLanguages(filesWithMeta, options.includeAlternateNames, log);
     }
 
-    crate = buildCrate(filesWithMeta, effectiveConfig, sampleData, langByIndex, log, {
+    crate = buildCrate(filesWithMeta, effectiveConfig, langByIndex, log, {
       topLevelFolderType: options.topLevelFolderType,
-      includeSampleData: !!options.includeSampleData,
     });
 
     // Optional: merge metadata from an uploaded spreadsheet (before outputs).

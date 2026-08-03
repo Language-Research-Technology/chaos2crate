@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 
 import { buildFileMetadata, buildCrate } from "./src/crate.js";
-import { DEFAULT_CONFIG, DEFAULT_SAMPLE_DATA } from "./src/defaults.js";
+import { DEFAULT_CONFIG } from "./src/defaults.js";
 
 function asTypes(entity) {
   if (!entity) return [];
@@ -26,7 +26,7 @@ function testObjectMode() {
     { fileName: "b.pdf", relativePath: "Top/sub/b.pdf" },
   ];
   const meta = buildFileMetadata(files);
-  const crate = buildCrate(meta, DEFAULT_CONFIG, DEFAULT_SAMPLE_DATA, null, () => {}, {
+  const crate = buildCrate(meta, DEFAULT_CONFIG, null, () => {}, {
     topLevelFolderType: "object",
   });
   const graph = crate.getJson()["@graph"];
@@ -51,7 +51,7 @@ function testCollectionMode() {
     { fileName: "c.pdf", relativePath: "Top/sub/c.pdf" },
   ];
   const meta = buildFileMetadata(files);
-  const crate = buildCrate(meta, DEFAULT_CONFIG, DEFAULT_SAMPLE_DATA, null, () => {}, {
+  const crate = buildCrate(meta, DEFAULT_CONFIG, null, () => {}, {
     topLevelFolderType: "collection",
   });
   const graph = crate.getJson()["@graph"];

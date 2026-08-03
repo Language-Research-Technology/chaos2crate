@@ -20,7 +20,7 @@ import { createPlaceLookupService } from "./place_lookup.js";
 export const GENERATED_FILENAMES = new Set([
   "ro-crate-metadata.json", "ro-crate-metadata.jsonld", "ro-crate-metadata.xlsx", "ro-crate-preview.html",
 ]);
-export const CONTROL_FILENAMES = new Set(["config.json", "sample-data.json"]);
+export const CONTROL_FILENAMES = new Set(["config.json"]);
 
 /* ---------- path + name helpers (relative paths use "/" separators) ---------- */
 function pBasename(p) { const i = p.lastIndexOf("/"); return i >= 0 ? p.slice(i + 1) : p; }
@@ -64,11 +64,6 @@ export function buildFileMetadata(files) {
 }
 
 /* ---------- entity builders (using the ROCrate library) ---------- */
-function addSampleData(crate, sampleData) {
-  [...(sampleData.people || []), ...(sampleData.places || []), ...(sampleData.localities || [])]
-    .forEach((entity) => crate.addEntity(entity));
-}
-
 function rootDatasetLicenseRefs(crate) {
   return crate.rootDataset.license?.length
     ? { license: crate.rootDataset.license.map((license) => ({ "@id": license["@id"] })) }
@@ -240,8 +235,7 @@ export function loadCrateFromJson(json) {
 }
 
 /* ---------- top-level: build the ROCrate ---------- */
-export function buildCrate(filesWithMeta, config, sampleData, langByIndex, log = () => {}, opts = {}) {
-  const includeSampleData = opts.includeSampleData !== false;
+export function buildCrate(filesWithMeta, config, langByIndex, log = () => {}, opts = {}) {
   const crate = new ROCrate({ array: true, link: true });
   crate.addContext({ ldac: "https://w3id.org/ldac/terms#" });
   crate.addContext({ pcdm: "http://pcdm.org/models#" });
@@ -257,12 +251,7 @@ export function buildCrate(filesWithMeta, config, sampleData, langByIndex, log =
     crate.addEntity(config.metadataLicence);
   }
 
-  if (includeSampleData) {
-    for (const p of CUSTOM_PROPERTIES) crate.addEntity(p);
-    if (sampleData) {
-      addSampleData(crate, sampleData);
-    }
-  }
+  for (const p of CUSTOM_PROPERTIES) crate.addEntity(p);
   addFolderEntities(crate, filesWithMeta, opts);
   addFileEntities(crate, filesWithMeta, langByIndex);
   if (langByIndex) {
