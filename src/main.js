@@ -592,7 +592,7 @@ function applyCollectionLabels() {
 
 /* ---------- merge-mapping builder modal ---------- */
 // Entity types the mapping builder offers for a column — matches the
-// vocabulary already used by src/merge_config.json.
+// vocabulary already used by src/plugins/merge/merge_config.json.
 const MAPPING_TYPE_OPTIONS = ["", "Person", "Organization", "Place", "Language", "License", "File"];
 
 // In-progress edits, keyed by source column name, kept alive across the modal
@@ -790,8 +790,8 @@ function renderMergeMappingRows(headers, sheetName) {
 
     const draft = mergeMappingDraft[header] || {};
     // Source columns sometimes use a leading-dot convention (".author",
-    // ".language" — see merge_config.json) to flag a typed/reference column;
-    // that dot isn't part of the actual target property name.
+    // ".language" — see plugins/merge/merge_config.json) to flag a typed/
+    // reference column; that dot isn't part of the actual target property name.
     const defaultTarget = header.replace(/^\.+/, "");
 
     const target = document.createElement("input");
