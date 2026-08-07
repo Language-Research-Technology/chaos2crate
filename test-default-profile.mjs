@@ -4,6 +4,7 @@
 // crate the way processFolder would, and render the preview with the
 // profile's own layout — asserting the result is a *minimal* crate.
 import assert from "node:assert/strict";
+import fs from "node:fs";
 
 import { getDefaultProfile, DEFAULT_PROFILE_LABEL } from "./src/default_profile.js";
 import { loadValidator, getRootClassDefinition, toDescribeFieldSchema, validateBuiltCrate } from "./src/masp.js";
@@ -27,14 +28,43 @@ assert.deepEqual(
   "the default profile should build a plain Dataset, not a domain-specific root type"
 );
 assert.equal(
-  modeJson.buildOptions,
-  undefined,
-  "the default profile should declare no buildOptions — an absent block is what makes it offer no plugins"
-);
-assert.equal(
   modeJson.fileProperties,
   undefined,
   "the default profile should declare no fileProperties — nothing custom belongs on a minimal crate's files"
+);
+
+/* ---------- the default enables a plain preview, and nothing else ---------- */
+
+assert.deepEqual(
+  modeJson.buildOptions.enabledOptionKeys,
+  ["makeHtml"],
+  "the default profile should enable HTML output and no other Build option"
+);
+assert.equal(
+  modeJson.buildOptions.makeHtml,
+  true,
+  "HTML output should be on by default, not merely available"
+);
+
+for (const networked of ["templateRepoFolder", "styledPreview"]) {
+  assert.ok(
+    !modeJson.buildOptions.enabledOptionKeys.includes(networked),
+    `"${networked}" should stay disabled — the default preview must render offline, with no template fetch`
+  );
+}
+
+// The overlay lives in default_profile.js, not in the vendored file, so the
+// dependency's own copy has to stay untouched by it.
+const vendoredMode = JSON.parse(
+  fs.readFileSync(
+    new URL("./node_modules/ro-crate-masp/profiles/schema-org/profile-crate/crate-o-mode.json", import.meta.url),
+    "utf8"
+  )
+);
+assert.equal(
+  vendoredMode.buildOptions,
+  undefined,
+  "buildOptions is a resources2crate extension — the upstream profile file should not be patched in place"
 );
 
 /* ---------- the Describe step asks for a handful of schema.org fields ---------- */
@@ -98,7 +128,7 @@ assert.ok(
   "the root dataset should be typed Dataset, as the profile declares"
 );
 
-/* ---------- the profile's own layout renders a preview ---------- */
+/* ---------- the enabled preview renders from the profile's own layout ---------- */
 
 await crate.resolveContext();
 const layout = resolveProfileGroups(crate, modeJson.propertyGroups);

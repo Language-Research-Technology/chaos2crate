@@ -20,7 +20,7 @@ Four properties define the tool:
 
 - **Nothing leaves the machine.** All reads and writes go through the File System Access API. No server, no upload, no account; deployment is a static site.
 - **It builds on the real RO-Crate libraries** — `ro-crate` for the graph, `ro-crate-excel` for the workbook, `ro-crate-static-site` for the preview. The tool orchestrates; it doesn't hand-roll JSON-LD.
-- **A profile decides what the tool is, this run.** A MASP profile determines which fields you're asked for, which capabilities are available, what gets written onto each file, how the preview is laid out, and what counts as valid. Pick none and you get the bundled schema.org default: a minimal RO-Crate, no plugins, nothing domain-specific.
+- **A profile decides what the tool is, this run.** A MASP profile determines which fields you're asked for, which capabilities are available, what gets written onto each file, how the preview is laid out, and what counts as valid. Pick none and you get the bundled schema.org default: a minimal crate and a plain preview, nothing domain-specific and nothing that reaches the network.
 - **Almost everything is a plugin.** The core builds a graph and hands it around; AUSTLANG matching, spreadsheet merge, validation, and all three output formats are plugins tapping named lifecycle hooks.
 
 It's built for people organising research collections — language documentation corpora, digitised archives, born-digital collections — who need consistent, publishable metadata without becoming RO-Crate experts.
@@ -198,7 +198,7 @@ Three conventions worth following: **guard on your own option first** (handlers 
 
 There is no un-profiled path and no ad-hoc fallback config — this is why `src/defaults.js` no longer exists. But a profile is never *demanded* of the user either: when none has been chosen, the **bundled schema.org default** applies.
 
-The default is `profiles/schema-org` from [`ro-crate-masp`](https://github.com/Language-Research-Technology/ro-crate-masp) — its own description reads "A minimal RO-Crate profile combined with the Schema.org MASP schema crate." It gives you a valid, plain RO-Crate: schema.org vocabulary, no domain assumptions, **no plugins**.
+The default is `profiles/schema-org` from [`ro-crate-masp`](https://github.com/Language-Research-Technology/ro-crate-masp) — its own description reads "A minimal RO-Crate profile combined with the Schema.org MASP schema crate." It gives you a valid, plain RO-Crate: schema.org vocabulary, no domain assumptions, and a preview you can open.
 
 Concretely, building under the default produces:
 
@@ -207,11 +207,13 @@ Concretely, building under the default produces:
 | Describe asks for | `name`, `description`, `datePublished`, `license`, `conformsTo` — five fields |
 | Root dataset type | `Dataset` |
 | Written onto each `File` | nothing custom — the profile declares no `fileProperties` |
-| Optional plugins offered | none (§5.4) |
-| Output | `ro-crate-metadata.json` only |
-| Preview layout | the profile's own six property groups, if HTML is enabled by hand |
+| Output | `ro-crate-metadata.json` and `ro-crate-preview.html` |
+| Preview | the library's built-in template, laid out by the profile's own six property groups — self-contained, no template fetch |
+| Optional processing offered | none — no merge, no language lookups, no template sources (§5.4) |
 
-This is the "I just want an RO-Crate" path. Choosing a domain profile from the profile repository is how you opt *into* structure, vocabulary, and plugins — never how you escape a broken default.
+This is the "I just want an RO-Crate" path: something valid to publish and something you can look at, with nothing invented about your data and no network call in the build. Choosing a domain profile from the profile repository is how you opt *into* structure, vocabulary, and plugins — never how you escape a broken default.
+
+**The default's `buildOptions` are ours, not upstream's.** `buildOptions` is a resources2crate extension; the vendored profile has no such block, and upstream has no reason to carry a key only this app reads. So `src/default_profile.js` overlays one — enabling `makeHtml` and nothing else — onto an otherwise unmodified copy of the dependency's file. Pushing it upstream would put our concern in their repo and tie us to their release cycle; forking the profile into `masp-profiles` would cost the offline guarantee that bundling exists for.
 
 **Why bundled rather than fetched.** A fallback that can fail to load is not a fallback. The default's two JSON files are imported from the `ro-crate-masp` dependency at build time, so it works offline, survives a GitHub rate-limit, and can't 404. The profile crate is ~1.6 MB (~261 kB gzipped), so it is dynamically imported into its own chunk — the same treatment the AUSTLANG data pack gets, and it is only downloaded when a build actually runs without a chosen profile.
 
@@ -267,9 +269,11 @@ Multi-valued properties take comma-separated input and produce arrays of referen
 - `inputMode` is pre-selected **and locked**, because the Describe field set and the parsing path both depend on it. A docx profile can't be run against a generic folder by accident.
 - Settings are **not** gated — they're machine and user preferences, orthogonal to the profile.
 
-**Hidden means off.** An option the profile didn't enable is not merely hidden — it is forced to its off value, so the plugin behind it does not run. Visibility and execution are the same decision. Without this, an option whose schema default is `true` would still run while invisible, and "no plugins" would be unenforceable: the schema.org default would silently emit an HTML preview nobody asked for.
+**Hidden means off.** An option the profile didn't enable is not merely hidden — it is forced to its off value, so the plugin behind it does not run. Visibility and execution are the same decision, which makes `enabledOptionKeys` the single source of truth for what a build does: what a profile declares is exactly what happens. Without it the two drift, because plugins read `ctx.options` whether or not a field is on screen — any option whose schema default is `true` would keep running invisibly, and a profile could neither guarantee a capability runs nor guarantee it doesn't.
 
-**A profile with no `buildOptions` block at all offers no optional plugins** — the absent block reads as an empty allow-list, not as "no opinion". This is what makes the bundled default minimal, and it means an upstream profile authored for `crate-o` (which knows nothing about resources2crate's options) behaves conservatively here rather than switching everything on.
+That guarantee is what lets the bundled default be described precisely: it names `makeHtml`, so it emits JSON and a preview and nothing else — no merge, no language lookups, no template fetch.
+
+**A profile with no `buildOptions` block at all offers no optional processing** — the absent block reads as an empty allow-list, not as "no opinion". That keeps an upstream profile authored for `crate-o` (which knows nothing about resources2crate's options) conservative here rather than switching everything on. The bundled default gets its block from an overlay in `src/default_profile.js` (§5.1), precisely because the vendored file has none.
 
 Always-on plugins are unaffected: JSON output and validation have no option key, so nothing gates them.
 

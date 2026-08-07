@@ -292,15 +292,17 @@ function collectSchemaKeys(schema, set) {
 //
 // Hidden means OFF, not merely invisible: an option the profile didn't
 // enable is forced to its off value so the plugin behind it doesn't run.
-// Visibility and execution are the same decision — plugins read
-// ctx.options regardless of whether a field is on screen, so without this
-// an option defaulting to true (makeHtml) would keep running unseen, and
-// a profile declaring no plugins couldn't actually get none.
+// Visibility and execution are the same decision, which makes
+// enabledOptionKeys the single source of truth for what a build does —
+// plugins read ctx.options whether or not a field is on screen, so without
+// this any option defaulting to true would keep running unseen, and a
+// profile could neither guarantee a capability runs nor that it doesn't.
 //
 // An ABSENT buildOptions block reads as an empty allow-list ("this profile
-// offers no optional plugins"), not as "no opinion" — that's what makes the
-// bundled schema.org default minimal, and it keeps upstream profiles written
-// for crate-o (which know nothing about these options) conservative here.
+// offers no optional processing"), not as "no opinion" — it keeps upstream
+// profiles written for crate-o (which know nothing about these options)
+// conservative here. The bundled default supplies its own block by overlay
+// (src/default_profile.js), which is how it opts into a plain preview.
 //
 // inputMode is force-locked rather than merely pre-selected, since
 // Describe's field set and the docx vs. generic parsing path both depend
@@ -1026,7 +1028,7 @@ function renderProfileOptions(folderNames) {
   // so it should be visible rather than implied.
   const entries = [
     { id: DEFAULT_PROFILE_ID, title: DEFAULT_PROFILE_LABEL,
-      desc: "Minimal RO-Crate using schema.org terms. No domain vocabulary, no optional plugins — used automatically if you skip this step." },
+      desc: "Minimal RO-Crate using schema.org terms, plus a plain HTML preview. No domain vocabulary, no spreadsheet merge or language lookups — used automatically if you skip this step." },
     ...folderNames.map((name) => ({ id: name, title: name, desc: "Click to use this profile." })),
   ];
   for (const entry of entries) {
