@@ -441,18 +441,77 @@ The preview opens in a real browser tab rather than an iframe, because the gener
 
 ## 9. Testing
 
-Four Node scripts exercise the isomorphic core against the real libraries — no browser, no mocks of `ro-crate` or its siblings:
+### 9.1 What is testable, and where the line falls
 
-| Script | Covers |
-|---|---|
-| `test-crate.mjs` | build a crate from a synthetic file list; assert JSON, xlsx (PK zip magic), and HTML all generate |
-| `test-edit-crate.mjs` | load, mutate (set/delete property, add/rename/delete entity), regenerate all three outputs |
-| `test-place-merge.mjs` | merge a workbook with a typed `Place` mapping; assert the `Geometry` entity, its coordinates, and WKT |
-| `test-top-level-folders.mjs` | object vs collection mode — entity types, `hasPart`, `pcdm:hasMember`/`memberOf`, `isPartOf` |
+The isomorphic core — `crate.js`, `masp.js`, `default_profile.js`, and the plugin logic that doesn't touch the filesystem — runs unmodified under Node. That is the whole reason it's isomorphic, and it's what the suite exercises: real `ro-crate`, real `ro-crate-excel`, real `ro-crate-static-site`, real `ro-crate-masp`. **Nothing is mocked.** A test that passes against a stub of `ro-crate` would prove nothing about a tool whose entire job is driving `ro-crate` correctly.
 
-Because the profile now supplies what `defaults.js` used to, each script defines a minimal inline `TEST_CONFIG` — root dataset, and where relevant `fileProperties` and an explicit layout — standing in for a profile. `test-crate.mjs` and `test-edit-crate.mjs` print inspectable output; the other two use `node:assert/strict` and fail loudly.
+Below the line sits everything requiring a browser: `main.js`, the File System Access wrappers, and the DOM. `showDirectoryPicker` needs a native dialog, so the wizard's click-through cannot be automated here. That's a real limit, not an oversight — the mitigation is keeping logic *out* of `main.js` and in modules that can be reached from Node, which is why plugins own their behaviour and `main.js` mostly assembles `ctx`.
 
-Run them directly (`node test-crate.mjs`) or via `npm run test:place-merge` / `test:top-level-folders`.
+### 9.2 Requirements
+
+**A test must be able to fail.** This is the one non-negotiable. A script that catches an exception, logs it, and exits 0 is not a test — it is a demo that cannot report bad news. Every check goes through `node:assert/strict`; a `try`/`catch` around an operation under test is only acceptable if the catch re-throws or asserts.
+
+**Every assertion carries a message stating the expected behaviour.** Not a restatement of the expression — the *rule* being enforced, in prose a reader can check against the spec. The message is the test's real documentation; the expression is just how it's checked.
+
+**Tests read as scenarios.** Group assertions under a comment naming the situation, in the order the pipeline would encounter it. A reader should be able to follow what the tool is supposed to do without reconstructing it from expressions.
+
+**Each seam gets a test that could plausibly break.** The architecture's seams are the natural units: core graph assembly, each plugin's hook behaviour, and the profile contract. Prefer one test per seam over one test per file.
+
+**Success output says what was verified.** A bare "passed" tells you a file ran. `test-default-profile: all tests passed (schema.org (default), 5 Describe fields, 6 property groups)` tells you *what* held.
+
+**Non-goal: a test framework.** Plain scripts plus `node:assert/strict` need no runner, no config, and no dependency, and they double as executable examples of the API. Adopting `node:test` would buy parallelism and reporting the suite is far too small to need. Revisit if the suite outgrows a handful of files.
+
+### 9.3 The style, concretely
+
+```js
+/* ---------- collection mode nests child folders under the collection ---------- */
+
+assert.deepEqual(
+  subObj["pcdm:memberOf"],
+  { "@id": top["@id"] },
+  "Nested folder object should be linked back to top-level collection via pcdm:memberOf"
+);
+```
+
+Versus the same check written unreadably — correct, and silent about intent:
+
+```js
+assert.deepEqual(subObj["pcdm:memberOf"], { "@id": top["@id"] });
+```
+
+When it fails, the first names the broken rule; the second makes you open the source and infer it.
+
+Because a profile now supplies what `defaults.js` used to, each script defines a minimal inline `TEST_CONFIG` — root dataset, plus `fileProperties` and an explicit layout where relevant — standing in for a profile.
+
+### 9.4 Coverage
+
+| Seam | Test | State |
+|---|---|---|
+| Graph assembly — object vs collection mode | `test-top-level-folders.mjs` | ✅ 14 assertions |
+| Profile load, Describe derivation, validation | `test-default-profile.mjs` | ✅ 18 assertions |
+| Default profile — overlay, minimality, layout resolution | `test-default-profile.mjs` | ✅ |
+| Merge — typed `Place` → linked `Geometry` | `test-place-merge.mjs` | ✅ 9 assertions, no messages |
+| Place lookup — manual records | `test-place-merge.mjs` | ✅ |
+| File metadata, duplicate detection, all three outputs | `test-crate.mjs` | ⚠️ prints, cannot fail |
+| Entity editing — load, mutate, regenerate | `test-edit-crate.mjs` | ⚠️ prints, cannot fail |
+| Merge — untyped mappings, other entity types, workbook contexts, unmatched rows | — | ❌ |
+| Place lookup — providers, name variants, region preference | — | ❌ |
+| AUSTLANG matching | — | ❌ |
+| DOCX parsing, media resolution, the business rules in §7.1 | — | ❌ |
+| Output plugins as hook handlers (overwrite gate, skip logging) | — | ❌ primitives only |
+| Hook bus — ordering, priority, `ctx` contract | — | ❌ |
+| Registry — schema composition, input dispatch | — | ❌ |
+| Browser layer — `main.js`, FSA, the wizard | — | out of scope (§9.1) |
+
+### 9.5 Known gaps
+
+**Two scripts cannot fail.** `test-crate.mjs` and `test-edit-crate.mjs` predate the requirement in §9.2: between them 32 `console.log`s, zero assertions, and four `catch` blocks that log and continue. If xlsx or HTML generation threw, both would print the error and exit 0. They should be converted to assertions in the §9.3 style — the checks they already print (zip magic, entity counts, whether an edited description survives into the HTML) are the right ones, they just need to be enforced rather than displayed.
+
+**`test-place-merge.mjs` asserts without messages.** Correct but mute; nine assertions to annotate.
+
+**There is no `npm test`.** Scripts exist for three of the five, and the two that can't fail aren't among them — so the wired-up subset and the trustworthy subset are different sets, for no reason. One script running all five is the fix.
+
+**The hook contract is untested.** Ordering, priority, and the `ctx` handoff are load-bearing — §4.5 depends on stable sort with uniform priority — and nothing checks them. This is the most valuable missing test: it's pure logic, needs no filesystem, and would catch a reordering that silently changes build behaviour.
 
 ---
 
@@ -509,7 +568,8 @@ src/
     ro-crate-html-output/index.js  output:write — HTML + template resolution
     ro-crate-html-output/layout.js   profile propertyGroups → resolved layout
 
-test-crate.mjs  test-edit-crate.mjs  test-place-merge.mjs  test-top-level-folders.mjs
+test-default-profile.mjs   test-top-level-folders.mjs   test-place-merge.mjs
+test-crate.mjs             test-edit-crate.mjs            (§9.5 — cannot fail yet)
 scripts/update-austlang-data.mjs
 vite.config.js
 ```
