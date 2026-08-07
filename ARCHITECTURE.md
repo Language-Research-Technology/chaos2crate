@@ -256,6 +256,16 @@ The profile's root class definition is introspected into a field schema and the 
 
 Multi-valued properties take comma-separated input and produce arrays of references. Textarea selection comes from the profile rather than a guess at the property's name — MASP's editor-definition shape has no multiline hint, and the tool has no business inferring one.
 
+**Prefilling from the folder.** A folder may already hold the crate's metadata in more than one form: the spreadsheet the collection is authored in, and the `ro-crate-metadata.json` a previous build (or a `rocxl` sync) wrote. `pickNewestCrateSource()` in `src/plugins/xlsx-crate-input/xlsx_crate.js` picks between them by `lastModified` — whichever the author touched last is the one they've been working in, so that's what the form reflects. Candidates, in tie-break order:
+
+1. `additional-ro-crate-metadata.xlsx`
+2. `ro-crate-metadata.xlsx`
+3. `ro-crate-metadata.json`
+
+Ties go to the earlier entry, so a build that writes its outputs in the same second doesn't flip the answer away from the hand-authored spreadsheet. The chosen file is named above the form, because with several possible sources "where did these values come from?" deserves an answer that doesn't require opening any of them.
+
+This is a **read of the root entity only** — it fills form fields, nothing more. Folding a spreadsheet's other entities into the build is the separate, opt-in job of the `xlsx-crate-input` plugin's hooks, and stays tied to the explicit `additional-ro-crate-metadata.xlsx`: merging a previous build's whole graph back in would resurrect entities for files since deleted from the folder.
+
 ### 5.4 Gating plugins and options
 
 ```jsonc
@@ -501,6 +511,7 @@ Six suites, run by `npm test`. Every one exits non-zero when the behaviour it co
 | Edited crate regenerates all three outputs | `test-edit-crate.mjs` | ✅ |
 | Profile load, Describe derivation, validation | `test-default-profile.mjs` | ✅ |
 | Default profile — overlay, minimality, layout resolution | `test-default-profile.mjs` | ✅ |
+| Spreadsheet crate — round trip, prefill source choice, seeding, entity merge, warnings | `test-xlsx-crate.mjs` | ✅ |
 | Merge — typed `Place` → linked `Geometry` | `test-place-merge.mjs` | ✅ |
 | Place lookup — manual records | `test-place-merge.mjs` | ✅ |
 | Merge — untyped mappings, other entity types, workbook contexts, unmatched rows | — | ❌ |

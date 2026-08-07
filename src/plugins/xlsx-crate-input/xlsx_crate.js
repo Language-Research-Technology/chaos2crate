@@ -10,8 +10,19 @@
 // seed the Describe-step config, and every other entity, which is merged into
 // the crate the folder scan produced.
 import { ROCrate } from "ro-crate";
+import { statFile } from "../../fs_helpers.js";
 
 export const FOLDER_XLSX_NAME = "additional-ro-crate-metadata.xlsx";
+
+// Files in a picked folder that may already hold the crate's metadata, for
+// pre-filling the Describe step. Whichever is newest wins, so the answer
+// tracks whatever the author touched last: the spreadsheet they keep the
+// collection in, or the JSON a previous build wrote (or rocxl synced).
+export const PREFILL_SOURCES = [
+  { name: FOLDER_XLSX_NAME, kind: "xlsx" },
+  { name: "ro-crate-metadata.xlsx", kind: "xlsx" },
+  { name: "ro-crate-metadata.json", kind: "json" },
+];
 
 const DESCRIPTOR_ID = "ro-crate-metadata.json";
 const ROOT_ID = "./";
@@ -44,6 +55,40 @@ export async function readCrateFromXlsxBytes(bytes) {
   await workbook.loadExcelFromBuffer(bytes);
   if (!workbook.crate) throw new Error("the spreadsheet did not parse as an RO-Crate");
   return new ROCrate(workbook.crate.toJSON(), { array: true, link: true });
+}
+
+// The newest of PREFILL_SOURCES present in the folder, or null when the
+// folder holds none of them. Ties go to the earlier entry in the list, which
+// puts the hand-authored spreadsheet ahead of generated output when a build
+// wrote everything in the same second.
+export async function pickNewestCrateSource(dirHandle) {
+  if (!dirHandle) return null;
+  let best = null;
+  for (const candidate of PREFILL_SOURCES) {
+    const file = await statFile(dirHandle, candidate.name);
+    if (!file) continue;
+    if (!best || file.lastModified > best.lastModified) {
+      best = { ...candidate, file, lastModified: file.lastModified };
+    }
+  }
+  return best;
+}
+
+// The crate JSON behind a source from pickNewestCrateSource, whichever form
+// it's stored in — so callers can treat a spreadsheet and a metadata file
+// identically.
+export async function readCrateJsonFromSource(source) {
+  if (!source) return null;
+  if (source.kind === "json") {
+    const text = await source.file.text();
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      throw new Error(`${source.name} is not valid JSON: ${e.message}`);
+    }
+  }
+  const crate = await readCrateFromXlsxBytes(await source.file.arrayBuffer());
+  return crate.toJSON();
 }
 
 // The collection-level properties worth carrying into the build, as a plain

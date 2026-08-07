@@ -44,6 +44,20 @@ export async function readFileTextFromDirectory(handle, relativePath) {
   }
 }
 
+// The File object for a name in the folder, or null when it isn't there.
+// Callers that need to compare files by age want this rather than
+// readFileText/readFileBytes: File carries lastModified, the content readers
+// throw it away.
+export async function statFile(handle, filename) {
+  try {
+    const fh = await handle.getFileHandle(filename, { create: false });
+    return await fh.getFile();
+  } catch (e) {
+    if (e && e.name === "NotFoundError") return null;
+    throw e;
+  }
+}
+
 // Like readFileText but for binary files (.xlsx and friends) — returns an
 // ArrayBuffer, or null when the file isn't there.
 export async function readFileBytes(handle, filename) {

@@ -1205,6 +1205,10 @@ let rootDatasetOverride = null;
 // populateCrateDetailsFromExistingCrate/buildDescribeField.
 let existingRootDatasetEntity = null;
 let existingRootDatasetById = null;
+// Which file the prefill came from, shown above the form — with a spreadsheet
+// and a JSON both possible, "where did these values come from?" is a fair
+// question to have answered without opening either.
+let existingCrateSourceLabel = "";
 
 function todayIsoDate() {
   const d = new Date();
@@ -1288,6 +1292,13 @@ function buildDescribeField(field) {
 function renderDescribeFields(fieldSchema) {
   const container = $("crateDetailsBody");
   container.innerHTML = "";
+  if (existingRootDatasetEntity && existingCrateSourceLabel) {
+    const note = document.createElement("div");
+    note.className = "hint";
+    note.style.cssText = "margin-bottom:12px;";
+    note.textContent = `Prefilled from ${existingCrateSourceLabel} — the most recently edited crate metadata in this folder. Anything you change here wins.`;
+    container.appendChild(note);
+  }
   for (const field of fieldSchema) container.appendChild(buildDescribeField(field));
 }
 
@@ -1347,6 +1358,7 @@ function resetCrateDetailsForm() {
   $("crateDetailsBody").innerHTML = "";
   existingRootDatasetEntity = null;
   existingRootDatasetById = null;
+  existingCrateSourceLabel = "";
 }
 
 function resolveLinkedName(value, byId) {
@@ -1410,7 +1422,27 @@ function getRootDatasetEntity(crateJson) {
 // buildDescribeField() can prefill each rendered field from it once the form
 // does exist.
 async function populateCrateDetailsFromExistingCrate(handle) {
-  const crateJson = await readJsonFromFolder(handle, JSON_FILE);
+  // The folder may hold the crate's metadata in more than one form — the
+  // spreadsheet the collection is authored in, and the JSON a previous build
+  // (or rocxl) wrote. Whichever was touched last is the one the author has
+  // been working in, so that's what the form should reflect.
+  const { pickNewestCrateSource, readCrateJsonFromSource } =
+    await import("./plugins/xlsx-crate-input/xlsx_crate.js");
+
+  let crateJson = null;
+  const source = await pickNewestCrateSource(handle);
+  if (source) {
+    try {
+      crateJson = await readCrateJsonFromSource(source);
+      existingCrateSourceLabel = `${source.name} (modified ${new Date(source.lastModified).toLocaleString()})`;
+    } catch (e) {
+      // A spreadsheet that won't parse shouldn't cost the user the JSON
+      // sitting next to it.
+      console.warn(`Could not read ${source.name} for prefill:`, e);
+      crateJson = source.kind === "json" ? null : await readJsonFromFolder(handle, JSON_FILE);
+      existingCrateSourceLabel = crateJson ? JSON_FILE : "";
+    }
+  }
   if (!crateJson) return false;
 
   const extracted = getRootDatasetEntity(crateJson);
