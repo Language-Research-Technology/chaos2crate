@@ -283,40 +283,66 @@ function collectSchemaKeys(schema, set) {
 }
 
 // Shows/hides Build-panel fields (Settings are a separate, profile-
-// independent surface) per the selected profile's crate-o-mode.json
+// independent surface) per the profile-in-effect's crate-o-mode.json
 // buildOptions (see masp-profiles), and pre-fills whatever checkboxes/
 // selects it declares values for. Build options are hidden by DEFAULT —
 // a key (top-level or nested) is only shown if it's named in
 // buildOptions.enabledOptionKeys, so each profile opts into exactly the
 // options relevant to its workflow rather than excluding the rest.
+//
+// Hidden means OFF, not merely invisible: an option the profile didn't
+// enable is forced to its off value so the plugin behind it doesn't run.
+// Visibility and execution are the same decision — plugins read
+// ctx.options regardless of whether a field is on screen, so without this
+// an option defaulting to true (makeHtml) would keep running unseen, and
+// a profile declaring no plugins couldn't actually get none.
+//
+// An ABSENT buildOptions block reads as an empty allow-list ("this profile
+// offers no optional plugins"), not as "no opinion" — that's what makes the
+// bundled schema.org default minimal, and it keeps upstream profiles written
+// for crate-o (which know nothing about these options) conservative here.
+//
 // inputMode is force-locked rather than merely pre-selected, since
 // Describe's field set and the docx vs. generic parsing path both depend
 // on it matching the profile.
-// With no profile selected — e.g. the Show/Edit "Rebuild" shortcut, which
-// can reach Build without going through profile selection — everything is
-// shown and nothing is forced, matching pre-profile behaviour.
 function applyBuildOptionsFromProfile(buildOptions) {
   const allKeys = new Set();
   collectSchemaKeys(OPTION_SCHEMA, allKeys);
-  const enabled = buildOptions ? new Set(buildOptions.enabledOptionKeys || []) : null;
+  const declared = buildOptions || {};
+  const enabled = new Set(declared.enabledOptionKeys || []);
+
   for (const key of allKeys) {
     const field = $("field_opt_" + key);
-    if (field) field.classList.toggle("hidden", !!enabled && !enabled.has(key));
+    if (field) field.classList.toggle("hidden", !enabled.has(key));
+
+    // File/mappingBuilder/collectionLabelsBuilder fields have no opt_<key>
+    // control of their own — their visibility above is the whole story.
+    const el = $("opt_" + key);
+    if (!el) continue;
+    if (!enabled.has(key)) {
+      if (el.tagName === "SELECT") el.value = "";
+      else el.checked = false;
+    } else if (key in declared) {
+      if (el.tagName === "SELECT") el.value = declared[key];
+      else el.checked = !!declared[key];
+    }
+    el.dispatchEvent(new Event("change"));
   }
 
+  // Keys the profile declares that aren't Build options — currently just
+  // inputMode, a Setting a profile pins because the parsing path depends on
+  // it. Settings are otherwise ungated, so they're only touched when named.
   const inputModeEl = $("opt_inputMode");
   if (inputModeEl) inputModeEl.disabled = false;
-  if (!buildOptions) return;
-
-  for (const [key, value] of Object.entries(buildOptions)) {
-    if (key === "enabledOptionKeys") continue;
+  for (const [key, value] of Object.entries(declared)) {
+    if (key === "enabledOptionKeys" || allKeys.has(key)) continue;
     const el = $("opt_" + key);
     if (!el) continue;
     if (el.tagName === "SELECT") el.value = value;
     else el.checked = !!value;
     el.dispatchEvent(new Event("change"));
   }
-  if (inputModeEl && buildOptions.inputMode) inputModeEl.disabled = true;
+  if (inputModeEl && declared.inputMode) inputModeEl.disabled = true;
 }
 
 function renderOptions(schema, parent) {
@@ -926,13 +952,51 @@ function readOptions() {
 }
 
 /* ---------- select-profile step ---------- */
-// The chosen profile's folder name (in masp-profiles) and everything loaded
-// from it: { validator, workflow (crate-o-mode.json, carries buildOptions),
-// rootClassDefinition, fieldSchema }. Both reset in pickFolder() on every new
-// folder pick — a profile chosen for one folder shouldn't silently carry over
-// to the next.
+// The profile in effect: its id (a masp-profiles folder name, or
+// DEFAULT_PROFILE_ID for the bundled schema.org fallback) and everything
+// loaded from it: { validator, workflow (crate-o-mode.json, carries
+// buildOptions), rootClassDefinition, fieldSchema }. Both reset in
+// pickFolder() on every new folder pick — a profile chosen for one folder
+// shouldn't silently carry over to the next.
+//
+// Selecting a profile is optional. Skipping the step loads the bundled
+// default instead (ensureProfileData), so from Describe onwards nothing
+// downstream has to handle a "no profile" case.
 let selectedProfile = null;
 let selectedProfileData = null;
+
+// Kept in sync with src/default_profile.js, which is dynamically imported so
+// its ~1.6 MB profile crate stays out of the main bundle — these two strings
+// are needed to render and identify the picker entry before that import.
+const DEFAULT_PROFILE_ID = "__default__";
+const DEFAULT_PROFILE_LABEL = "schema.org (default)";
+
+function profileLabel(id) {
+  return id === DEFAULT_PROFILE_ID ? DEFAULT_PROFILE_LABEL : id;
+}
+
+// Turn a fetched/bundled { profileJson, modeJson } pair into the
+// selectedProfileData shape. Shared by both sources so they can't drift.
+async function buildProfileData(profileJson, modeJson) {
+  const masp = await import("./masp.js");
+  const validator = await masp.loadValidator(profileJson, modeJson);
+  const rootClassDefinition = masp.getRootClassDefinition(validator);
+  const fieldSchema = masp.toDescribeFieldSchema(rootClassDefinition, modeJson.longTextInputs);
+  return { validator, workflow: modeJson, rootClassDefinition, fieldSchema };
+}
+
+// Guarantees a profile is in effect, loading the bundled default if the user
+// skipped selection. Called by the steps that actually need a schema
+// (Describe) or buildOptions (Build), rather than forcing a choice up front.
+async function ensureProfileData() {
+  if (selectedProfileData) return selectedProfileData;
+  const { getDefaultProfile } = await import("./default_profile.js");
+  const { profileJson, modeJson } = getDefaultProfile();
+  selectedProfileData = await buildProfileData(profileJson, modeJson);
+  selectedProfile = DEFAULT_PROFILE_ID;
+  refreshBuildStepActions();
+  return selectedProfileData;
+}
 
 async function openProfileSelection() {
   if (!dirHandle) return;
@@ -947,8 +1011,10 @@ async function openProfileSelection() {
     const folderNames = entries.filter((e) => e && e.type === "dir").map((e) => e.name).sort((a, b) => a.localeCompare(b));
     renderProfileOptions(folderNames);
   } catch (e) {
-    container.innerHTML = "";
-    container.appendChild(hintEl("Could not load profiles: " + (e && e.message ? e.message : e)));
+    // The remote list failing is not fatal — the bundled default is still
+    // offered, which is the whole point of bundling it.
+    renderProfileOptions([]);
+    $("profileOptionsBody").appendChild(hintEl("Could not load the profile list: " + (e && e.message ? e.message : e)));
   }
   showView("view-select-profile");
 }
@@ -956,43 +1022,49 @@ async function openProfileSelection() {
 function renderProfileOptions(folderNames) {
   const container = $("profileOptionsBody");
   container.innerHTML = "";
-  if (!folderNames.length) {
-    container.appendChild(hintEl("No profiles found."));
-    return;
-  }
-  for (const folderName of folderNames) {
+  // The bundled default leads the list: it's what you get by not choosing,
+  // so it should be visible rather than implied.
+  const entries = [
+    { id: DEFAULT_PROFILE_ID, title: DEFAULT_PROFILE_LABEL,
+      desc: "Minimal RO-Crate using schema.org terms. No domain vocabulary, no optional plugins — used automatically if you skip this step." },
+    ...folderNames.map((name) => ({ id: name, title: name, desc: "Click to use this profile." })),
+  ];
+  for (const entry of entries) {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "profile-option";
-    btn.dataset.profile = folderName;
-    btn.classList.toggle("selected", folderName === selectedProfile);
+    btn.dataset.profile = entry.id;
+    btn.classList.toggle("selected", entry.id === selectedProfile);
     const t = document.createElement("div");
     t.className = "t";
-    t.textContent = folderName;
+    t.textContent = entry.title;
     const d = document.createElement("div");
     d.className = "d";
-    d.textContent = "Click to use this profile.";
+    d.textContent = entry.desc;
     btn.append(t, d);
-    btn.addEventListener("click", () => { void chooseProfile(folderName); });
+    btn.addEventListener("click", () => { void chooseProfile(entry.id); });
     container.appendChild(btn);
   }
 }
 
-async function chooseProfile(folderName) {
+async function chooseProfile(profileId) {
   const status = $("profileStatus");
   const continueBtn = $("profileContinueBtn");
+  const label = profileLabel(profileId);
   continueBtn.disabled = true;
-  status.textContent = `Loading ${folderName}…`;
+  status.textContent = `Loading ${label}…`;
   setProfileOptionsDisabled(true);
   try {
-    const masp = await import("./masp.js");
-    const { profileJson, modeJson } = await masp.fetchProfile(MASP_PROFILES_REPO_OWNER, MASP_PROFILES_REPO_NAME, MASP_PROFILES_REPO_REF, folderName);
-    const validator = await masp.loadValidator(profileJson, modeJson);
-    const rootClassDefinition = masp.getRootClassDefinition(validator);
-    const fieldSchema = masp.toDescribeFieldSchema(rootClassDefinition, modeJson.longTextInputs);
-    selectedProfile = folderName;
-    selectedProfileData = { validator, workflow: modeJson, rootClassDefinition, fieldSchema };
-    status.textContent = `Ready: ${rootClassDefinition.name} (${fieldSchema.length} field(s)).`;
+    let profileJson, modeJson;
+    if (profileId === DEFAULT_PROFILE_ID) {
+      ({ profileJson, modeJson } = (await import("./default_profile.js")).getDefaultProfile());
+    } else {
+      const masp = await import("./masp.js");
+      ({ profileJson, modeJson } = await masp.fetchProfile(MASP_PROFILES_REPO_OWNER, MASP_PROFILES_REPO_NAME, MASP_PROFILES_REPO_REF, profileId));
+    }
+    selectedProfileData = await buildProfileData(profileJson, modeJson);
+    selectedProfile = profileId;
+    status.textContent = `Ready: ${selectedProfileData.rootClassDefinition.name} (${selectedProfileData.fieldSchema.length} field(s)).`;
     continueBtn.disabled = false;
   } catch (e) {
     selectedProfile = null;
@@ -1000,7 +1072,11 @@ async function chooseProfile(folderName) {
     status.textContent = "Could not load profile: " + (e && e.message ? e.message : e);
   } finally {
     setProfileOptionsDisabled(false);
-    renderProfileOptions(Array.from($("profileOptionsBody").querySelectorAll(".profile-option")).map((b) => b.dataset.profile));
+    renderProfileOptions(
+      Array.from($("profileOptionsBody").querySelectorAll(".profile-option"))
+        .map((b) => b.dataset.profile)
+        .filter((id) => id !== DEFAULT_PROFILE_ID)
+    );
     refreshBuildStepActions();
   }
 }
@@ -1105,8 +1181,10 @@ function renderDescribeFields(fieldSchema) {
   for (const field of fieldSchema) container.appendChild(buildDescribeField(field));
 }
 
-function openCrateDetails() {
-  if (!selectedProfileData) return;
+async function openCrateDetails() {
+  // Loads the bundled default if the user skipped profile selection, so the
+  // Describe step always has a field schema to render.
+  await ensureProfileData();
   renderDescribeFields(selectedProfileData.fieldSchema);
   if (dirHandle && !$("cd_id").value.trim()) $("cd_id").value = slugify(dirHandle.name);
   for (const field of selectedProfileData.fieldSchema) {
@@ -1245,11 +1323,12 @@ function refreshBuildStepActions() {
   const buildBtn = $("buildStepOpenBuild");
   if (!profileBtn || !describeBtn || !buildBtn) return;
   const hasFolder = !!dirHandle;
-  const hasProfile = !!selectedProfile;
   const hasDescribe = !!rootDatasetOverride;
+  // Profile selection is optional — skipping it falls back to the bundled
+  // default (ensureProfileData), so Describe only waits on a folder.
   profileBtn.disabled = !hasFolder;
-  describeBtn.disabled = !(hasFolder && hasProfile);
-  buildBtn.disabled = !(hasFolder && hasProfile && hasDescribe);
+  describeBtn.disabled = !hasFolder;
+  buildBtn.disabled = !(hasFolder && hasDescribe);
 }
 
 /* ---------- File System Access ---------- */
@@ -1274,9 +1353,10 @@ async function walkDirectory(handle, prefix = "") {
 // override, builds the shared pipeline context, and hands off to
 // runPipeline() (src/plugins/pipeline.js) — everything else (which input
 // mode to parse, AUSTLANG, merge, JSON/XLSX/HTML output, profile
-// validation) happens via hook-tapping plugins from there. openBuild()
-// guarantees a profile is always selected before this runs (see
-// selectedProfile check there) — there is no "no profile" case to handle.
+// validation) happens via hook-tapping plugins from there. A profile is
+// always in effect by the time this runs — openBuild()/openCrateDetails()
+// call ensureProfileData(), which falls back to the bundled schema.org
+// default — so there is no "no profile" case to handle.
 async function processFolder(dirHandle, files, options) {
   const profileWorkflow = selectedProfileData.workflow;
   const profileRootDataset = profileWorkflow.rootDataset || {};
@@ -1295,7 +1375,7 @@ async function processFolder(dirHandle, files, options) {
   const ctx = {
     dirHandle, files, options, log,
     config: effectiveConfig,
-    configSource: `"${selectedProfile}" profile`,
+    configSource: `"${profileLabel(selectedProfile)}" profile`,
     selectedProfileData,
   };
 
@@ -1403,8 +1483,10 @@ async function refreshModeCards() {
   $("editBtn").disabled = !hasJson;
   refreshBuildStepActions();
 }
-function openBuild() {
-  if (!selectedProfile) { void openProfileSelection(); return; }
+async function openBuild() {
+  // No profile chosen (including via the Show/Edit "Rebuild" shortcut, which
+  // reaches Build directly) is not an error — the bundled default applies.
+  await ensureProfileData();
   if (!confirmLeaveEditIfDirty()) return;
   clearLog();
   $("showHtmlBtn").classList.add("hidden");
@@ -2291,15 +2373,15 @@ function boot() {
   $("profileBackBtn").addEventListener("click", () => { showView("view-mode"); });
   $("profileContinueBtn").addEventListener("click", () => {
     if (!selectedProfile) return;
-    openCrateDetails();
+    void openCrateDetails();
   });
   $("buildStepDescribe").addEventListener("click", () => {
     if (!dirHandle || !selectedProfile) return;
-    openCrateDetails();
+    void openCrateDetails();
   });
   $("buildStepOpenBuild").addEventListener("click", () => {
     if (!dirHandle || !selectedProfile || !rootDatasetOverride) return;
-    openBuild();
+    void openBuild();
   });
   $("cardShow").addEventListener("click", openShow);
   $("showBtn").addEventListener("click", openShow);
@@ -2376,9 +2458,9 @@ function boot() {
   syncLogActionButtons();
   $("rebuildBtn").addEventListener("click", () => {
     if (!dirHandle) return;
-    openBuild();
+    void openBuild();
   });
   $("modalCancel").addEventListener("click", () => $("modal").classList.add("hidden"));
-  $("modalBuild").addEventListener("click", () => { $("modal").classList.add("hidden"); openCrateDetails(); });
+  $("modalBuild").addEventListener("click", () => { $("modal").classList.add("hidden"); void openCrateDetails(); });
 }
 boot();
