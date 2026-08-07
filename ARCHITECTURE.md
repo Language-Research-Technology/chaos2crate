@@ -423,6 +423,12 @@ The largest plugin, owning the whole template-resolution cluster that used to si
 
 A template's own `config.json` `propertyGroups` still wins over the profile's — the most specific, deliberate customisation — with the profile filling in only when the template didn't set its own.
 
+**Multipage.** A config with `root.template` and per-type `types.*.template` entries renders one page per entity plus a root, via `renderMultiPage`. That call looks its templates up in a `pageTemplates` map **keyed by the exact string the config wrote**, and misses throw rather than degrade.
+
+`collectPageTemplates()` builds that map from whichever source the config came with — the repo folder's `templates/` subdirectory, sibling uploaded files, or a granted local folder — keying each entry by the ref rather than by where the file was found. That's what lets a config keep working whatever path style it uses: a bundle's `templates/root-template.html`, or the repo-root-relative `test_data/birds/templates/root-template.html` that a config copied out of a CLI checkout still carries. For a local folder there's a tail fallback for the same reason — the exact relative path first, then successively shorter tails.
+
+The one pairing that's refused is an uploaded config with the *repo's* templates: those were keyed to the repo folder's own config, so combining them is how you get a template-not-found error. That case logs why and falls back to a single page. Every other failure is explicit — a bundle missing one of its type templates errors by name, because falling through to a single page writes a root whose entity links point at pages that were never generated.
+
 Two rendering details: the context must be resolved before layout resolution and again before rendering (idempotent, called in both places); and compact property keys are mirrored to full URIs, because templates address properties either way.
 
 ---
@@ -511,6 +517,7 @@ Six suites, run by `npm test`. Every one exits non-zero when the behaviour it co
 | Edited crate regenerates all three outputs | `test-edit-crate.mjs` | ✅ |
 | Profile load, Describe derivation, validation | `test-default-profile.mjs` | ✅ |
 | Default profile — overlay, minimality, layout resolution | `test-default-profile.mjs` | ✅ |
+| Multipage templates — ref collection, upload/folder resolution, tail fallback, explicit failure | `test-page-templates.mjs` | ✅ |
 | Spreadsheet crate — round trip, prefill source choice, seeding, entity merge, warnings | `test-xlsx-crate.mjs` | ✅ |
 | Merge — typed `Place` → linked `Geometry` | `test-place-merge.mjs` | ✅ |
 | Place lookup — manual records | `test-place-merge.mjs` | ✅ |
