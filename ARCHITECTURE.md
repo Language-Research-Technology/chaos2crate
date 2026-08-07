@@ -485,33 +485,38 @@ Because a profile now supplies what `defaults.js` used to, each script defines a
 
 ### 9.4 Coverage
 
+Six suites, run by `npm test`. Every one exits non-zero when the behaviour it covers breaks.
+
 | Seam | Test | State |
 |---|---|---|
-| Graph assembly — object vs collection mode | `test-top-level-folders.mjs` | ✅ 14 assertions |
-| Profile load, Describe derivation, validation | `test-default-profile.mjs` | ✅ 18 assertions |
+| Hook bus — order, priority, stable sort, sequential await, `ctx` isolation | `test-hooks.mjs` | ✅ |
+| Registry — documented per-hook order, input dispatch, schema composition | `test-hooks.mjs` | ✅ |
+| Graph assembly — object vs collection mode | `test-top-level-folders.mjs` | ✅ |
+| Graph assembly — file entities, arcp id rewriting, profile-declared file properties | `test-crate.mjs` | ✅ |
+| Duplicate detection | `test-crate.mjs` | ✅ |
+| All three outputs generate from a built crate | `test-crate.mjs` | ✅ |
+| Entity editing — set/delete property, add/rename/delete entity, reference cleanup | `test-edit-crate.mjs` | ✅ |
+| Edited crate regenerates all three outputs | `test-edit-crate.mjs` | ✅ |
+| Profile load, Describe derivation, validation | `test-default-profile.mjs` | ✅ |
 | Default profile — overlay, minimality, layout resolution | `test-default-profile.mjs` | ✅ |
-| Merge — typed `Place` → linked `Geometry` | `test-place-merge.mjs` | ✅ 9 assertions, no messages |
+| Merge — typed `Place` → linked `Geometry` | `test-place-merge.mjs` | ✅ |
 | Place lookup — manual records | `test-place-merge.mjs` | ✅ |
-| File metadata, duplicate detection, all three outputs | `test-crate.mjs` | ⚠️ prints, cannot fail |
-| Entity editing — load, mutate, regenerate | `test-edit-crate.mjs` | ⚠️ prints, cannot fail |
 | Merge — untyped mappings, other entity types, workbook contexts, unmatched rows | — | ❌ |
 | Place lookup — providers, name variants, region preference | — | ❌ |
 | AUSTLANG matching | — | ❌ |
 | DOCX parsing, media resolution, the business rules in §7.1 | — | ❌ |
-| Output plugins as hook handlers (overwrite gate, skip logging) | — | ❌ primitives only |
-| Hook bus — ordering, priority, `ctx` contract | — | ❌ |
-| Registry — schema composition, input dispatch | — | ❌ |
+| Output plugins — the overwrite gate itself | — | ⚠️ order only, via `test-hooks.mjs` |
 | Browser layer — `main.js`, FSA, the wizard | — | out of scope (§9.1) |
 
-### 9.5 Known gaps
+`scripts/run-tests.mjs` discovers `test-*.mjs` rather than listing them, so a new suite is picked up without also being registered — the drift that previously left two suites unwired.
 
-**Two scripts cannot fail.** `test-crate.mjs` and `test-edit-crate.mjs` predate the requirement in §9.2: between them 32 `console.log`s, zero assertions, and four `catch` blocks that log and continue. If xlsx or HTML generation threw, both would print the error and exit 0. They should be converted to assertions in the §9.3 style — the checks they already print (zip magic, entity counts, whether an edited description survives into the HTML) are the right ones, they just need to be enforced rather than displayed.
+### 9.5 Remaining gaps
 
-**`test-place-merge.mjs` asserts without messages.** Correct but mute; nine assertions to annotate.
+Four plugin seams have no coverage at all: **AUSTLANG matching**, **DOCX parsing and its business rules**, **place-lookup providers** (only the manual-records path is exercised), and **merge beyond the typed-`Place` case** — untyped mappings, other entity types, workbook context discovery, unmatched rows and files. Each is reachable from Node and none needs a filesystem except DOCX, which would need fixture `.docx` files.
 
-**There is no `npm test`.** Scripts exist for three of the five, and the two that can't fail aren't among them — so the wired-up subset and the trustworthy subset are different sets, for no reason. One script running all five is the fix.
+The **output plugins' overwrite gate** is exercised only incidentally, as the mechanism that lets `test-hooks.mjs` run real handlers safely. Its skip-vs-write branch deserves a test of its own.
 
-**The hook contract is untested.** Ordering, priority, and the `ctx` handoff are load-bearing — §4.5 depends on stable sort with uniform priority — and nothing checks them. This is the most valuable missing test: it's pure logic, needs no filesystem, and would catch a reordering that silently changes build behaviour.
+The **browser layer stays untestable here** (§9.1). The mitigation is architectural, not test-shaped: keep logic in modules Node can reach. The dead-button regression that shipped in `bb9aed1` — enabled buttons whose click handlers still returned early — is precisely the class of bug this leaves uncaught, and the argument for keeping `main.js` thin.
 
 ---
 
@@ -568,8 +573,10 @@ src/
     ro-crate-html-output/index.js  output:write — HTML + template resolution
     ro-crate-html-output/layout.js   profile propertyGroups → resolved layout
 
-test-default-profile.mjs   test-top-level-folders.mjs   test-place-merge.mjs
-test-crate.mjs             test-edit-crate.mjs            (§9.5 — cannot fail yet)
+test-hooks.mjs             test-crate.mjs          test-edit-crate.mjs
+test-default-profile.mjs   test-place-merge.mjs    test-top-level-folders.mjs
+
+scripts/run-tests.mjs              discovers and runs every test-*.mjs (npm test)
 scripts/update-austlang-data.mjs
 vite.config.js
 ```
