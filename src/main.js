@@ -1000,6 +1000,18 @@ async function ensureProfileData() {
   return selectedProfileData;
 }
 
+// Loading the default can only fail on a genuine fault (a bad bundle, a
+// profile the validator rejects) — but callers are fire-and-forget `void`
+// calls, so an unhandled rejection would read to the user as a button that
+// does nothing. Surface it on the profile step instead, which is both the
+// relevant screen and somewhere they can pick a different profile.
+function reportProfileLoadFailure(e) {
+  const message = e && e.message ? e.message : String(e);
+  console.error("Could not load the default profile:", e);
+  $("profileStatus").textContent = "Could not load the default profile: " + message;
+  showView("view-select-profile");
+}
+
 async function openProfileSelection() {
   if (!dirHandle) return;
   $("profileContinueBtn").disabled = !selectedProfile;
@@ -1186,7 +1198,12 @@ function renderDescribeFields(fieldSchema) {
 async function openCrateDetails() {
   // Loads the bundled default if the user skipped profile selection, so the
   // Describe step always has a field schema to render.
-  await ensureProfileData();
+  try {
+    await ensureProfileData();
+  } catch (e) {
+    reportProfileLoadFailure(e);
+    return;
+  }
   renderDescribeFields(selectedProfileData.fieldSchema);
   if (dirHandle && !$("cd_id").value.trim()) $("cd_id").value = slugify(dirHandle.name);
   for (const field of selectedProfileData.fieldSchema) {
@@ -1488,7 +1505,12 @@ async function refreshModeCards() {
 async function openBuild() {
   // No profile chosen (including via the Show/Edit "Rebuild" shortcut, which
   // reaches Build directly) is not an error — the bundled default applies.
-  await ensureProfileData();
+  try {
+    await ensureProfileData();
+  } catch (e) {
+    reportProfileLoadFailure(e);
+    return;
+  }
   if (!confirmLeaveEditIfDirty()) return;
   clearLog();
   $("showHtmlBtn").classList.add("hidden");
@@ -2377,12 +2399,16 @@ function boot() {
     if (!selectedProfile) return;
     void openCrateDetails();
   });
+  // These guards must mirror refreshBuildStepActions()'s disabled conditions
+  // exactly — a guard stricter than the disabled state is an enabled button
+  // that silently does nothing. Neither requires a chosen profile: skipping
+  // that step falls back to the bundled default (ensureProfileData).
   $("buildStepDescribe").addEventListener("click", () => {
-    if (!dirHandle || !selectedProfile) return;
+    if (!dirHandle) return;
     void openCrateDetails();
   });
   $("buildStepOpenBuild").addEventListener("click", () => {
-    if (!dirHandle || !selectedProfile || !rootDatasetOverride) return;
+    if (!dirHandle || !rootDatasetOverride) return;
     void openBuild();
   });
   $("cardShow").addEventListener("click", openShow);
