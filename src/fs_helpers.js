@@ -44,6 +44,18 @@ export async function readFileTextFromDirectory(handle, relativePath) {
   }
 }
 
+// Like readFileText but for binary files (.xlsx and friends) — returns an
+// ArrayBuffer, or null when the file isn't there.
+export async function readFileBytes(handle, filename) {
+  try {
+    const fh = await handle.getFileHandle(filename, { create: false });
+    return await (await fh.getFile()).arrayBuffer();
+  } catch (e) {
+    if (e && e.name === "NotFoundError") return null;
+    throw e;
+  }
+}
+
 export async function readJsonFromFolder(handle, filename) {
   const text = await readFileText(handle, filename);
   if (text === null) return null;

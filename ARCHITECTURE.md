@@ -46,9 +46,9 @@ It's built for people organising research collections — language documentation
    │                                     crate:validate → output:write   │
    └──────┬──────────────┬─────────────────┬──────────────┬──────────────┘
           │              │                 │              │
-   INPUT_PLUGINS      austlang           merge      json · xlsx · html
-   (exactly one)      validate-crate            (all tap output:write)
-   generic │ docx
+   INPUT_PLUGINS   xlsx-crate-input      merge      json · xlsx · html
+   (exactly one)      austlang                 (all tap output:write)
+   generic │ docx     validate-crate
 
                     ┌────────────────────────────────────┐
                     │          CORE (crate.js)           │
@@ -139,7 +139,7 @@ The input plugin is called directly rather than through a hook, because exactly 
 
 ```js
 export const PLUGINS = [           // additive — all register, all coexist
-  austlangPlugin, mergePlugin, validateCratePlugin,
+  xlsxCrateInputPlugin, austlangPlugin, mergePlugin, validateCratePlugin,
   jsonOutputPlugin, xlsxOutputPlugin, htmlOutputPlugin,
 ];
 
@@ -151,7 +151,9 @@ export const INPUT_PLUGINS = {     // exclusive — one runs, keyed by inputMode
 
 Input plugins are deliberately kept out of `PLUGINS`: they're mutually exclusive rather than additive, so they don't go through `registerAllPlugins` or contribute to the composed schemas.
 
-**Ordering.** Array order in `PLUGINS` *is* hook-execution order for plugins sharing a stage. Every registration defaults to priority 10 and `Array#sort` is stable, so registering in this order reproduces the original inline sequence with no explicit priority numbers: AUSTLANG before merge (both tap `crate:built`), JSON before XLSX before HTML (all tap `output:write`).
+**Ordering.** Array order in `PLUGINS` *is* hook-execution order for plugins sharing a stage. Every registration defaults to priority 10 and `Array#sort` is stable, so registering in this order reproduces the original inline sequence with no explicit priority numbers: `xlsx-crate-input` first so the entities it contributes exist for the two that read the graph after it, then AUSTLANG before merge (all three tap `crate:built`), and JSON before XLSX before HTML (all tap `output:write`).
+
+`xlsx-crate-input` is worth a note as the first plugin to tap **two** stages for one job: `config:prepare` to seed the root dataset before the crate exists, then `crate:built` to fold in the rest of the spreadsheet's entities. It hands the parsed crate between them on `ctx.xlsxCrate` rather than reading the file twice — the same pattern `ro-crate-html-output` uses for `ctx.buildHtml`. It is *not* an input plugin: the folder scan still has to run, because `generic-input` is what creates the `File` entities the spreadsheet's `isPartOf` and `image` references point at.
 
 ### 4.6 Schema composition
 

@@ -123,8 +123,8 @@ const pluginsTapping = (hook) => PLUGINS.filter((p) => p.hooks && p.hooks[hook])
 
 assert.deepEqual(
   pluginsTapping(HOOKS.CRATE_BUILT),
-  ["austlang", "merge"],
-  "AUSTLANG must enrich the crate before merge runs — merge reads entities AUSTLANG may have added"
+  ["xlsx-crate-input", "austlang", "merge"],
+  "the spreadsheet crate's entities must land first — AUSTLANG and merge both read entities it may have added — and AUSTLANG must enrich before merge runs"
 );
 assert.deepEqual(
   pluginsTapping(HOOKS.OUTPUT_WRITE),
