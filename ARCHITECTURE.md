@@ -20,7 +20,7 @@ Four properties define the tool:
 
 - **Nothing leaves the machine.** All reads and writes go through the File System Access API. No server, no upload, no account; deployment is a static site.
 - **It builds on the real RO-Crate libraries** — `ro-crate` for the graph, `ro-crate-excel` for the workbook, `ro-crate-static-site` for the preview. The tool orchestrates; it doesn't hand-roll JSON-LD.
-- **A profile decides what the tool is, this run.** A MASP profile determines which fields you're asked for, which capabilities are available, what gets written onto each file, how the preview is laid out, and what counts as valid. Build is unreachable without one.
+- **A profile decides what the tool is, this run.** A MASP profile determines which fields you're asked for, which capabilities are available, what gets written onto each file, how the preview is laid out, and what counts as valid. Pick none and you get the bundled schema.org default: a minimal RO-Crate, no plugins, nothing domain-specific.
 - **Almost everything is a plugin.** The core builds a graph and hands it around; AUSTLANG matching, spreadsheet merge, validation, and all three output formats are plugins tapping named lifecycle hooks.
 
 It's built for people organising research collections — language documentation corpora, digitised archives, born-digital collections — who need consistent, publishable metadata without becoming RO-Crate experts.
@@ -194,13 +194,30 @@ Three conventions worth following: **guard on your own option first** (handlers 
 
 ## 5. MASP profiles
 
-### 5.1 A profile is mandatory
+### 5.1 A profile is always in effect
 
-`openBuild()` redirects to profile selection when none is chosen — including via the Rebuild shortcut from Show and Edit. There is no un-profiled path and no built-in fallback config. This is why `src/defaults.js` no longer exists.
+There is no un-profiled path and no ad-hoc fallback config — this is why `src/defaults.js` no longer exists. But a profile is never *demanded* of the user either: when none has been chosen, the **bundled schema.org default** applies.
+
+The default is `profiles/schema-org` from [`ro-crate-masp`](https://github.com/Language-Research-Technology/ro-crate-masp) — its own description reads "A minimal RO-Crate profile combined with the Schema.org MASP schema crate." It gives you a valid, plain RO-Crate: schema.org vocabulary, no domain assumptions, **no plugins**.
+
+Concretely, building under the default produces:
+
+| | |
+|---|---|
+| Describe asks for | `name`, `description`, `datePublished`, `license`, `conformsTo` — five fields |
+| Root dataset type | `Dataset` |
+| Written onto each `File` | nothing custom — the profile declares no `fileProperties` |
+| Optional plugins offered | none (§5.4) |
+| Output | `ro-crate-metadata.json` only |
+| Preview layout | the profile's own six property groups, if HTML is enabled by hand |
+
+This is the "I just want an RO-Crate" path. Choosing a domain profile from the profile repository is how you opt *into* structure, vocabulary, and plugins — never how you escape a broken default.
+
+**Why bundled rather than fetched.** A fallback that can fail to load is not a fallback. The default's two JSON files are imported from the `ro-crate-masp` dependency at build time, so it works offline, survives a GitHub rate-limit, and can't 404. The profile crate is ~1.6 MB (~261 kB gzipped), so it is dynamically imported into its own chunk — the same treatment the AUSTLANG data pack gets, and it is only downloaded when a build actually runs without a chosen profile.
 
 ### 5.2 What a profile ships
 
-A folder in the profile repository (`benfoley/masp-profiles`) containing:
+Profiles come from two places: the **profile repository** (`benfoley/masp-profiles`), fetched when the user picks one, and the **bundled default** (§5.1), compiled in from the `ro-crate-masp` dependency. Both have the same shape — a folder containing:
 
 ```
 <profile-name>/profile-crate/
@@ -250,11 +267,15 @@ Multi-valued properties take comma-separated input and produce arrays of referen
 - `inputMode` is pre-selected **and locked**, because the Describe field set and the parsing path both depend on it. A docx profile can't be run against a generic folder by accident.
 - Settings are **not** gated — they're machine and user preferences, orthogonal to the profile.
 
-**One consequence worth knowing:** the allow-list controls *visibility*. An option whose schema default is `true` still runs when a profile omits its key — the plugin checks `ctx.options`, which reflects the field's value whether or not it's on screen. In practice this affects the always-on-by-default outputs; a profile that omits `makeHtml` still gets HTML. If hidden should mean off, that's a change to `applyBuildOptionsFromProfile`, not to the plugins.
+**Hidden means off.** An option the profile didn't enable is not merely hidden — it is forced to its off value, so the plugin behind it does not run. Visibility and execution are the same decision. Without this, an option whose schema default is `true` would still run while invisible, and "no plugins" would be unenforceable: the schema.org default would silently emit an HTML preview nobody asked for.
+
+**A profile with no `buildOptions` block at all offers no optional plugins** — the absent block reads as an empty allow-list, not as "no opinion". This is what makes the bundled default minimal, and it means an upstream profile authored for `crate-o` (which knows nothing about resources2crate's options) behaves conservatively here rather than switching everything on.
+
+Always-on plugins are unaffected: JSON output and validation have no option key, so nothing gates them.
 
 ### 5.5 Validation
 
-After every build, if a profile is selected (always, via the UI), `validate-crate` runs the profile's validator and reports into the build log. Advisory — a failing crate is still written with its issues listed, because a crate you can inspect beats a refused build.
+After every build `validate-crate` runs the profile's validator and reports into the build log — under the bundled default just as under a chosen profile, so even the minimal path tells you whether the crate conforms. Advisory: a failing crate is still written with its issues listed, because a crate you can inspect beats a refused build.
 
 ### 5.6 `ro-crate-masp` integration notes
 
@@ -397,9 +418,14 @@ Two rendering details: the context must be resolved before layout resolution and
        │                    │                  │            │
   FSA handle,         fetch + load        form from     pipeline runs,
   session reset         validator          profile      then validation
+                            │
+                       (skippable — falls back
+                        to the bundled default)
 ```
 
-Each step gates the next. Choosing a profile fetches its two JSON files, loads them into a validator, resolves the root class, and derives the Describe schema — cached for the session, cleared on folder change so a profile chosen for one collection doesn't carry over.
+Choosing a profile fetches its two JSON files, loads them into a validator, resolves the root class, and derives the Describe schema — cached for the session, cleared on folder change so a profile chosen for one collection doesn't carry over.
+
+Selecting a profile is optional; Describe and Build are not. Skipping selection loads the bundled default instead, and from that point the flow is identical — the rest of the app only ever sees "the profile in effect", never "no profile". Every step downstream can assume a validator, a field schema, and a layout exist.
 
 **Show** displays an existing crate in three tabs: preview, JSON, and the workbook rendered as HTML tables (capped at 200 rows and 20 columns, with a sheet switcher). Tabs fall back to whichever outputs exist.
 
@@ -454,6 +480,7 @@ src/
   main.js                        UI, wizard, ctx assembly, schema composition
   crate.js                       CORE — assembly, serialisation (isomorphic)
   masp.js                        profile fetch, load, introspection, validation
+  default_profile.js             the bundled schema.org fallback (§5.1)
   fs_helpers.js                  CORE — File System Access wrappers
   github.js                      shared fetch primitives + listing cache
 
@@ -489,7 +516,7 @@ vite.config.js
 
 **Not implemented.** PDF *content* language identification (filename matching only). OCFL building. SHACL-style RO-Crate validation independent of the selected profile's MASP rules.
 
-**Known rough edges.** GitHub access is unauthenticated, so profile and template listings are rate-limited and private repositories are out of reach. The docx adapter wipes `files/` on every build rather than updating incrementally. `ro-crate-masp` mis-validates `URL`-typed properties; the tool annotates rather than works around it. `enabledOptionKeys` gates visibility but not execution (§5.4).
+**Known rough edges.** GitHub access is unauthenticated, so profile and template listings are rate-limited and private repositories are out of reach. The docx adapter wipes `files/` on every build rather than updating incrementally. `ro-crate-masp` mis-validates `URL`-typed properties; the tool annotates rather than works around it. The bundled default profile adds ~261 kB gzipped to the deployed site, in its own chunk, downloaded only when a build runs without a chosen profile.
 
 **Where the architecture points.** The hook contract absorbs new capability without touching the pipeline: new input modes (archive import, OAI-PMH harvest) as `INPUT_PLUGINS` entries; new processors (content-based language ID, other gazetteers, database merge sources) as `crate:built` taps; new formats (RDF/XML, institutional XML schemas) as `output:write` taps. In each case the profile, not new UI, decides who gets them.
 
