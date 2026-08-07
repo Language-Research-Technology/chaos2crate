@@ -82,10 +82,53 @@ function hasUploadedMatch(uploadedFiles, spec) {
   return !!(uploadedFiles.get(rel) || uploadedFiles.get(base));
 }
 
+// Every template a multipage config points at: the root's, plus one per
+// entity type. renderMultiPage looks these up by the exact string the config
+// used (crateLite.pages[*].template and config.root.template), so they double
+// as the keys of the pageTemplates map — see collectPageTemplates.
+export function multipageTemplateRefs(cfg) {
+  if (!cfg || cfg.multipage === false) return [];
+  const refs = [];
+  const rootRef = pickConfigString(cfg, ["root:template", "root.template"]);
+  if (rootRef) refs.push(rootRef);
+  for (const typeCfg of Object.values(cfg.types || {})) {
+    const ref = typeCfg && typeof typeCfg === "object" ? typeCfg.template : null;
+    if (typeof ref === "string" && ref.trim()) refs.push(ref.trim());
+  }
+  return [...new Set(refs)];
+}
+
+// Resolve each of those refs into template text, keyed by the ref itself.
+// Keying by what the config actually wrote — rather than by where the file was
+// found — is what lets a config keep working whatever path style it uses: the
+// repo bundle's "templates/root-template.html", or the repo-root-relative
+// paths a config copied from a CLI checkout carries.
+//
+// Returns null when the config isn't multipage, so callers can distinguish
+// "no multipage wanted" from "multipage wanted but nothing resolved".
+export async function collectPageTemplates(cfg, opts = {}) {
+  const refs = multipageTemplateRefs(cfg);
+  if (!refs.length) return null;
+
+  const pageTemplates = {};
+  for (const ref of refs) {
+    const resolved = await resolveTemplateAsset(ref, "template", opts);
+    if (resolved.text === null || resolved.text === undefined) {
+      throw new Error(`Could not resolve template "${ref}" referenced by the config.`);
+    }
+    pageTemplates[ref] = resolved.text;
+  }
+  return pageTemplates;
+}
+
 function needsLocalTemplateFolder(cfg, uploadedFiles) {
   const refs = [
     pickConfigString(cfg, ["root:template", "root.template", "template", "templateFile", "templatePath", "templateUrl", "files.template", "paths.template", "assets.template"]),
     pickConfigString(cfg, ["style", "css", "styleFile", "stylePath", "styleUrl", "cssFile", "cssPath", "cssUrl", "files.style", "files.css", "paths.style", "paths.css", "assets.style", "assets.css"]),
+    // Per-type templates count too: a multipage bundle whose root template was
+    // uploaded but whose type templates weren't still needs the folder, and
+    // without this the build would fail late instead of asking for it.
+    ...multipageTemplateRefs(cfg),
   ].filter(Boolean);
   for (const v of refs) {
     if (/^https?:\/\//i.test(v)) continue;
@@ -159,6 +202,15 @@ async function resolveTemplateAsset(spec, kind, { dirHandle = null, baseRawUrl =
       const rel = val.replace(/^\.\//, "");
       const text = await readFileTextFromDirectory(dirHandle, rel);
       if (text !== null) return { text, source: `folder (${rel})` };
+      // The picked folder is the config's own folder, but the path may be
+      // written relative to somewhere further up — a config copied out of a
+      // CLI checkout says "test_data/birds/templates/x.html" for a file that
+      // sits at "templates/x.html" here. Try successively shorter tails
+      // rather than failing on a path that only has the wrong prefix.
+      for (const candidate of pathTailCandidates(rel).slice(1)) {
+        const tailText = await readFileTextFromDirectory(dirHandle, candidate);
+        if (tailText !== null) return { text: tailText, source: `folder (${candidate})` };
+      }
     }
   }
 
@@ -310,6 +362,7 @@ export const plugin = {
         const selectedFolder = (options.templateRepoFolder || "").trim();
         const repoSelected = !!selectedFolder;
         let pageTemplates = null;
+        let pageTemplatesSrc = "none";
         if (options.styledPreview || repoSelected) {
           // Precedence for template/config/style: repo folder → uploaded file → local folder.
           let template = null, templateSrc = "none";
@@ -323,6 +376,7 @@ export const plugin = {
             css = remote.css;
             if (remote.pageTemplates && Object.keys(remote.pageTemplates).length > 0) {
               pageTemplates = remote.pageTemplates;
+              pageTemplatesSrc = `repo (${selectedFolder})`;
             }
             const base = `repo (${selectedFolder})`;
             templateSrc = remote.files.template ? `${base}/${remote.files.template}` : `${base}; no template found`;
@@ -346,12 +400,22 @@ export const plugin = {
             if (needsLocalTemplateFolder(cfg, uploadedFiles)) {
               configDirHandle = await ensureUploadedConfigDirectoryHandle();
             }
-            const resolved = await resolveTemplateBundleFromConfig(cfg, {
-              uploadedFiles,
-              dirHandle: configDirHandle,
-            });
+            const assetOpts = { uploadedFiles, dirHandle: configDirHandle };
+            const resolved = await resolveTemplateBundleFromConfig(cfg, assetOpts);
             if (resolved.template) { template = resolved.template; templateSrc = resolved.templateSrc; }
             if (resolved.css) { css = resolved.css; cssSrc = resolved.cssSrc; }
+
+            // A local config gets its own template map, resolved from the same
+            // uploaded files or picked folder. Without this the repo bundle was
+            // the only way to build multipage, which made developing a
+            // multipage template locally impossible — the build silently fell
+            // through to a single page whose entity links pointed at pages it
+            // never wrote.
+            const localPageTemplates = await collectPageTemplates(cfg, assetOpts);
+            if (localPageTemplates) {
+              pageTemplates = localPageTemplates;
+              pageTemplatesSrc = configDirHandle ? "picked folder" : "uploaded files";
+            }
           }
           // A template's own config.json-declared propertyGroups (the most
           // specific, deliberate customization) still wins over the
@@ -360,8 +424,18 @@ export const plugin = {
           const cfgHasOwnGroups = !!(cfg && Array.isArray(cfg.propertyGroups) && cfg.propertyGroups.length);
           const effectiveCfg = cfg && !cfgHasOwnGroups ? { ...cfg, propertyGroups: layout } : cfg;
 
-          if (pageTemplates && !options.configUpload && cfg && cfg.multipage !== false) {
-            log(`Preview: multipage template bundle (repo ${selectedFolder}) · config ${cfgSrc}.`, "muted");
+          // The repo's templates are keyed to the repo's own config, so they
+          // can't be paired with a config from somewhere else — but an
+          // uploaded config that brought its own templates has just replaced
+          // pageTemplates with a matching set, and that pairing is fine.
+          const uploadedConfigWithRepoTemplates =
+            !!options.configUpload && pageTemplatesSrc.startsWith("repo (");
+          if (uploadedConfigWithRepoTemplates && cfg && cfg.multipage !== false) {
+            log(`Uploaded config asks for a multipage build but brought no templates, and the ${selectedFolder} repo folder's templates belong to its own config — falling back to a single page. Upload the templates alongside the config, or clear the repo folder.`, "warn");
+          }
+
+          if (pageTemplates && !uploadedConfigWithRepoTemplates && cfg && cfg.multipage !== false) {
+            log(`Preview: multipage · templates ${pageTemplatesSrc} · config ${cfgSrc}.`, "muted");
             const multi = await crateToMultiPageHtml(crate, { config: effectiveCfg, css, pageTemplates });
             for (const page of multi.pages) {
               await writeFileAtPath(dirHandle, page.path, page.html);
