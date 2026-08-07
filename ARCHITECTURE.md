@@ -46,9 +46,9 @@ It's built for people organising research collections — language documentation
    │                                     crate:validate → output:write   │
    └──────┬──────────────┬─────────────────┬──────────────┬──────────────┘
           │              │                 │              │
-   INPUT_PLUGINS      austlang           merge      json · xlsx · html
-   (exactly one)      validate-crate            (all tap output:write)
-   generic │ docx
+   INPUT_PLUGINS   xlsx-crate-input      merge      json · xlsx · html
+   (exactly one)      austlang                 (all tap output:write)
+   generic │ docx     validate-crate
 
                     ┌────────────────────────────────────┐
                     │          CORE (crate.js)           │
@@ -139,7 +139,7 @@ The input plugin is called directly rather than through a hook, because exactly 
 
 ```js
 export const PLUGINS = [           // additive — all register, all coexist
-  austlangPlugin, mergePlugin, validateCratePlugin,
+  xlsxCrateInputPlugin, austlangPlugin, mergePlugin, validateCratePlugin,
   jsonOutputPlugin, xlsxOutputPlugin, htmlOutputPlugin,
 ];
 
@@ -151,7 +151,9 @@ export const INPUT_PLUGINS = {     // exclusive — one runs, keyed by inputMode
 
 Input plugins are deliberately kept out of `PLUGINS`: they're mutually exclusive rather than additive, so they don't go through `registerAllPlugins` or contribute to the composed schemas.
 
-**Ordering.** Array order in `PLUGINS` *is* hook-execution order for plugins sharing a stage. Every registration defaults to priority 10 and `Array#sort` is stable, so registering in this order reproduces the original inline sequence with no explicit priority numbers: AUSTLANG before merge (both tap `crate:built`), JSON before XLSX before HTML (all tap `output:write`).
+**Ordering.** Array order in `PLUGINS` *is* hook-execution order for plugins sharing a stage. Every registration defaults to priority 10 and `Array#sort` is stable, so registering in this order reproduces the original inline sequence with no explicit priority numbers: `xlsx-crate-input` first so the entities it contributes exist for the two that read the graph after it, then AUSTLANG before merge (all three tap `crate:built`), and JSON before XLSX before HTML (all tap `output:write`).
+
+`xlsx-crate-input` is worth a note as the first plugin to tap **two** stages for one job: `config:prepare` to seed the root dataset before the crate exists, then `crate:built` to fold in the rest of the spreadsheet's entities. It hands the parsed crate between them on `ctx.xlsxCrate` rather than reading the file twice — the same pattern `ro-crate-html-output` uses for `ctx.buildHtml`. It is *not* an input plugin: the folder scan still has to run, because `generic-input` is what creates the `File` entities the spreadsheet's `isPartOf` and `image` references point at.
 
 ### 4.6 Schema composition
 
@@ -253,6 +255,16 @@ The profile's root class definition is introspected into a field schema and the 
 | `Value` (PropertyValue-fixed) | nothing — structural, not user-editable |
 
 Multi-valued properties take comma-separated input and produce arrays of references. Textarea selection comes from the profile rather than a guess at the property's name — MASP's editor-definition shape has no multiline hint, and the tool has no business inferring one.
+
+**Prefilling from the folder.** A folder may already hold the crate's metadata in more than one form: the spreadsheet the collection is authored in, and the `ro-crate-metadata.json` a previous build (or a `rocxl` sync) wrote. `pickNewestCrateSource()` in `src/plugins/xlsx-crate-input/xlsx_crate.js` picks between them by `lastModified` — whichever the author touched last is the one they've been working in, so that's what the form reflects. Candidates, in tie-break order:
+
+1. `additional-ro-crate-metadata.xlsx`
+2. `ro-crate-metadata.xlsx`
+3. `ro-crate-metadata.json`
+
+Ties go to the earlier entry, so a build that writes its outputs in the same second doesn't flip the answer away from the hand-authored spreadsheet. The chosen file is named above the form, because with several possible sources "where did these values come from?" deserves an answer that doesn't require opening any of them.
+
+This is a **read of the root entity only** — it fills form fields, nothing more. Folding a spreadsheet's other entities into the build is the separate, opt-in job of the `xlsx-crate-input` plugin's hooks, and stays tied to the explicit `additional-ro-crate-metadata.xlsx`: merging a previous build's whole graph back in would resurrect entities for files since deleted from the folder.
 
 ### 5.4 Gating plugins and options
 
@@ -506,6 +518,7 @@ Six suites, run by `npm test`. Every one exits non-zero when the behaviour it co
 | Profile load, Describe derivation, validation | `test-default-profile.mjs` | ✅ |
 | Default profile — overlay, minimality, layout resolution | `test-default-profile.mjs` | ✅ |
 | Multipage templates — ref collection, upload/folder resolution, tail fallback, explicit failure | `test-page-templates.mjs` | ✅ |
+| Spreadsheet crate — round trip, prefill source choice, seeding, entity merge, warnings | `test-xlsx-crate.mjs` | ✅ |
 | Merge — typed `Place` → linked `Geometry` | `test-place-merge.mjs` | ✅ |
 | Place lookup — manual records | `test-place-merge.mjs` | ✅ |
 | Merge — untyped mappings, other entity types, workbook contexts, unmatched rows | — | ❌ |

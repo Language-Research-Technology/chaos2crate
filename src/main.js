@@ -430,12 +430,14 @@ function buildFileField(opt) {
     drop.classList.add("has-file");
     clear.classList.remove("hidden");
     if (opt.key === "mergeFile") refreshMergeMappingBuilderBtn();
+    if (opt.key === "xlsxCrateFile") reportOnXlsxCrate(uploads[opt.key].file, uploads[opt.key].name, "uploaded");
   };
   const clearFile = () => {
     delete uploads[opt.key];
     dz.textContent = defaultDropText; drop.classList.remove("has-file");
     clear.classList.add("hidden"); input.value = "";
     if (opt.key === "mergeFile") refreshMergeMappingBuilderBtn();
+    if (opt.key === "xlsxCrateFile") clearXlsxCrateReport();
   };
 
   input.addEventListener("change", () => { if (input.files && input.files.length) setFiles(input.files); });
@@ -450,6 +452,99 @@ function buildFileField(opt) {
   wrap.append(drop, input, clear);
   if (opt.hint) wrap.appendChild(hintEl(opt.hint));
   return wrap;
+}
+
+/* ---------- RO-Crate spreadsheet: validate as soon as it's chosen ---------- */
+// The build log reports on the spreadsheet too (see the xlsx-crate-input
+// plugin), but that's only after a build is started. This is the same report
+// at the moment the file is accepted — chosen from disk, or found sitting in
+// the picked folder — so a bad spreadsheet is visible before it's built on.
+
+function xlsxCrateReportEl() {
+  const field = $("field_opt_xlsxCrateFile");
+  if (!field) return null;
+  let el = $("xlsxCrateReport");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "xlsxCrateReport";
+    el.style.cssText = "margin-top:8px;font-size:12px;font-family:var(--mono);border:1px solid var(--border);"
+      + "border-radius:8px;background:var(--panel-2);padding:8px 10px;max-height:220px;overflow:auto;";
+    field.appendChild(el);
+  }
+  return el;
+}
+
+function clearXlsxCrateReport() {
+  const el = $("xlsxCrateReport");
+  if (el) el.remove();
+}
+
+function xlsxCrateReportLine(text, colorVar) {
+  const line = document.createElement("div");
+  line.textContent = text;
+  line.style.cssText = `color:var(${colorVar});margin:2px 0;white-space:pre-wrap;`;
+  return line;
+}
+
+// Reads the spreadsheet as an RO-Crate, runs the selected profile's
+// validator over it, and lists profile errors and structural warnings.
+// Errors are profile-rule failures; warnings are things a profile can't
+// express (dangling references, properties no rule mentions).
+async function reportOnXlsxCrate(file, name, origin) {
+  const el = xlsxCrateReportEl();
+  if (!el) return;
+  el.replaceChildren(xlsxCrateReportLine(`Checking ${name}…`, "--muted"));
+
+  try {
+    await ensureProfileData();
+  } catch (e) {
+    el.replaceChildren(xlsxCrateReportLine(`Could not load the profile to check against: ${e.message}`, "--warn"));
+    return;
+  }
+
+  try {
+    const { readCrateFromXlsxBytes, collectWarnings } = await import("./plugins/xlsx-crate-input/xlsx_crate.js");
+    const { validateBuiltCrate } = await import("./masp.js");
+    const crate = await readCrateFromXlsxBytes(await file.arrayBuffer());
+    const warnings = collectWarnings(crate, selectedProfileData?.validator || null);
+    const result = selectedProfileData
+      ? await validateBuiltCrate(selectedProfileData.validator, crate)
+      : { ok: true, errors: [] };
+
+    const lines = [];
+    const heading = result.ok
+      ? `${name} (${origin}) conforms to the "${profileLabel(selectedProfile)}" profile.`
+      : `${name} (${origin}): ${result.errors.length} profile error(s).`;
+    lines.push(xlsxCrateReportLine(heading, result.ok ? "--ok" : "--err"));
+    for (const e of result.errors) lines.push(xlsxCrateReportLine(`• ${e.message}`, "--err"));
+    if (warnings.length) {
+      lines.push(xlsxCrateReportLine(`${warnings.length} warning(s):`, "--warn"));
+      for (const w of warnings) lines.push(xlsxCrateReportLine(`! ${w.message}`, "--warn"));
+    }
+    if (result.ok && !warnings.length) lines.push(xlsxCrateReportLine("No warnings.", "--muted"));
+    el.replaceChildren(...lines);
+  } catch (e) {
+    el.replaceChildren(xlsxCrateReportLine(`Could not read ${name} as an RO-Crate spreadsheet: ${e.message}`, "--err"));
+  }
+}
+
+// Called when the Build panel opens: if the option is on, nothing has been
+// uploaded, and the picked folder holds the conventional spreadsheet, report
+// on that one — it's what a build would use.
+async function reportOnFolderXlsxCrate() {
+  if (uploads.xlsxCrateFile) return;
+  const toggle = $("opt_xlsxCrate");
+  if (!toggle || !toggle.checked || !dirHandle) { clearXlsxCrateReport(); return; }
+
+  const { FOLDER_XLSX_NAME } = await import("./plugins/xlsx-crate-input/xlsx_crate.js");
+  const { readFileBytes } = await import("./fs_helpers.js");
+  const bytes = await readFileBytes(dirHandle, FOLDER_XLSX_NAME);
+  if (!bytes) {
+    const el = xlsxCrateReportEl();
+    if (el) el.replaceChildren(xlsxCrateReportLine(`No ${FOLDER_XLSX_NAME} in this folder — upload one, or the build will use the Describe values alone.`, "--muted"));
+    return;
+  }
+  await reportOnXlsxCrate(new File([bytes], FOLDER_XLSX_NAME), FOLDER_XLSX_NAME, "found in the folder");
 }
 
 function buildSelectField(opt) {
@@ -950,6 +1045,7 @@ function readOptions() {
   o.configUpload = uploads.configFile || null;
   o.mergeUpload = uploads.mergeFile || null;
   o.mergeConfigUpload = uploads.mergeConfigFile || null;
+  o.xlsxCrateUpload = uploads.xlsxCrateFile || null;
   return o;
 }
 
@@ -1109,6 +1205,10 @@ let rootDatasetOverride = null;
 // populateCrateDetailsFromExistingCrate/buildDescribeField.
 let existingRootDatasetEntity = null;
 let existingRootDatasetById = null;
+// Which file the prefill came from, shown above the form — with a spreadsheet
+// and a JSON both possible, "where did these values come from?" is a fair
+// question to have answered without opening either.
+let existingCrateSourceLabel = "";
 
 function todayIsoDate() {
   const d = new Date();
@@ -1192,6 +1292,13 @@ function buildDescribeField(field) {
 function renderDescribeFields(fieldSchema) {
   const container = $("crateDetailsBody");
   container.innerHTML = "";
+  if (existingRootDatasetEntity && existingCrateSourceLabel) {
+    const note = document.createElement("div");
+    note.className = "hint";
+    note.style.cssText = "margin-bottom:12px;";
+    note.textContent = `Prefilled from ${existingCrateSourceLabel} — the most recently edited crate metadata in this folder. Anything you change here wins.`;
+    container.appendChild(note);
+  }
   for (const field of fieldSchema) container.appendChild(buildDescribeField(field));
 }
 
@@ -1251,6 +1358,7 @@ function resetCrateDetailsForm() {
   $("crateDetailsBody").innerHTML = "";
   existingRootDatasetEntity = null;
   existingRootDatasetById = null;
+  existingCrateSourceLabel = "";
 }
 
 function resolveLinkedName(value, byId) {
@@ -1314,7 +1422,27 @@ function getRootDatasetEntity(crateJson) {
 // buildDescribeField() can prefill each rendered field from it once the form
 // does exist.
 async function populateCrateDetailsFromExistingCrate(handle) {
-  const crateJson = await readJsonFromFolder(handle, JSON_FILE);
+  // The folder may hold the crate's metadata in more than one form — the
+  // spreadsheet the collection is authored in, and the JSON a previous build
+  // (or rocxl) wrote. Whichever was touched last is the one the author has
+  // been working in, so that's what the form should reflect.
+  const { pickNewestCrateSource, readCrateJsonFromSource } =
+    await import("./plugins/xlsx-crate-input/xlsx_crate.js");
+
+  let crateJson = null;
+  const source = await pickNewestCrateSource(handle);
+  if (source) {
+    try {
+      crateJson = await readCrateJsonFromSource(source);
+      existingCrateSourceLabel = `${source.name} (modified ${new Date(source.lastModified).toLocaleString()})`;
+    } catch (e) {
+      // A spreadsheet that won't parse shouldn't cost the user the JSON
+      // sitting next to it.
+      console.warn(`Could not read ${source.name} for prefill:`, e);
+      crateJson = source.kind === "json" ? null : await readJsonFromFolder(handle, JSON_FILE);
+      existingCrateSourceLabel = crateJson ? JSON_FILE : "";
+    }
+  }
   if (!crateJson) return false;
 
   const extracted = getRootDatasetEntity(crateJson);
@@ -1525,6 +1653,9 @@ async function openBuild() {
   refreshTemplateUploadVisibility();
   refreshModeCards();
   showView("view-build");
+  // Not awaited: reads a spreadsheet off disk and runs the validator, which
+  // shouldn't hold up showing the panel. It renders into the field when done.
+  reportOnFolderXlsxCrate().catch((e) => log(`Could not check for a crate spreadsheet: ${e.message}`, "warn"));
 }
 
 // Download the current build log as a .log file.
