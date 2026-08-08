@@ -196,7 +196,7 @@ export const plugin = {
 
 Then add it to `PLUGINS` in `src/plugins/index.js`, positioned where it should run relative to others sharing its hook. For the option to be reachable, a profile must name `enableMyThing` in its `buildOptions.enabledOptionKeys`.
 
-Three conventions worth following: **guard on your own option first** (handlers run on every build); **dynamic-import anything heavy** so it stays out of the main bundle; **log through `ctx.log`** rather than `console`.
+Four conventions worth following: **guard on your own option first** (handlers run on every build); **dynamic-import anything heavy** so it stays out of the main bundle; **log through `ctx.log`** rather than `console`; and **write a user-facing doc** if the plugin asks anything of the *person preparing content or running a build* — an authoring convention (headings, filename patterns, magic strings like `SOUND FILE:`), an option whose effect isn't self-explanatory from its label, or an expected file/config shape it reads. That doc is for the plugin's users, not its maintainers — this section and the rest of this file are the latter. It belongs under `docs/` (see §11), linked from the README rather than folded into it, following the pattern `docs/docx-authoring.md` set for `docx-input` (§7.1). A plugin with no user-visible behaviour beyond a self-explanatory option toggle doesn't need one.
 
 ---
 
