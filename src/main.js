@@ -1421,14 +1421,22 @@ async function buildProfileData(profileJson, modeJson) {
   return { validator, workflow: modeJson, rootClassDefinition, fieldSchema };
 }
 
+// Loads the bundled default profile's data without touching selectedProfile/
+// selectedProfileData — for callers that need a field schema to work with
+// (e.g. synthesizing a Describe prefill) but must not make it look like the
+// user has gone through profile selection.
+async function loadDefaultProfileData() {
+  const { getDefaultProfile } = await import("./default_profile.js");
+  const { profileJson, modeJson } = getDefaultProfile();
+  return buildProfileData(profileJson, modeJson);
+}
+
 // Guarantees a profile is in effect, loading the bundled default if the user
 // skipped selection. Called by the steps that actually need a schema
 // (Describe) or buildOptions (Build), rather than forcing a choice up front.
 async function ensureProfileData() {
   if (selectedProfileData) return selectedProfileData;
-  const { getDefaultProfile } = await import("./default_profile.js");
-  const { profileJson, modeJson } = getDefaultProfile();
-  selectedProfileData = await buildProfileData(profileJson, modeJson);
+  selectedProfileData = await loadDefaultProfileData();
   selectedProfile = DEFAULT_PROFILE_ID;
   refreshBuildStepActions();
   return selectedProfileData;
@@ -1811,7 +1819,10 @@ async function populateCrateDetailsFromExistingCrate(handle) {
   if (idText) $("cd_id").value = idText;
 
   try {
-    const profileData = await ensureProfileData();
+    // Uses the default field schema only to shape the synthesized override —
+    // loadDefaultProfileData() doesn't touch selectedProfile, so this can't
+    // make the Select-profile/Describe steps look like the user visited them.
+    const profileData = await loadDefaultProfileData();
     rootDatasetOverride = collectDescribeValues(
       profileData.fieldSchema,
       idText,
@@ -1843,11 +1854,13 @@ function refreshBuildStepActions() {
   const buildBtn = $("buildStepOpenBuild");
   if (!folderBtn || !profileBtn || !describeBtn || !buildBtn) return;
   const hasFolder = !!dirHandle;
+  const hasProfile = !!selectedProfile;
   const hasDescribe = !!rootDatasetOverride;
-  // Profile selection is optional — skipping it falls back to the bundled
-  // default (ensureProfileData), so Describe only waits on a folder.
+  // Describe waits on an explicit profile pick (selectedProfile is only set
+  // by chooseProfile(), never by ensureProfileData()'s silent default
+  // fallback) so a folder alone doesn't unlock it.
   profileBtn.disabled = !hasFolder;
-  describeBtn.disabled = !hasFolder;
+  describeBtn.disabled = !(hasFolder && hasProfile);
   buildBtn.disabled = !(hasFolder && hasDescribe);
 
   // Bold whichever step is furthest along the enabled chain, so it's obvious
