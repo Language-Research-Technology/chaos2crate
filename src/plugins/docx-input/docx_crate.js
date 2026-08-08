@@ -106,7 +106,9 @@ function normalizeIdSegment(value) {
   return (value || "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 }
 
-function normalizeIdFromPath(pathValue) {
+// Exported so the Build panel can predict a top-level folder's collection id
+// (used to populate the "Home page" picker) without re-parsing the crate.
+export function normalizeIdFromPath(pathValue) {
   return (pathValue || "").replace(/\.docx$/i, "").replace(/\//g, "-").replace(/\s+/g, "_");
 }
 

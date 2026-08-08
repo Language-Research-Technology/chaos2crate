@@ -88,6 +88,22 @@ function hasUploadedMatch(uploadedFiles, spec) {
   return !!(uploadedFiles.get(rel) || uploadedFiles.get(base));
 }
 
+// The Build panel's "Home page" and "Site domain" fields are per-crate
+// choices, so when set they override whatever the template itself shipped
+// for homePageId/domain — those are typically a placeholder value or
+// another project's (see benfoley/rocss-template-repo#3). Left blank, the
+// template's own config is untouched, so a template with sensible values of
+// its own still works with neither field filled in. `cfg` may be null (no
+// template/config resolved at all), in which case there is nothing to
+// override and null is returned unchanged.
+export function applyHomePageAndDomainOverrides(cfg, options) {
+  if (!cfg) return cfg;
+  const overrides = {};
+  if (options?.homePageId) overrides.homePageId = options.homePageId;
+  if (options?.domain) overrides.domain = options.domain;
+  return Object.keys(overrides).length ? { ...cfg, ...overrides } : cfg;
+}
+
 // Every template a multipage config points at: the root's, plus one per
 // entity type. renderMultiPage looks these up by the exact string the config
 // used (crateLite.pages[*].template and config.root.template), so they double
@@ -337,6 +353,12 @@ export const plugin = {
     children: [
       { key: "templateRepoFolder", type: "select", label: "Template from rocss-template-repo",
         placeholder: "Loading folders…", hint: "Optional. Select one folder from the template repo." },
+      { key: "homePageId", type: "select", label: "Home page",
+        placeholder: "No home page — show the collection index",
+        hint: "Optional. Pick one of your top-level folders to use as the landing page, instead of the index of collections. Populated from the folder you picked." },
+      { key: "domain", type: "text", label: "Site domain",
+        placeholder: "https://example.org/my-site",
+        hint: "Optional. The hostname this site will be published under, used to build absolute preview-card (Open Graph) image and link URLs. Leave blank to skip those tags." },
       { key: "styledPreview", label: "Upload template files", default: false,
         hint: "Off = the library's plain preview.", children: [
         { key: "configFile", type: "file", label: "Config (JSON)", accept: ".json,.css,.html,application/json,text/css,text/html",
@@ -434,7 +456,8 @@ export const plugin = {
           // profile's — the profile only fills in when the template didn't
           // set its own.
           const cfgHasOwnGroups = !!(cfg && Array.isArray(cfg.propertyGroups) && cfg.propertyGroups.length);
-          const effectiveCfg = cfg && !cfgHasOwnGroups ? { ...cfg, propertyGroups: layout } : cfg;
+          const baseCfg = cfg && !cfgHasOwnGroups ? { ...cfg, propertyGroups: layout } : cfg;
+          const effectiveCfg = applyHomePageAndDomainOverrides(baseCfg, options);
 
           // The repo's templates are keyed to the repo's own config, so they
           // can't be paired with a config from somewhere else — but an

@@ -93,7 +93,7 @@ function defaultSettingsFromSchema(schema) {
   const defaults = {};
   for (const opt of schema) {
     if (opt.type === "file" || opt.type === "mappingBuilder" || opt.type === "collectionLabelsBuilder") continue;
-    if (opt.type === "select") defaults[opt.key] = typeof opt.default === "string" ? opt.default : "";
+    if (opt.type === "select" || opt.type === "text") defaults[opt.key] = typeof opt.default === "string" ? opt.default : "";
     else defaults[opt.key] = !!opt.default;
     if (opt.children) Object.assign(defaults, defaultSettingsFromSchema(opt.children));
   }
@@ -118,7 +118,7 @@ function applySettingsToUi(schema, values) {
     if (opt.type === "file" || opt.type === "mappingBuilder" || opt.type === "collectionLabelsBuilder") continue;
     const el = $("opt_" + opt.key);
     if (!el) continue;
-    if (opt.type === "select") {
+    if (opt.type === "select" || opt.type === "text") {
       const v = values[opt.key];
       if (typeof v === "string") el.value = v;
     } else {
@@ -465,11 +465,12 @@ function applyBuildOptionsFromProfile(buildOptions) {
     // control of their own — their visibility above is the whole story.
     const el = $("opt_" + key);
     if (!el) continue;
+    const isTextLike = el.tagName === "SELECT" || (el.tagName === "INPUT" && el.type === "text");
     if (!enabled.has(key)) {
-      if (el.tagName === "SELECT") el.value = "";
+      if (isTextLike) el.value = "";
       else el.checked = false;
     } else if (key in declared) {
-      if (el.tagName === "SELECT") el.value = declared[key];
+      if (isTextLike) el.value = declared[key];
       else el.checked = !!declared[key];
     }
     el.dispatchEvent(new Event("change"));
@@ -495,6 +496,7 @@ function renderOptions(schema, parent) {
   for (const opt of schema) {
     if (opt.type === "file") { parent.appendChild(buildFileField(opt)); continue; }
     if (opt.type === "select") { parent.appendChild(buildSelectField(opt)); continue; }
+    if (opt.type === "text") { parent.appendChild(buildTextField(opt)); continue; }
     if (opt.type === "mappingBuilder") { parent.appendChild(buildMappingBuilderField(opt)); continue; }
     if (opt.type === "collectionLabelsBuilder") { parent.appendChild(buildCollectionLabelsField(opt)); continue; }
 
@@ -729,6 +731,33 @@ function buildSelectField(opt) {
   return wrap;
 }
 
+function buildTextField(opt) {
+  const wrap = document.createElement("div");
+  wrap.className = "field";
+  wrap.id = "field_opt_" + opt.key;
+  wrap.appendChild(Object.assign(document.createElement("div"), { className: "file-label", textContent: opt.label }));
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.id = "opt_" + opt.key;
+  if (opt.placeholder) input.placeholder = opt.placeholder;
+  input.style.width = "100%";
+  input.style.padding = "9px 10px";
+  input.style.borderRadius = "8px";
+  input.style.border = "1px solid var(--border)";
+  input.style.background = "var(--panel-2)";
+  input.style.color = "var(--text)";
+  input.style.fontFamily = "var(--mono)";
+  input.style.fontSize = "12px";
+  input.style.boxSizing = "border-box";
+
+  if (typeof opt.default === "string") input.value = opt.default;
+
+  wrap.appendChild(input);
+  if (opt.hint) wrap.appendChild(hintEl(opt.hint));
+  return wrap;
+}
+
 function buildMappingBuilderField(opt) {
   const wrap = document.createElement("div");
   wrap.className = "field";
@@ -805,6 +834,43 @@ async function openCollectionLabelsModal() {
   }
   renderCollectionLabelsRows(folderNames);
   $("collectionLabelsModal").classList.remove("hidden");
+}
+
+// Fills the "Home page" select with one entry per top-level folder in the
+// picked directory, value = the collection id that folder will build to
+// (`#` + normalizeIdFromPath(folderName) — matches docx_crate.js's own
+// collectionId derivation exactly, so the choice is correct without having
+// to build the crate first). Silently leaves the field on its placeholder if
+// the folder can't be read as a docx tree; homePageId stays optional either
+// way.
+async function populateHomePageOptions() {
+  const select = $("opt_homePageId");
+  if (!select || !dirHandle) return;
+  const previousValue = select.value;
+  try {
+    const { getSubDirectoryHandles, normalizeIdFromPath } = await import("./plugins/docx-input/docx_crate.js");
+    const subDirs = await getSubDirectoryHandles(dirHandle);
+    const folderNames = subDirs.map((h) => h.name).sort((a, b) => a.localeCompare(b));
+
+    select.innerHTML = "";
+    const ph = document.createElement("option");
+    ph.value = "";
+    ph.textContent = folderNames.length ? "No home page — show the collection index" : "No folders found";
+    select.appendChild(ph);
+    folderNames.forEach((name) => {
+      const opt = document.createElement("option");
+      opt.value = `#${normalizeIdFromPath(name)}`;
+      opt.textContent = name;
+      select.appendChild(opt);
+    });
+    // Keep the previous choice selected across a re-populate (e.g. re-opening
+    // Build for the same folder) when it's still one of the options.
+    if (previousValue && [...select.options].some((o) => o.value === previousValue)) {
+      select.value = previousValue;
+    }
+  } catch (e) {
+    console.warn("Could not read the folder's sub-directories for the Home page picker:", e);
+  }
 }
 
 function renderCollectionLabelsRows(folderNames) {
@@ -1172,7 +1238,7 @@ async function loadTemplateRepoFolderOptions() {
 function collectOptions(schema, o) {
   for (const opt of schema) {
     if (opt.type === "file") continue;
-    if (opt.type === "select") {
+    if (opt.type === "select" || opt.type === "text") {
       const el = $("opt_" + opt.key);
       if (el) o[opt.key] = el.value || "";
       continue;
@@ -1747,6 +1813,13 @@ async function pickFolder(nextView = "view-mode") {
   collectionLabelsDraft = {};
   updateCollectionLabelsStatus(0);
   refreshCollectionLabelsBuilderBtn();
+  // Home page and domain are per-crate; a value picked/typed for a previous
+  // folder would otherwise silently carry into this one. populateHomePageOptions()
+  // rebuilds the select from this folder next time Build opens.
+  const homePageSelect = $("opt_homePageId");
+  if (homePageSelect) homePageSelect.value = "";
+  const domainInput = $("opt_domain");
+  if (domainInput) domainInput.value = "";
   buildHtml = null;
   lastHtmlTemplate = null;
   resetCrateDetailsForm();
@@ -1803,6 +1876,10 @@ async function openBuild() {
   // override the separate "Enable local template upload" setting that's
   // meant to keep it hidden until turned on — reassert that now.
   refreshTemplateUploadVisibility();
+  // Repopulates from the current dirHandle every time Build opens (not just
+  // once per folder pick) — cheap, and covers switching to a profile that
+  // enables this field after the folder was already picked.
+  await populateHomePageOptions();
   refreshModeCards();
   showView("view-build");
   // Not awaited: reads a spreadsheet off disk and runs the validator, which
