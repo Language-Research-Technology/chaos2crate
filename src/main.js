@@ -526,6 +526,41 @@ function renderOptions(schema, parent) {
   }
 }
 
+// Recursively read a dropped folder's contents via the (Chromium/Firefox)
+// DataTransferItem webkitGetAsEntry API, since a plain folder drop's Files
+// don't carry webkitRelativePath the way an <input webkitdirectory> selection
+// does — without this walk, everything under the folder would collapse to
+// its bare filename and lose the subpaths the config's relative refs need.
+function readDroppedEntry(entry, prefix, out) {
+  return new Promise((resolve, reject) => {
+    if (entry.isFile) {
+      entry.file((file) => { out.push({ file, relativePath: prefix + entry.name }); resolve(); }, reject);
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      const readBatch = () => {
+        reader.readEntries((entries) => {
+          if (!entries.length) { resolve(); return; }
+          Promise.all(entries.map((child) => readDroppedEntry(child, prefix + entry.name + "/", out)))
+            .then(readBatch, reject);
+        }, reject);
+      };
+      readBatch();
+    } else {
+      resolve();
+    }
+  });
+}
+
+async function readDroppedItems(items) {
+  const out = [];
+  const entries = Array.from(items || [])
+    .map((item) => (item.webkitGetAsEntry ? item.webkitGetAsEntry() : null))
+    .filter(Boolean);
+  if (!entries.length) return null;
+  await Promise.all(entries.map((entry) => readDroppedEntry(entry, "", out)));
+  return out;
+}
+
 function buildFileField(opt) {
   const wrap = document.createElement("div");
   wrap.className = "field file-field";
@@ -535,7 +570,7 @@ function buildFileField(opt) {
   const drop = document.createElement("label");
   drop.className = "dropzone"; drop.htmlFor = "file_" + opt.key;
   const defaultDropText = opt.key === "configFile"
-    ? "Drop config, style and template files here"
+    ? "Drop a template folder (or config/style/template files) here"
     : "Drop a file or click to choose";
   const dz = Object.assign(document.createElement("span"), { className: "dz-text", textContent: defaultDropText });
   drop.appendChild(dz);
@@ -544,32 +579,54 @@ function buildFileField(opt) {
   input.type = "file"; input.id = "file_" + opt.key; input.accept = opt.accept || ""; input.className = "hidden";
   if (opt.key === "configFile") input.multiple = true;
 
+  // Folder picker is a separate input: a single <input> can't offer both a
+  // loose multi-file chooser and a "pick one folder" chooser at once, since
+  // setting webkitdirectory restricts the native dialog to folders only.
+  let folderInput = null;
+  let folderBtn = null;
+  if (opt.key === "configFile") {
+    folderInput = document.createElement("input");
+    folderInput.type = "file"; folderInput.id = "folder_" + opt.key; folderInput.className = "hidden";
+    folderInput.webkitdirectory = true; folderInput.directory = true; folderInput.multiple = true;
+
+    folderBtn = document.createElement("button");
+    folderBtn.type = "button"; folderBtn.className = "secondary dz-folder-btn";
+    folderBtn.style.cssText = "margin-top:6px; padding:4px 10px; font-size:12px;";
+    folderBtn.textContent = "Choose folder";
+  }
+
   const clear = document.createElement("button");
   clear.type = "button"; clear.className = "secondary dz-clear hidden"; clear.textContent = "Remove";
 
   // Store the File itself; its bytes/text are read at build time (supports
-  // binary files like .xlsx as well as text config/style).
-  const setFiles = (fileList) => {
-    const files = Array.from(fileList || []);
+  // binary files like .xlsx as well as text config/style). `entries` is an
+  // array of File objects (webkitRelativePath set when from a folder picker)
+  // or { file, relativePath } pairs (from a recursed folder drop).
+  const setFiles = (entries) => {
+    const files = Array.from(entries || [])
+      .map((e) => (e && typeof e === "object" && "file" in e && "relativePath" in e)
+        ? e
+        : { file: e, relativePath: e ? String(e.webkitRelativePath || e.name || "") : "" })
+      .filter((e) => e.file);
     if (!files.length) return;
     if (opt.key === "configFile") {
       resetUploadedConfigDirHandle();
-      const cfg = files.find((f) => f.name.toLowerCase() === "config.json")
-        || files.find((f) => f.name.toLowerCase().endsWith(".json"))
+      const cfg = files.find((f) => f.file.name.toLowerCase() === "config.json")
+        || files.find((f) => f.file.name.toLowerCase().endsWith(".json"))
         || files[0];
-      const cfgPath = String(cfg.webkitRelativePath || cfg.name || "").replace(/\\/g, "/");
+      const cfgPath = String(cfg.relativePath || cfg.file.name || "").replace(/\\/g, "/");
       const cfgDir = cfgPath.includes("/") ? cfgPath.slice(0, cfgPath.lastIndexOf("/") + 1) : "";
       const siblingFiles = new Map();
-      files.forEach((f) => {
-        const p = String(f.webkitRelativePath || f.name || "").replace(/\\/g, "/");
+      files.forEach(({ file: f, relativePath }) => {
+        const p = String(relativePath || f.name || "").replace(/\\/g, "/");
         const rel = cfgDir && p.startsWith(cfgDir) ? p.slice(cfgDir.length) : p;
         if (rel) siblingFiles.set(rel, f);
         if (f.name) siblingFiles.set(f.name, f);
       });
-      uploads[opt.key] = { name: cfg.name, file: cfg, siblingFiles };
-      dz.textContent = files.length > 1 ? `${cfg.name} (+${files.length - 1} file(s))` : cfg.name;
+      uploads[opt.key] = { name: cfg.file.name, file: cfg.file, siblingFiles };
+      dz.textContent = files.length > 1 ? `${cfg.file.name} (+${files.length - 1} file(s))` : cfg.file.name;
     } else {
-      const file = files[0];
+      const file = files[0].file;
       uploads[opt.key] = { name: file.name, file };
       dz.textContent = file.name;
     }
@@ -582,20 +639,33 @@ function buildFileField(opt) {
     delete uploads[opt.key];
     dz.textContent = defaultDropText; drop.classList.remove("has-file");
     clear.classList.add("hidden"); input.value = "";
+    if (folderInput) folderInput.value = "";
     if (opt.key === "mergeFile") refreshMergeMappingBuilderBtn();
     if (opt.key === "xlsxCrateFile") clearXlsxCrateReport();
   };
 
   input.addEventListener("change", () => { if (input.files && input.files.length) setFiles(input.files); });
+  if (folderInput) {
+    folderInput.addEventListener("change", () => { if (folderInput.files && folderInput.files.length) setFiles(folderInput.files); });
+    folderBtn.addEventListener("click", () => folderInput.click());
+  }
   drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("drag"); });
   drop.addEventListener("dragleave", () => drop.classList.remove("drag"));
   drop.addEventListener("drop", (e) => {
     e.preventDefault(); drop.classList.remove("drag");
+    if (opt.key === "configFile" && e.dataTransfer.items && e.dataTransfer.items.length) {
+      readDroppedItems(e.dataTransfer.items).then((entries) => {
+        if (entries && entries.length) setFiles(entries);
+        else if (e.dataTransfer.files && e.dataTransfer.files.length) setFiles(e.dataTransfer.files);
+      });
+      return;
+    }
     if (e.dataTransfer.files && e.dataTransfer.files.length) setFiles(e.dataTransfer.files);
   });
   clear.addEventListener("click", clearFile);
 
   wrap.append(drop, input, clear);
+  if (folderInput) wrap.append(folderInput, folderBtn);
   if (opt.hint) wrap.appendChild(hintEl(opt.hint));
   return wrap;
 }
