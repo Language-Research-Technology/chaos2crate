@@ -9,7 +9,7 @@
 // ~730 kB data pack, and what broke here was never the matcher.
 import assert from "node:assert/strict";
 import { ROCrate } from "ro-crate";
-import { addLanguageEntities } from "./src/crate.js";
+import { addLanguageEntities } from "../src/crate.js";
 
 const DYIRBAL = { "@id": "https://collection.aiatsis.gov.au/austlang/language/y123", "@type": "Language", name: "Dyirbal" };
 const WARLPIRI = { "@id": "https://collection.aiatsis.gov.au/austlang/language/c15", "@type": "Language", name: "Warlpiri" };

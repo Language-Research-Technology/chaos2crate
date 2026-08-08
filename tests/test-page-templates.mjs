@@ -6,7 +6,7 @@
 // The build didn't fail either: it fell through to a single page whose entity
 // links pointed at pages it never wrote.
 import assert from "node:assert/strict";
-import { multipageTemplateRefs, collectPageTemplates } from "./src/plugins/ro-crate-html-output/index.js";
+import { multipageTemplateRefs, collectPageTemplates } from "../src/plugins/ro-crate-html-output/index.js";
 
 const BIRDS_CONFIG = {
   types: {

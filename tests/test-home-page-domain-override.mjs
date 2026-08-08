@@ -6,7 +6,7 @@
 // same template). Left blank, the template's own config wins unchanged, so a
 // template with sensible values of its own still works untouched.
 import assert from "node:assert/strict";
-import { applyHomePageAndDomainOverrides } from "./src/plugins/ro-crate-html-output/index.js";
+import { applyHomePageAndDomainOverrides } from "../src/plugins/ro-crate-html-output/index.js";
 
 const TEMPLATE_CFG = {
   multipage: true,

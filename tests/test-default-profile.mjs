@@ -6,10 +6,10 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
-import { getDefaultProfile, DEFAULT_PROFILE_LABEL } from "./src/default_profile.js";
-import { loadValidator, getRootClassDefinition, toDescribeFieldSchema, validateBuiltCrate } from "./src/masp.js";
-import { buildFileMetadata, buildCrate, crateToJsonString, crateToPreviewHtml } from "./src/crate.js";
-import { resolveProfileGroups } from "./src/plugins/ro-crate-html-output/layout.js";
+import { getDefaultProfile, DEFAULT_PROFILE_LABEL } from "../src/default_profile.js";
+import { loadValidator, getRootClassDefinition, toDescribeFieldSchema, validateBuiltCrate } from "../src/masp.js";
+import { buildFileMetadata, buildCrate, crateToJsonString, crateToPreviewHtml } from "../src/crate.js";
+import { resolveProfileGroups } from "../src/plugins/ro-crate-html-output/layout.js";
 
 function typesOf(entity) {
   return [].concat(entity?.["@type"] ?? []);
@@ -57,7 +57,7 @@ for (const networked of ["templateRepoFolder", "styledPreview"]) {
 // dependency's own copy has to stay untouched by it.
 const vendoredMode = JSON.parse(
   fs.readFileSync(
-    new URL("./node_modules/ro-crate-masp/profiles/schema-org/profile-crate/crate-o-mode.json", import.meta.url),
+    new URL("../node_modules/ro-crate-masp/profiles/schema-org/profile-crate/crate-o-mode.json", import.meta.url),
     "utf8"
   )
 );

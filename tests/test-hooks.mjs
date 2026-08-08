@@ -6,8 +6,8 @@
 // before HTML reads the finished crate), so the promise is asserted here.
 import assert from "node:assert/strict";
 
-import { HOOKS, createHookBus } from "./src/plugins/hooks.js";
-import { PLUGINS, INPUT_PLUGINS, registerAllPlugins, composeOptionSchema, composeSettingsSchema } from "./src/plugins/index.js";
+import { HOOKS, createHookBus } from "../src/plugins/hooks.js";
+import { PLUGINS, INPUT_PLUGINS, registerAllPlugins, composeOptionSchema, composeSettingsSchema } from "../src/plugins/index.js";
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -227,7 +227,7 @@ assert.ok(
 // declaring no analyzeFiles produces no emission at all.
 
 {
-  const { runPipeline } = await import("./src/plugins/pipeline.js");
+  const { runPipeline } = await import("../src/plugins/pipeline.js");
 
   const stubCrate = () => ({ getJson: () => ({ "@graph": [] }) });
   const runWith = async (inputPlugin) => {

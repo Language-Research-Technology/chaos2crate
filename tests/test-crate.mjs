@@ -4,7 +4,7 @@
 // buildCrate() produces.
 import assert from "node:assert/strict";
 
-import { buildFileMetadata, buildCrate, crateToJsonString, crateToXlsxBytes, crateToPreviewHtml } from "./src/crate.js";
+import { buildFileMetadata, buildCrate, crateToJsonString, crateToXlsxBytes, crateToPreviewHtml } from "../src/crate.js";
 
 function typesOf(entity) {
   return [].concat(entity?.["@type"] ?? []);

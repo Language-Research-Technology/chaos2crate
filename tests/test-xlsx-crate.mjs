@@ -19,7 +19,7 @@ import {
   mergeCrateEntities,
   applyCollectionMembership,
   collectWarnings,
-} from "./src/plugins/xlsx-crate-input/xlsx_crate.js";
+} from "../src/plugins/xlsx-crate-input/xlsx_crate.js";
 
 /* ---------- a fake directory handle over an in-memory file map ---------- */
 // Stands in for the File System Access API: statFile() only needs

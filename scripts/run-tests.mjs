@@ -14,7 +14,8 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const tests = readdirSync(root).filter((f) => /^test-.*\.mjs$/.test(f)).sort();
+const testsDir = path.join(root, "tests");
+const tests = readdirSync(testsDir).filter((f) => /^test-.*\.mjs$/.test(f)).sort();
 
 if (!tests.length) {
   console.error("No test-*.mjs files found — that is itself a failure.");
@@ -24,7 +25,7 @@ if (!tests.length) {
 const failed = [];
 for (const test of tests) {
   const started = Date.now();
-  const { status } = spawnSync(process.execPath, [test], { cwd: root, stdio: "inherit" });
+  const { status } = spawnSync(process.execPath, [test], { cwd: testsDir, stdio: "inherit" });
   const secs = ((Date.now() - started) / 1000).toFixed(1);
   if (status !== 0) {
     failed.push(test);

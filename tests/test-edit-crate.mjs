@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 
 import {
   buildFileMetadata, buildCrate, crateToJsonString, crateToXlsxBytes, crateToPreviewHtml, loadCrateFromJson,
-} from "./src/crate.js";
+} from "../src/crate.js";
 
 // main.js no longer supplies a built-in default config — rootDataset now
 // comes entirely from the selected profile + Describe form. Stand in with a

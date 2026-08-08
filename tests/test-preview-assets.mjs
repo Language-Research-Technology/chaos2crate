@@ -10,7 +10,7 @@
 import assert from "node:assert/strict";
 import {
   isAbsoluteLikeUrl, splitUrlParts, normalizeRelativePath, mapAssetUrl, rewriteCssUrls,
-} from "./src/preview_assets.js";
+} from "../src/preview_assets.js";
 
 const assetMap = new Map([
   ["files/images/magpie.jpg", "blob:http://localhost/magpie"],
