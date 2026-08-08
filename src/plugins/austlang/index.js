@@ -32,11 +32,11 @@ export const plugin = {
     [HOOKS.FILES_ANALYZE]: async (ctx) => {
       if (!ctx.options.enableLanguageLookups) return;
       const { identifyAllLanguages } = await import("./matcher.js");
-      ctx.langByIndex = await identifyAllLanguages(ctx.filesWithMeta, ctx.options.includeAlternateNames, ctx.log);
+      ctx.langById = await identifyAllLanguages(ctx.filesWithMeta, ctx.options.includeAlternateNames, ctx.log);
     },
     [HOOKS.CRATE_BUILT]: (ctx) => {
-      if (!ctx.langByIndex) return;
-      const n = addLanguageEntities(ctx.crate, ctx.filesWithMeta, ctx.langByIndex);
+      if (!ctx.langById) return;
+      const n = addLanguageEntities(ctx.crate, ctx.filesWithMeta, ctx.langById);
       if (n) for (const p of LANGUAGE_PROPERTY_DEFINITIONS) ctx.crate.addEntity(p);
       ctx.log(`Identified ${n} unique language(s).`, n ? "ok" : "muted");
     },

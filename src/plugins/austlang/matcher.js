@@ -59,14 +59,24 @@ function findAustlangMatches(haystack, includeAlt) {
  * Identify subject languages for each file by filename (offline).
  * @returns array aligned to filesWithMeta: [{ matchedLanguages: [...] }]
  */
+// Returns a Map of file id -> { matchedLanguages }.
+//
+// Keyed by id rather than by position in filesWithMeta, because the result is
+// produced at files:analyze and consumed at crate:built — two hook stages
+// apart, with every other tap's handler in between. Nothing stops a tap
+// reordering, filtering or appending to that array; with positional keys any
+// of those would silently attribute languages to the wrong files. Ids are
+// stable whatever happens to the array.
 export async function identifyAllLanguages(filesWithMeta, includeAlt, log = () => {}) {
   log(`Identifying subject languages for ${filesWithMeta.length} file(s) (offline AUSTLANG, by filename)…`, "muted");
   const cache = new Map();
-  return filesWithMeta.map((file) => {
+  const byId = new Map();
+  for (const file of filesWithMeta) {
     const base = pStripExt(file.fileName);
     let matches = cache.get(base);
     if (!matches) { matches = findAustlangMatches(base, includeAlt); cache.set(base, matches); }
     if (matches.length) log(`  ${file.fileName} → ${matches.map((m) => m.name).join(", ")}`, "muted");
-    return { matchedLanguages: matches };
-  });
+    byId.set(file.id, { matchedLanguages: matches });
+  }
+  return byId;
 }

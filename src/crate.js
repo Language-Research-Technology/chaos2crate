@@ -227,16 +227,20 @@ export function graphEntityById(crate, id) {
 // file-creation time); now it's an ordinary post-hoc mutation, the same
 // entity-lookup + direct-assignment idiom the merge plugin's
 // mergeXlsxIntoCrate also uses (graphEntityById + entity[key] = value).
-export function addLanguageEntities(crate, filesWithMeta, langByIndex) {
+// `langById` is a Map of file id -> { matchedLanguages }, as returned by the
+// austlang matcher. Keyed by id rather than by position because it's produced
+// a hook stage earlier than it's consumed (see identifyAllLanguages) — a file
+// with no entry is simply one nothing matched.
+export function addLanguageEntities(crate, filesWithMeta, langById) {
   const identified = new Map();
-  langByIndex.forEach((r) => r.matchedLanguages.forEach((l) => identified.set(l["@id"], l)));
+  langById.forEach((r) => r.matchedLanguages.forEach((l) => identified.set(l["@id"], l)));
   identified.forEach((language) => {
     crate.addEntity(language);
     if (language.geo) crate.addEntity(language.geo);
   });
-  filesWithMeta.forEach((file, index) => {
-    const matched = langByIndex[index].matchedLanguages;
-    if (!matched.length) return;
+  filesWithMeta.forEach((file) => {
+    const matched = langById.get(file.id)?.matchedLanguages;
+    if (!matched?.length) return;
     const entity = graphEntityById(crate, file.id);
     if (entity) entity["ldac:subjectLanguage"] = matched.map((l) => ({ "@id": l["@id"] }));
   });

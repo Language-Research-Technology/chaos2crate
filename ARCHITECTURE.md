@@ -116,7 +116,7 @@ Handlers run **sequentially and awaited**, never in parallel — they mutate a s
 
 `dirHandle`, `files`, `options` (every Build option and Setting, flattened), `log`, `config` (root dataset assembled from the profile plus the Describe form), `configSource`, `selectedProfileData`.
 
-The pipeline and plugins add to it as they go: `filesWithMeta` and `sourceCount` from the input plugin, `crate`, `langByIndex` from AUSTLANG, `entities` and `typeCounts` from the pipeline, `buildHtml` and `lastHtmlTemplate` from the HTML plugin — the last two read back out by `main.js` afterward so the Show view and Edit-save can reuse them.
+The pipeline and plugins add to it as they go: `filesWithMeta` and `sourceCount` from the input plugin, `crate`, `langById` from AUSTLANG (a Map keyed by file id, not array position — it crosses a hook boundary, and nothing stops another tap reordering `filesWithMeta` in between), `entities` and `typeCounts` from the pipeline, `buildHtml` and `lastHtmlTemplate` from the HTML plugin — the last two read back out by `main.js` afterward so the Show view and Edit-save can reuse them.
 
 Plugins are stateless. The bus is created once at module load and handlers registered once; all per-build state lives in the fresh `ctx`.
 
@@ -589,7 +589,8 @@ Six suites, run by `npm test`. Every one exits non-zero when the behaviour it co
 | Place lookup — manual records | `test-place-merge.mjs` | ✅ |
 | Merge — untyped mappings, other entity types, workbook contexts, unmatched rows | — | ❌ |
 | Place lookup — providers, name variants, region preference | — | ❌ |
-| AUSTLANG matching | — | ❌ |
+| AUSTLANG handoff — id-keyed, survives reorder/filter/append; geometry; counting | `test-language-entities.mjs` | ✅ |
+| AUSTLANG matching itself (the matcher and its data pack) | — | ❌ |
 | DOCX parsing, media resolution, the business rules in §7.1 | — | ❌ |
 | Output plugins — the overwrite gate itself | — | ⚠️ order only, via `test-hooks.mjs` |
 | Browser layer — `main.js`, FSA, the wizard | — | out of scope (§9.1) |
