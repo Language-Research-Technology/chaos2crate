@@ -15,6 +15,15 @@ import Workbook from "ro-crate-excel/lib/workbook.js";
  * corpus data (mirrors GENERATED_FILENAMES in the original). */
 export const GENERATED_FILENAMES = new Set([
   "ro-crate-metadata.json", "ro-crate-metadata.jsonld", "ro-crate-metadata.xlsx", "ro-crate-preview.html",
+  // A multipage build's own output directory. walkDirectory() tests this set
+  // against directory entries too, so naming it here skips the whole tree —
+  // without which every rebuild folds the previous build's preview pages into
+  // the crate as if they were collection content.
+  "ro-crate-preview_html",
+  // Not generated, but metadata about the crate rather than content: the
+  // spreadsheet xlsx-crate-input reads. Listed here so it doesn't become a
+  // File entity of the collection it describes.
+  "additional-ro-crate-metadata.xlsx",
 ]);
 export const CONTROL_FILENAMES = new Set(["config.json"]);
 

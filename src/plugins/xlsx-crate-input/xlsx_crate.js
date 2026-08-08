@@ -27,13 +27,17 @@ export const PREFILL_SOURCES = [
 const DESCRIPTOR_ID = "ro-crate-metadata.json";
 const ROOT_ID = "./";
 
-// Root properties that describe the crate's own structure rather than the
-// collection being described. Seeding these from the workbook would fight
-// with the folder scan (which owns hasPart/hasMember) or with the profile
-// (which owns @type/conformsTo).
+// Root properties not carried over by seedRootDataset. @type and conformsTo
+// belong to the profile; hasPart belongs to the folder scan. pcdm:hasMember is
+// here for a different reason: it IS carried over, but not at config:prepare —
+// buildCrate assigns rootDataset["pcdm:hasMember"] from the folder scan after
+// the config is applied, so a seeded value would be silently overwritten.
+// applyCollectionMembership() handles it at crate:built instead.
 const STRUCTURAL_ROOT_PROPS = new Set([
   "@id", "@type", "hasPart", "pcdm:hasMember", "conformsTo",
 ]);
+
+export const MEMBERSHIP_PROP = "pcdm:hasMember";
 
 function asArray(v) {
   return Array.isArray(v) ? v : v === undefined || v === null ? [] : [v];
@@ -187,6 +191,46 @@ const VOCABULARY_TYPES = new Set([
   "rdf:Property", "rdfs:Class", "DefinedTerm", "DefinedTermSet", "ItemList",
   "PropertyValue",
 ]);
+
+// Replace the folder scan's idea of what the collection contains with the
+// workbook's.
+//
+// buildCrate() makes one member per top-level folder, which for a collection
+// described in a spreadsheet is the wrong answer twice over: the members
+// become "about", "files" and friends, and the entities the workbook actually
+// describes — the entries — are left orphaned, present in the graph but
+// belonging to nothing. A preview template drawing a card per member then
+// shows the folder structure instead of the collection.
+//
+// Replaces rather than unions, because the two describe the same thing and the
+// workbook is the authored answer: the folder objects aren't additional
+// members, they're the scan's guess at the members. Media files still reach
+// their entry through the isPartOf links the workbook carries.
+//
+// Only members the target crate actually has an entity for are kept, so a
+// workbook referencing something it never described can't produce a card
+// pointing at nothing.
+export function applyCollectionMembership(target, source, log = () => {}) {
+  const sourceMembers = asArray(source.rootDataset?.[MEMBERSHIP_PROP])
+    .map((m) => (m && typeof m === "object" ? m["@id"] : m))
+    .filter(Boolean);
+  if (!sourceMembers.length) return null;
+
+  const kept = sourceMembers.filter((id) => target.getEntity(id));
+  const missing = sourceMembers.filter((id) => !target.getEntity(id));
+  if (!kept.length) {
+    log(`Spreadsheet lists ${sourceMembers.length} collection member(s) but the crate has none of them — keeping the folder structure.`, "warn");
+    return null;
+  }
+
+  const replaced = asArray(target.rootDataset[MEMBERSHIP_PROP]).length;
+  target.rootDataset[MEMBERSHIP_PROP] = kept.map((id) => ({ "@id": id }));
+  log(`Collection members from the spreadsheet: ${kept.join(", ")} (replacing ${replaced} from the folder scan).`, "muted");
+  for (const id of missing) {
+    log(`  ! Spreadsheet lists "${id}" as a member but never describes it — left out.`, "warn");
+  }
+  return { kept, missing, replaced };
+}
 
 // Structural problems a MASP profile can't express, reported as warnings
 // rather than errors (profile-rule failures are what count as errors — see
