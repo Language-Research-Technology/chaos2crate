@@ -82,6 +82,29 @@ assert.ok(
   "no domain-vocabulary fields should appear under the default profile"
 );
 
+/* ---------- structural properties never become form fields ---------- */
+// A profile declaring pcdm:hasMember with a class range would otherwise render
+// an entity-ref text box, and typing a name there mints an empty entity that
+// competes with the real one in the preview. Membership and part-hood come
+// from the folder scan and supplied metadata, never from typing.
+{
+  const withStructure = {
+    name: "Collection",
+    inputs: [
+      { name: "name", type: ["Text"], required: true },
+      { name: "pcdm:hasMember", type: ["RepositoryObject"], required: true },
+      { name: "pcdm:memberOf", type: ["RepositoryCollection"] },
+      { name: "hasPart", type: ["File"] },
+      { name: "isPartOf", type: ["RepositoryObject"] },
+    ],
+  };
+  assert.deepEqual(
+    toDescribeFieldSchema(withStructure, []).map((f) => f.key),
+    ["name"],
+    "hasMember/memberOf/hasPart/isPartOf are derived — the form should offer none of them"
+  );
+}
+
 /* ---------- a build under the default produces a minimal crate ---------- */
 
 const config = {

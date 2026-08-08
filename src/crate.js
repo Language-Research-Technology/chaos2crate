@@ -76,6 +76,15 @@ function rootDatasetLicenseRefs(crate) {
 }
 
 function addFolderEntities(crate, filesWithMeta, opts = {}) {
+  // When the crate's structure is described elsewhere — a spreadsheet naming
+  // the entries and what each file belongs to — the folder scan has nothing to
+  // add and plenty to get wrong. Grouping by top-level folder would invent an
+  // object per folder ("about", "files"), which a preview template drawing a
+  // card per RepositoryObject then shows instead of the real entries, and
+  // would claim every file for those objects via isPartOf before the described
+  // parent could be applied. Leave both to the metadata.
+  if (opts.structureFromMetadata) return;
+
   const topLevelFolderType = opts.topLevelFolderType === "collection" ? "collection" : "object";
   const folderGroups = new Map();
   filesWithMeta.forEach((file) => {
@@ -178,7 +187,7 @@ function addFolderEntities(crate, filesWithMeta, opts = {}) {
 // File entity with the rdf:Property entity documenting it. Blank-initialized
 // for every file, except "custom:possibleDuplicate" which is only written
 // (and only if the profile actually wants it) when duplicates were found.
-function addFileEntities(crate, filesWithMeta, fileProperties = []) {
+function addFileEntities(crate, filesWithMeta, fileProperties = [], opts = {}) {
   const blankKeys = fileProperties.map((fp) => fp.key).filter((k) => k !== "custom:possibleDuplicate");
   const wantsPossibleDuplicate = fileProperties.some((fp) => fp.key === "custom:possibleDuplicate");
   filesWithMeta.forEach((file) => {
@@ -192,7 +201,10 @@ function addFileEntities(crate, filesWithMeta, fileProperties = []) {
       datePublished: "",
       ...stubs,
       contentLocation: "",
-      isPartOf: { "@id": file.isPartOfId },
+      // Without folder objects to belong to (see addFolderEntities), this
+      // would point at an entity that was never created. The metadata
+      // describing the structure supplies the real parent.
+      ...(opts.structureFromMetadata ? {} : { isPartOf: { "@id": file.isPartOfId } }),
       ...(wantsPossibleDuplicate && file.possibleDuplicates.length
         ? { "custom:possibleDuplicate": file.possibleDuplicates.map((id) => ({ "@id": id })) }
         : {}),
@@ -285,7 +297,7 @@ export function buildCrate(filesWithMeta, config, log = () => {}, opts = {}) {
   const fileProperties = config.fileProperties || [];
   for (const fp of fileProperties) crate.addEntity(fp.definition);
   addFolderEntities(crate, filesWithMeta, opts);
-  addFileEntities(crate, filesWithMeta, fileProperties);
+  addFileEntities(crate, filesWithMeta, fileProperties, opts);
   rewriteHashIdsForExport(crate);
   return crate;
 }

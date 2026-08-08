@@ -104,9 +104,41 @@ function testCollectionMode() {
   assert.deepEqual(fileB.isPartOf, { "@id": subObj["@id"] }, "Top/sub/b.pdf should point to nested folder object in collection mode");
 }
 
+// When a spreadsheet already describes the entries and what each file belongs
+// to, the folder scan must not invent a parallel structure: an object per
+// top-level folder would show up in a preview alongside the real entries, and
+// claiming every file via isPartOf would beat the described parent to it.
+function testStructureFromMetadata() {
+  const files = [
+    { fileName: "a.pdf", relativePath: "Top/a.pdf" },
+    { fileName: "b.pdf", relativePath: "Other/b.pdf" },
+  ];
+  const meta = buildFileMetadata(files);
+  const crate = buildCrate(meta, TEST_CONFIG, () => {}, {
+    topLevelFolderType: "object",
+    structureFromMetadata: true,
+  });
+  const graph = crate.getJson()["@graph"];
+
+  assert.equal(
+    graph.filter((e) => hasType(e, "RepositoryObject")).length, 0,
+    "no folder-derived objects should be invented when metadata describes the structure"
+  );
+  const root = graph.find((e) => hasType(e, "Dataset"));
+  assert.ok(!root["pcdm:hasMember"], "membership should be left for the metadata to supply");
+
+  const fileEntities = graph.filter((e) => hasType(e, "File"));
+  assert.equal(fileEntities.length, 2, "the files themselves are still described — only the invented parents go");
+  assert.ok(
+    fileEntities.every((f) => !f.isPartOf),
+    "files should be left unattached, so the spreadsheet's isPartOf lands cleanly"
+  );
+}
+
 function run() {
   testObjectMode();
   testCollectionMode();
+  testStructureFromMetadata();
   console.log("test-top-level-folders: all tests passed");
 }
 

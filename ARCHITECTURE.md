@@ -153,6 +153,10 @@ Input plugins are deliberately kept out of `PLUGINS`: they're mutually exclusive
 
 **Ordering.** Array order in `PLUGINS` *is* hook-execution order for plugins sharing a stage. Every registration defaults to priority 10 and `Array#sort` is stable, so registering in this order reproduces the original inline sequence with no explicit priority numbers: `xlsx-crate-input` first so the entities it contributes exist for the two that read the graph after it, then AUSTLANG before merge (all three tap `crate:built`), and JSON before XLSX before HTML (all tap `output:write`).
 
+When it finds a spreadsheet, the folder scan **stands down from inventing structure**: `buildCrate` is passed `structureFromMetadata`, so no object-per-top-level-folder is created and files are left without an `isPartOf` for the spreadsheet's own to land in. Otherwise the scan's guesses compete with the described entries — showing up as extra cards in a preview that draws one per `RepositoryObject`, and claiming every file before the described parent could.
+
+Merging follows `ro-crate-excel`'s convention that a workbook is authoritative for what it states — the spreadsheet wins per property, and properties it doesn't mention are kept. Deliberately *not* ro-crate's `addEntity({replace: true})`, which Crate-O uses for the same job: that drops every property the incoming entity omits, which here would throw away the `encodingFormat` and `contentSize` only the folder scan knows. Crate-O has no scan behind it and so loses nothing.
+
 `xlsx-crate-input` is worth a note as the first plugin to tap **two** stages for one job: `config:prepare` to seed the root dataset before the crate exists, then `crate:built` to fold in the rest of the spreadsheet's entities. It hands the parsed crate between them on `ctx.xlsxCrate` rather than reading the file twice — the same pattern `ro-crate-html-output` uses for `ctx.buildHtml`. It is *not* an input plugin: the folder scan still has to run, because `generic-input` is what creates the `File` entities the spreadsheet's `isPartOf` and `image` references point at.
 
 ### 4.6 Schema composition
@@ -255,6 +259,8 @@ The profile's root class definition is introspected into a field schema and the 
 | `Value` (PropertyValue-fixed) | nothing — structural, not user-editable |
 
 Multi-valued properties take comma-separated input and produce arrays of references. Textarea selection comes from the profile rather than a guess at the property's name — MASP's editor-definition shape has no multiline hint, and the tool has no business inferring one.
+
+**Structural properties are never rendered.** `pcdm:hasMember`, `pcdm:memberOf`, `hasPart` and `isPartOf` are dropped from the field schema even when a profile declares them. A profile is right to require that a collection have members; that requirement is satisfied by the folder scan or by supplied metadata, never by typing. Rendering them does active harm: given a class range they become entity-ref fields, so typing "magpie" mints an empty `RepositoryObject` that then appears in the preview beside the real one.
 
 **Prefilling from the folder.** A folder may already hold the crate's metadata in more than one form: the spreadsheet the collection is authored in, and the `ro-crate-metadata.json` a previous build (or a `rocxl` sync) wrote. `pickNewestCrateSource()` in `src/plugins/xlsx-crate-input/xlsx_crate.js` picks between them by `lastModified` — whichever the author touched last is the one they've been working in, so that's what the form reflects. Candidates, in tie-break order:
 

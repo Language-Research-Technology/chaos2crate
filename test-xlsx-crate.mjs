@@ -170,9 +170,35 @@ assert.equal(readBack.rootDataset.name?.[0] ?? readBack.rootDataset.name, "Birds
   assert.equal(enriched, 1, "the file already present should be enriched, not duplicated");
 
   const file = target.getEntity("files/magpie.jpg");
-  assert.equal(String(file.encodingFormat), "image/jpeg", "the folder scan's media type must not be overwritten");
+  assert.equal(String(file.encodingFormat), "image/jpeg", "a property the spreadsheet says nothing about survives — the scan is the only source of media type");
   assert.equal(file.isPartOf?.[0]?.["@id"] ?? file.isPartOf?.["@id"], "#magpie", "the spreadsheet's link should be added");
   assert.equal(String(target.rootDataset.name), "target", "the source root must not overwrite the target root");
+}
+
+{
+  // The spreadsheet wins on properties it states, even when the folder scan
+  // already set them. Gap-filling let the scan win by being written first,
+  // which is how media files ended up belonging to a folder object rather than
+  // to the entry the spreadsheet named.
+  const target = new ROCrate({ array: true, link: true });
+  target.rootDataset.name = "target";
+  target.addEntity({
+    "@id": "files/magpie.jpg",
+    "@type": "File",
+    encodingFormat: "image/jpeg",
+    contentSize: "12345",
+    isPartOf: { "@id": "#some-folder-object" },
+  });
+
+  mergeCrateEntities(target, readBack);
+  const file = target.getEntity("files/magpie.jpg");
+
+  assert.equal(
+    file.isPartOf?.[0]?.["@id"] ?? file.isPartOf?.["@id"], "#magpie",
+    "the spreadsheet's isPartOf must replace the scan's guess, not lose to it"
+  );
+  assert.equal(String(file.encodingFormat), "image/jpeg", "…while properties only the scan knows survive");
+  assert.equal(String(file.contentSize), "12345", "…including the ones ro-crate's addEntity({replace:true}) would have dropped");
 }
 
 /* ---------- collection membership ---------- */

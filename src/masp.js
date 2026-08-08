@@ -76,10 +76,22 @@ export function getRootClassDefinition(validator) {
 // including any prefix) the profile's own crate-o-mode.json declares as
 // multiline — MASP's own editor-definition shape has no such hint, and
 // resources2crate has no business guessing from the property's name.
+// Properties that say how the crate is put together rather than what it's
+// about. A profile legitimately declares them — a collection really must have
+// members — but they're derived from the folder scan and whatever metadata was
+// supplied, never typed into a form. Rendering them does active harm: a
+// profile giving pcdm:hasMember a class range makes it an entity-ref field, so
+// typing "magpie" mints an empty RepositoryObject entity that then shows up in
+// the preview alongside the real one.
+const STRUCTURAL_PROPERTIES = new Set([
+  "pcdm:hasMember", "pcdm:memberOf", "hasPart", "isPartOf",
+]);
+
 function toDescribeField(input, longTextInputs) {
   const types = Array.isArray(input.type) ? input.type : [input.type].filter(Boolean);
 
   if (types.includes("Value")) return null; // fixed/structural — nothing to render
+  if (STRUCTURAL_PROPERTIES.has(input.name)) return null; // derived, not authored
 
   const base = {
     key: input.name,

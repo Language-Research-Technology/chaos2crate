@@ -22,6 +22,12 @@ export const plugin = {
 
     await hookBus.emit(HOOKS.FILES_ANALYZE, ctx);
 
-    ctx.crate = buildCrate(ctx.filesWithMeta, ctx.config, ctx.log, { topLevelFolderType: ctx.options.topLevelFolderType });
+    ctx.crate = buildCrate(ctx.filesWithMeta, ctx.config, ctx.log, {
+      topLevelFolderType: ctx.options.topLevelFolderType,
+      // ctx.xlsxCrate is set at config:prepare, before this runs: a spreadsheet
+      // already describes the entries and what belongs to what, so the folder
+      // scan shouldn't invent a parallel structure alongside it.
+      structureFromMetadata: !!ctx.xlsxCrate,
+    });
   },
 };
