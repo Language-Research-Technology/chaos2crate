@@ -153,7 +153,7 @@ Input plugins are deliberately kept out of `PLUGINS`: they're mutually exclusive
 
 **Ordering.** Array order in `PLUGINS` *is* hook-execution order for plugins sharing a stage. Every registration defaults to priority 10 and `Array#sort` is stable, so registering in this order reproduces the original inline sequence with no explicit priority numbers: `xlsx-crate-input` first so the entities it contributes exist for the two that read the graph after it, then AUSTLANG before merge (all three tap `crate:built`), and JSON before XLSX before HTML (all tap `output:write`).
 
-`xlsx-crate-input` is the one plugin that taps **two** stages for a single job — `config:prepare` and `crate:built` — because half its work has to happen before the crate exists. It is deliberately *not* an input plugin: the folder scan still has to run, since `generic-input` is what creates the `File` entities the spreadsheet's `isPartOf` and `image` references point at. What it does at each stage, and how it merges, is in §8.
+`xlsx-crate-input` is the one plugin that taps **two** stages for a single job — `config:prepare` and `crate:built` — because half its work has to happen before the crate exists. It is deliberately *not* an input plugin: the folder scan still has to run, since `generic-input` is what creates the `File` entities the spreadsheet's `isPartOf` and `image` references point at. What it does at each stage, and how it merges, is in §7.
 
 ### 4.6 Schema composition
 
@@ -344,6 +344,44 @@ Saving rewrites the JSON and regenerates the xlsx and HTML if those files exist,
 
 ## 7. Plugin catalogue
 
+### 7.0 Every option key, and who owns it
+
+A profile's `enabledOptionKeys` (§5.4) names keys from this table. Child keys are **listed separately, not implied by their parent** — a profile enabling `merge` without `mergeFile` gets the toggle and no file picker.
+
+| Key | Plugin | Surface | Notes |
+|---|---|---|---|
+| `xlsxCrate` | `xlsx-crate-input` | Build panel | use metadata from an RO-Crate spreadsheet |
+| ↳ `xlsxCrateFile` | `xlsx-crate-input` | Build panel | file picker; overrides the folder's `additional-ro-crate-metadata.xlsx` |
+| `enableLanguageLookups` | `austlang` | Build panel | AUSTLANG matching |
+| ↳ `includeAlternateNames` | `austlang` | Build panel | widens matching, trades precision for recall |
+| `merge` | `merge` | Build panel | merge a spreadsheet's columns by `@id` |
+| ↳ `mergeFile` | `merge` | Build panel | file picker |
+| ↳ `mergeMappingBuilder` | `merge` | Build panel | column → property mapping dialog |
+| ↳ `doPlaceLookups` | `merge` | Build panel | coordinate lookup for merged `Place` entities |
+| `makeHtml` | `ro-crate-html-output` | Build panel | write `ro-crate-preview.html` |
+| ↳ `templateRepoFolder` | `ro-crate-html-output` | Build panel | folder in `rocss-template-repo` |
+| ↳ `styledPreview` | `ro-crate-html-output` | Build panel | upload template files instead |
+| ↳ ↳ `configFile` | `ro-crate-html-output` | Build panel | the uploaded `config.json` and its siblings |
+| `makeXlsx` | `ro-crate-xlsx-output` | Settings modal | write `ro-crate-metadata.xlsx` |
+
+Three kinds of key are deliberately absent from it:
+
+- **`collectionLabelsBuilder`** — in `CORE_OPTION_SCHEMA` in `main.js`, owned by no plugin, because `docx_crate.js` consumes it and isn't itself a plugin (§4.6).
+- **`inputMode`, `overwrite`, `themeMode`, `topLevelFolderType`** — core settings. Ungated, except `inputMode`, which a profile pins and locks.
+- **`ro-crate-json-output` and `validate-crate`** — no schema at all, which is how "always on, ungateable" is expressed.
+
+The table is generated from the registry, so it can be regenerated rather than audited by eye:
+
+```bash
+node --input-type=module -e "
+import { PLUGINS } from './src/plugins/index.js';
+const walk = (n, p, kind, d = 0) => { if (!n) return;
+  console.log('  '.repeat(d) + n.key.padEnd(24 - d * 2) + p.padEnd(24) + kind);
+  for (const c of n.children || []) walk(c, p, kind, d + 1); };
+for (const p of PLUGINS) { walk(p.optionSchema, p.name, 'Build panel'); walk(p.settingsSchema, p.name, 'Settings modal'); }
+"
+```
+
 ### 7.1 Input plugins — exactly one runs
 
 #### `generic-input` — `inputMode: "generic"`
@@ -379,7 +417,7 @@ The only plugin that taps **two** stages for one job, because the crate doesn't 
 | `config:prepare` | resolve the source, read it, validate it against the profile, seed `ctx.config.rootDataset` |
 | `crate:built` | merge its entities in, then apply its collection membership |
 
-The parsed crate is passed between them on `ctx.xlsxCrate` rather than being read twice — the same pattern `ro-crate-html-output` uses for `ctx.buildHtml`. That handle is also the signal `generic-input` reads for `structureFromMetadata` (§8).
+The parsed crate is passed between them on `ctx.xlsxCrate` rather than being read twice — the same pattern `ro-crate-html-output` uses for `ctx.buildHtml`. That handle is also the signal `generic-input` reads for `structureFromMetadata` (§7.1).
 
 Three merge decisions, each with a reason worth keeping:
 
