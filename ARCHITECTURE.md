@@ -675,6 +675,9 @@ test-default-profile.mjs   test-place-merge.mjs    test-top-level-folders.mjs
 scripts/run-tests.mjs              discovers and runs every test-*.mjs (npm test)
 scripts/update-austlang-data.mjs
 vite.config.js
+
+docs/
+  docx-authoring.md            author-facing .docx conventions for docx-input (§7.1) — not this file's audience
 ```
 
 ---
