@@ -12,6 +12,7 @@ import { bustCacheUrl, buildGitHubTreeUrl, fetchGitHubTextFile, listGitHubFolder
 import { resolveProfileGroups } from "./layout.js";
 
 const HTML_FILE = "ro-crate-preview.html";
+const MULTIPAGE_DIR = "ro-crate-preview_html";
 const TEMPLATE_REPO_OWNER = "benfoley";
 const TEMPLATE_REPO_NAME = "rocss-template-repo";
 const TEMPLATE_REPO_REF = "main";
@@ -480,6 +481,16 @@ export const plugin = {
             log(`Preview: rendered root + ${multi.pages.length} page(s) in ${formatDurationMs(renderDoneMs - multipageRenderStartMs)}. Writing pages…`, "muted");
 
             const writeStartMs = Date.now();
+            // A stale page from a previous build (e.g. one belonging to a
+            // collection that no longer exists) would otherwise never get
+            // cleaned up, since pages are written by path rather than the
+            // whole directory being regenerated — wipe it first so the
+            // folder always reflects exactly this build's output.
+            try {
+              await dirHandle.removeEntry(MULTIPAGE_DIR, { recursive: true });
+            } catch {
+              // no pre-existing ro-crate-preview_html/ to remove — fine.
+            }
             const totalPages = multi.pages.length;
             const progressStep = totalPages >= 50 ? 25 : totalPages >= 10 ? 10 : 0;
             for (let i = 0; i < multi.pages.length; i += 1) {
