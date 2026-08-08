@@ -24,6 +24,15 @@
 // Referenced/embedded media is written into `rootHandle`'s own `files/`
 // subfolder (wiped and recreated on each call) so the crate's file @ids
 // resolve relative to the crate root, mirroring the CLI's output/files/.
+//
+// The root Dataset has exactly two members: #derivedContent, whose hasPart is
+// one RepositoryCollection per top-level folder (the parsed Chapter/
+// DocumentPart structure this file has always built), and #sourceDocuments,
+// whose hasPart is one SourceDocumentGroup per top-level folder holding that
+// folder's original .docx files verbatim (also copied into files/, at their
+// own original relative path) — kept for completeness/download rather than
+// discarded after parsing. structured-docs's generated site only ever
+// navigates into #derivedContent; #sourceDocuments has no page of its own.
 
 import mammoth from "mammoth";
 import * as cheerio from "cheerio";
@@ -266,6 +275,7 @@ const ENCODING_FORMATS = {
   aac: "audio/aac", ogg: "audio/ogg", flac: "audio/flac", png: "image/png", gif: "image/gif",
   tif: "image/tiff", tiff: "image/tiff", webp: "image/webp", bmp: "image/bmp",
   mov: "video/quicktime", mp4: "video/mp4",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 };
 
 function getEncodingFormat(pathValue) {
@@ -666,6 +676,7 @@ export async function buildCrateFromDocxFolder(rootHandle, config, onProgress = 
   }
 
   const rootHasPart = [];
+  const sourceDocumentsHasPart = [];
   const mediaEntitiesAdded = new Set();
   let documentPartCount = 0;
 
@@ -677,6 +688,7 @@ export async function buildCrateFromDocxFolder(rootHandle, config, onProgress = 
 
     onProgress(`Collection: ${subDirHandle.name}/ (${docxFiles.length} documentPart(s))`);
     const collectionHasPart = [];
+    const sourceGroupHasPart = [];
 
     for (const { handle: fileHandle, relativePath } of docxFiles) {
       const documentPartId = `#${normalizeIdFromPath(`${subDirHandle.name}-${relativePath}`)}`;
@@ -689,6 +701,17 @@ export async function buildCrateFromDocxFolder(rootHandle, config, onProgress = 
       for (const part of docxDirParts) docxDirHandle = await docxDirHandle.getDirectoryHandle(part, { create: false });
       const mediaLookup = await buildMediaLookup(docxDirHandle);
       const collectionRelPath = [subDirHandle.name, ...docxDirParts].join("/");
+
+      // The original .docx itself, copied verbatim into files/ at its own
+      // original relative path (so a topic with same-named files in two
+      // subfolders can't collide) and recorded as a File entity — kept
+      // alongside the parsed content rather than discarded, under a
+      // sourceDocuments collection that mirrors this topic grouping. See
+      // buildCrateFromDocxFolder's closing section for how the per-topic
+      // groups are gathered under #sourceDocuments.
+      const sourceDocPath = await copyMediaToOutputFiles(fileHandle, `${collectionRelPath}/${fileHandle.name}`, filesDirHandle);
+      ensureFileEntity(crate, mediaEntitiesAdded, sourceDocPath, fileHandle.name, getEncodingFormat(fileHandle.name));
+      sourceGroupHasPart.push({ "@id": sourceDocPath });
 
       onProgress(`  Parsing: ${subDirHandle.name}/${relativePath}`);
       let chapters = [];
@@ -775,9 +798,29 @@ export async function buildCrateFromDocxFolder(rootHandle, config, onProgress = 
 
     crate.addEntity({ "@id": collectionId, "@type": "RepositoryCollection", name: collectionLabel, hasPart: collectionHasPart });
     rootHasPart.push({ "@id": collectionId });
+
+    if (sourceGroupHasPart.length > 0) {
+      const sourceGroupId = `#sourceDocuments-${normalizeIdFromPath(subDirHandle.name)}`;
+      crate.addEntity({ "@id": sourceGroupId, "@type": "custom:SourceDocumentGroup", name: collectionLabel, hasPart: sourceGroupHasPart });
+      sourceDocumentsHasPart.push({ "@id": sourceGroupId });
+    }
   }
 
-  crate.rootDataset.hasPart = rootHasPart;
+  // The generated site (rocss-template-repo's structured-docs templates)
+  // only ever navigates into #derivedContent — sourceDocuments exists in the
+  // crate for completeness/download but has no page of its own and is never
+  // linked to, so wrapping the per-topic RepositoryCollections one level
+  // deeper here doesn't change what a visitor sees or reaches.
+  const derivedContentId = "#derivedContent";
+  crate.addEntity({ "@id": derivedContentId, "@type": "custom:DerivedContentCollection", name: "Derived Content", hasPart: rootHasPart });
+
+  const rootMembers = [{ "@id": derivedContentId }];
+  if (sourceDocumentsHasPart.length > 0) {
+    const sourceDocumentsId = "#sourceDocuments";
+    crate.addEntity({ "@id": sourceDocumentsId, "@type": "custom:SourceDocumentsCollection", name: "Source Documents", hasPart: sourceDocumentsHasPart });
+    rootMembers.push({ "@id": sourceDocumentsId });
+  }
+  crate.rootDataset.hasPart = rootMembers;
 
   return { crate, collectionCount: subDirs.length, documentPartCount };
 }
