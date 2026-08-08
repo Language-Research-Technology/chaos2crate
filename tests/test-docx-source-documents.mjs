@@ -1,10 +1,11 @@
 // buildCrateFromDocxFolder used to discard each original .docx after parsing
 // it — only the derived Chapter/DocumentPart structure survived. Now the
-// original file is copied into files/ verbatim and the crate's root gets two
-// members instead of one-per-topic-folder: #derivedContent (the same
-// RepositoryCollection-per-topic structure as before, just nested one level
-// deeper) and #sourceDocuments (one SourceDocumentGroup per topic, holding
-// that topic's original .docx files as File entities).
+// original file is copied into ro-crate-preview_files/ verbatim and the
+// crate's root gets two members instead of one-per-topic-folder:
+// #derivedContent (the same RepositoryCollection-per-topic structure as
+// before, just nested one level deeper) and #sourceDocuments (one
+// SourceDocumentGroup per topic, holding that topic's original .docx files
+// as File entities).
 //
 // Chapter/DocumentPart parsing itself is untouched by this change, so these
 // fixtures use garbage bytes for the ".docx" files rather than a real OOXML
@@ -12,7 +13,8 @@
 // already treats as a non-fatal per-document warning (see its try/catch
 // around parseStructuredChapters), and the rest of the pipeline — including
 // the new copy-and-wrap logic under test here — runs identically either way,
-// since copying a file's bytes into files/ never depends on what they are.
+// since copying a file's bytes into ro-crate-preview_files/ never depends on
+// what they are.
 import assert from "node:assert/strict";
 import { buildCrateFromDocxFolder } from "../src/plugins/docx-input/docx_crate.js";
 
@@ -21,7 +23,7 @@ import { buildCrateFromDocxFolder } from "../src/plugins/docx-input/docx_crate.j
 // else is a subdirectory. Covers exactly what docx_crate.js calls: values()
 // for directory listing, getDirectoryHandle/getFileHandle with {create}, and
 // a writable file handle whose bytes land back in the tree so the written
-// files/ output can be inspected after the build.
+// ro-crate-preview_files/ output can be inspected after the build.
 //
 // The fixture is converted once into a tree of persistent nodes ({kind:
 // "dir", children: Map} or {kind: "file", bytes}) up front, and every handle
@@ -163,7 +165,7 @@ assert.equal(homeGroup.name, "AnmWeb1_HOME", "an unlabelled topic falls back to 
 const homeFileRefs = [].concat(homeGroup.hasPart).map((r) => r["@id"]);
 assert.equal(homeFileRefs.length, 1, "one File per original .docx in that topic");
 const homeFileId = homeFileRefs[0];
-assert.equal(homeFileId, "files/AnmWeb1_HOME/Home.docx", "the File's @id is its own copied path under files/, same convention media entities use");
+assert.equal(homeFileId, "ro-crate-preview_files/AnmWeb1_HOME/Home.docx", "the File's @id is its own copied path under ro-crate-preview_files/, same convention media entities use");
 
 const homeFileEntity = byId[homeFileId];
 assert.equal(homeFileEntity["@type"], "File");
@@ -174,10 +176,10 @@ assert.equal(
   "docx now has its own encodingFormat rather than falling back to application/octet-stream"
 );
 
-/* ---------- the original bytes were actually copied into files/, verbatim ---------- */
+/* ---------- the original bytes were actually copied into ro-crate-preview_files/, verbatim ---------- */
 
-const writtenBytes = root.readFile("files/AnmWeb1_HOME/Home.docx");
-assert.ok(writtenBytes instanceof Uint8Array, "files/AnmWeb1_HOME/Home.docx should exist in the output tree");
+const writtenBytes = root.readFile("ro-crate-preview_files/AnmWeb1_HOME/Home.docx");
+assert.ok(writtenBytes instanceof Uint8Array, "ro-crate-preview_files/AnmWeb1_HOME/Home.docx should exist in the output tree");
 assert.deepEqual(
   [...writtenBytes],
   [...docBytes("home")],
