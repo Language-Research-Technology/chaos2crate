@@ -1606,25 +1606,34 @@ function buildDescribeField(field) {
   input.id = "describe_" + field.key;
 
   if (existingRootDatasetEntity) {
-    // field.key is exactly what the profile declared and exactly what
-    // collectDescribeValues() writes onto the entity — no bare-name
-    // fallback; profiles are expected to declare properly prefixed names
-    // (e.g. "custom:portalName") for anything that isn't a real schema.org
-    // term.
-    const raw = existingRootDatasetEntity[field.key];
-    if (field.inputKind === "entity-ref") {
-      const linkedName = resolveLinkedName(raw, existingRootDatasetById);
-      if (linkedName) input.value = linkedName;
-    } else if (typeof raw === "string" && raw.trim()) {
-      input.value = raw.trim();
-    } else if (raw && typeof raw === "object" && typeof raw["@id"] === "string") {
-      input.value = raw["@id"];
-    }
+    const prefill = describeFieldValueFromEntity(field, existingRootDatasetEntity, existingRootDatasetById);
+    if (prefill) input.value = prefill;
   }
 
   wrap.appendChild(input);
   if (field.hint) wrap.appendChild(hintEl(field.hint));
   return wrap;
+}
+
+// Extracts the display value for one Describe field straight off an existing
+// crate's root entity — field.key is exactly what the profile declared and
+// exactly what collectDescribeValues() writes onto the entity, no bare-name
+// fallback; profiles are expected to declare properly prefixed names (e.g.
+// "custom:portalName") for anything that isn't a real schema.org term.
+// For a `multiple` entity-ref field, raw is an array of refs — every
+// resolvable name is joined back into the same comma-separated form
+// collectDescribeValues() splits on, not just the first (resolveLinkedName
+// alone would silently drop every name after the first).
+function describeFieldValueFromEntity(field, entity, byId) {
+  const raw = entity[field.key];
+  if (field.inputKind === "entity-ref") {
+    const items = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+    const names = items.map((item) => resolveLinkedName(item, byId)).filter(Boolean);
+    return names.join(", ");
+  }
+  if (typeof raw === "string" && raw.trim()) return raw.trim();
+  if (raw && typeof raw === "object" && typeof raw["@id"] === "string") return raw["@id"];
+  return "";
 }
 
 function renderDescribeFields(fieldSchema) {
@@ -1666,14 +1675,15 @@ async function openCrateDetails() {
 // typed ["Person"]) becomes a full entity (with @id derived from its free
 // text) — comma-separated if `multiple` — so the ro-crate library registers
 // it as a linked node in the graph when assigned.
-function collectDescribeValues(fieldSchema) {
-  const idText = $("cd_id").value.trim();
+// getFieldValue(field) supplies each field's raw text — from the rendered
+// form (submitCrateDetails) or, when a folder already has crate metadata,
+// straight from its root entity (populateCrateDetailsFromExistingCrate), so
+// the Build step can be enabled without forcing a trip through Describe.
+function collectDescribeValues(fieldSchema, idText, getFieldValue) {
   const rootDataset = { "@id": normalizeArcpId(idText || (dirHandle && dirHandle.name) || "crate") };
 
   for (const field of fieldSchema) {
-    const el = $("describe_" + field.key);
-    if (!el) continue;
-    const raw = el.value.trim();
+    const raw = (getFieldValue(field) || "").trim();
     if (!raw) continue;
 
     if (field.inputKind === "entity-ref") {
@@ -1753,12 +1763,18 @@ function getRootDatasetEntity(crateJson) {
   return { root, byId };
 }
 
-// Only the fixed "Identifier" field can be prefilled here — the rest of the
-// Describe form doesn't exist yet at this point (pickFolder() runs before a
-// profile is chosen, and the profile-driven fields aren't rendered until
-// openCrateDetails()). Instead, remember the existing crate's root entity so
-// buildDescribeField() can prefill each rendered field from it once the form
-// does exist.
+// The Describe form itself doesn't exist yet at this point (pickFolder() runs
+// before a profile is chosen, and the profile-driven fields aren't rendered
+// until openCrateDetails()), so the "Identifier" field on the crate-details
+// element is the only input touched directly here. Everything else is done
+// two ways: remember the existing crate's root entity so buildDescribeField()
+// can prefill each rendered field from it once the form does exist, AND
+// synthesize rootDatasetOverride straight from that entity (via the bundled
+// default profile's field schema if none is chosen yet) so a folder that
+// already has valid crate metadata enables the Build step immediately,
+// without forcing a trip through Describe. Visiting Describe and continuing
+// still re-derives rootDatasetOverride from the form (submitCrateDetails),
+// which wins if the user changes anything or picks a different profile.
 async function populateCrateDetailsFromExistingCrate(handle) {
   // The folder may hold the crate's metadata in more than one form — the
   // spreadsheet the collection is authored in, and the JSON a previous build
@@ -1791,22 +1807,41 @@ async function populateCrateDetailsFromExistingCrate(handle) {
   existingRootDatasetById = byId;
 
   const rootId = typeof root["@id"] === "string" ? root["@id"].trim() : "";
-  if (rootId) $("cd_id").value = rootId.replace(/^arcp:\/\/name,/i, "");
+  const idText = rootId.replace(/^arcp:\/\/name,/i, "");
+  if (idText) $("cd_id").value = idText;
+
+  try {
+    const profileData = await ensureProfileData();
+    rootDatasetOverride = collectDescribeValues(
+      profileData.fieldSchema,
+      idText,
+      (field) => describeFieldValueFromEntity(field, root, byId),
+    );
+  } catch (e) {
+    // A profile that fails to load shouldn't cost the user the prefilled
+    // form fields above — Describe/Build just stay gated on a manual visit.
+    console.warn("Could not enable Build from existing crate metadata:", e);
+  }
 
   return true;
 }
 
 function submitCrateDetails() {
-  rootDatasetOverride = collectDescribeValues(selectedProfileData.fieldSchema);
+  rootDatasetOverride = collectDescribeValues(
+    selectedProfileData.fieldSchema,
+    $("cd_id").value.trim(),
+    (field) => { const el = $("describe_" + field.key); return el ? el.value : ""; },
+  );
   refreshBuildStepActions();
   showView("view-mode");
 }
 
 function refreshBuildStepActions() {
+  const folderBtn = $("buildStepChooseFolder");
   const profileBtn = $("buildStepProfile");
   const describeBtn = $("buildStepDescribe");
   const buildBtn = $("buildStepOpenBuild");
-  if (!profileBtn || !describeBtn || !buildBtn) return;
+  if (!folderBtn || !profileBtn || !describeBtn || !buildBtn) return;
   const hasFolder = !!dirHandle;
   const hasDescribe = !!rootDatasetOverride;
   // Profile selection is optional — skipping it falls back to the bundled
@@ -1814,6 +1849,12 @@ function refreshBuildStepActions() {
   profileBtn.disabled = !hasFolder;
   describeBtn.disabled = !hasFolder;
   buildBtn.disabled = !(hasFolder && hasDescribe);
+
+  // Bold whichever step is furthest along the enabled chain, so it's obvious
+  // at a glance what the next/current action is.
+  const steps = [folderBtn, profileBtn, describeBtn, buildBtn];
+  const current = steps.filter((btn) => !btn.disabled).pop();
+  for (const btn of steps) btn.classList.toggle("step-current", btn === current);
 }
 
 /* ---------- File System Access ---------- */
@@ -1954,10 +1995,9 @@ async function pickFolder(nextView = "view-mode") {
   lastHtmlTemplate = null;
   resetCrateDetailsForm();
   try {
-    // Just remembers the existing root entity for buildDescribeField() to
-    // prefill from — can't set rootDatasetOverride yet, since that now
-    // requires a profile's field schema (chosen in the next step) to collect
-    // values through.
+    // Remembers the existing root entity for buildDescribeField() to prefill
+    // from, and (if one is found) synthesizes rootDatasetOverride from it so
+    // refreshModeCards() below can enable the Build step right away.
     await populateCrateDetailsFromExistingCrate(dirHandle);
   } catch (e) {
     console.warn("Could not prefill describe form from existing crate JSON:", e);
