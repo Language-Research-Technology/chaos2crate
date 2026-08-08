@@ -79,13 +79,6 @@ function validateAndNormalizeConfig(config) {
       ...(config && isPlainObject(config.rootDataset) ? config.rootDataset : {}),
     },
     metadataLicence: config && isPlainObject(config.metadataLicence) ? config.metadataLicence : null,
-    // Maps a top-level collection folder name to the label shown for it in
-    // the generated site's navigation/cards (see buildCrateFromDocxFolder).
-    // Folders with no entry keep their raw folder name.
-    collectionLabels: isPlainObject(config && config.collectionLabels) ? config.collectionLabels : {},
-    // Explicit display order for top-level collections (array of folder names).
-    // Folders not listed are appended after the listed ones in filesystem order.
-    collectionOrder: Array.isArray(config && config.collectionOrder) ? config.collectionOrder : null,
   };
 
   const { rootDataset } = normalized;
@@ -653,18 +646,10 @@ export async function buildCrateFromDocxFolder(rootHandle, config, onProgress = 
   let subDirs = await getSubDirectoryHandles(rootHandle);
   if (subDirs.length === 0) return null;
 
-  const order = validatedConfig.collectionOrder;
-  subDirs = subDirs.slice().sort((a, b) => {
-    if (order) {
-      const ia = order.indexOf(a.name);
-      const ib = order.indexOf(b.name);
-      if (ia === -1 && ib === -1) return a.name.localeCompare(b.name);
-      if (ia === -1) return 1;
-      if (ib === -1) return -1;
-      return ia - ib;
-    }
-    return a.name.localeCompare(b.name);
-  });
+  // Custom display order/labels (ro-crate-html-output's collectionLabelsBuilder
+  // option) are applied only when rendering the HTML preview, not here — the
+  // crate itself always uses each folder's own name and filesystem order.
+  subDirs = subDirs.slice().sort((a, b) => a.name.localeCompare(b.name));
 
   const crate = new ROCrate({ array: true, link: true });
   addContextPrefix(crate, "bibo", "http://purl.org/ontology/bibo/");
@@ -692,7 +677,6 @@ export async function buildCrateFromDocxFolder(rootHandle, config, onProgress = 
 
   for (const subDirHandle of subDirs) {
     const collectionId = `#${normalizeIdFromPath(subDirHandle.name)}`;
-    const collectionLabel = validatedConfig.collectionLabels[subDirHandle.name] || subDirHandle.name;
     const docxFiles = (await findDocxFilesInDir(subDirHandle))
       .filter(({ handle }) => !isNotesDocx(handle.name));
 
@@ -807,12 +791,12 @@ export async function buildCrateFromDocxFolder(rootHandle, config, onProgress = 
       collectionHasPart.push({ "@id": documentPartId });
     }
 
-    crate.addEntity({ "@id": collectionId, "@type": "RepositoryCollection", name: collectionLabel, hasPart: collectionHasPart });
+    crate.addEntity({ "@id": collectionId, "@type": "RepositoryCollection", name: subDirHandle.name, hasPart: collectionHasPart });
     rootHasPart.push({ "@id": collectionId });
 
     if (sourceGroupHasPart.length > 0) {
       const sourceGroupId = `#sourceDocuments-${normalizeIdFromPath(subDirHandle.name)}`;
-      crate.addEntity({ "@id": sourceGroupId, "@type": "custom:SourceDocumentGroup", name: collectionLabel, hasPart: sourceGroupHasPart });
+      crate.addEntity({ "@id": sourceGroupId, "@type": "custom:SourceDocumentGroup", name: subDirHandle.name, hasPart: sourceGroupHasPart });
       sourceDocumentsHasPart.push({ "@id": sourceGroupId });
     }
   }

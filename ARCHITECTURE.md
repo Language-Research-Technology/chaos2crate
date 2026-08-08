@@ -172,8 +172,6 @@ const SETTINGS_SCHEMA = [...CORE_SETTINGS_SCHEMA,    ...composeSettingsSchema()]
 
 A plugin's `optionSchema` puts it in the Build panel (per-build choices); a `settingsSchema` puts it in the Settings modal (app preferences). A plugin with neither is always-on — JSON output and validation are both like this.
 
-`CORE_OPTION_SCHEMA` holds one item that belongs to no plugin: `collectionLabelsBuilder`, because `docx_crate.js` consumes it while building entity names rather than at render time, and `docx_crate.js` isn't itself a plugin.
-
 ### 4.7 Writing a new plugin
 
 ```js
@@ -365,14 +363,14 @@ A profile's `enabledOptionKeys` (§5.4) names keys from this table. Child keys a
 | ↳ `mergeMappingBuilder` | `merge` | Build panel | column → property mapping dialog |
 | ↳ `doPlaceLookups` | `merge` | Build panel | coordinate lookup for merged `Place` entities |
 | `makeHtml` | `ro-crate-html-output` | Build panel | write `ro-crate-preview.html` |
+| ↳ `collectionLabelsBuilder` | `ro-crate-html-output` | Build panel | menu names/order for Structured Word documents mode — applied to the generated HTML only; `docx_crate.js` always uses each folder's own name/order for the crate itself |
 | ↳ `templateRepoFolder` | `ro-crate-html-output` | Build panel | folder in `rocss-template-repo` |
 | ↳ `styledPreview` | `ro-crate-html-output` | Build panel | upload template files instead |
 | ↳ ↳ `configFile` | `ro-crate-html-output` | Build panel | the uploaded `config.json` and its siblings |
 | `makeXlsx` | `ro-crate-xlsx-output` | Settings modal | write `ro-crate-metadata.xlsx` |
 
-Three kinds of key are deliberately absent from it:
+Two kinds of key are deliberately absent from it:
 
-- **`collectionLabelsBuilder`** — in `CORE_OPTION_SCHEMA` in `main.js`, owned by no plugin, because `docx_crate.js` consumes it and isn't itself a plugin (§4.6).
 - **`inputMode`, `overwrite`, `themeMode`, `topLevelFolderType`** — core settings. Ungated, except `inputMode`, which a profile pins and locks.
 - **`ro-crate-json-output` and `validate-crate`** — no schema at all, which is how "always on, ungateable" is expressed.
 

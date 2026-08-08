@@ -38,17 +38,12 @@ const MASP_PROFILES_REPO_NAME = "masp-profiles";
 const MASP_PROFILES_REPO_REF = "main";
 const APP_VERSION = packageJson.version || "dev";
 
-// Build-panel options mostly come from the plugin registry (src/plugins) —
-// each plugin owns its own optionSchema/settingsSchema fragment. This core
-// array is for build-time options that don't belong to any plugin — right
-// now just collectionLabelsBuilder, consumed directly by docx_crate.js's
-// crate-building (it sets each Collection entity's own `name`, not just an
-// HTML-rendering label), which isn't itself a plugin (see docx_crate.js).
-const CORE_OPTION_SCHEMA = [
-  { key: "collectionLabelsBuilder", type: "collectionLabelsBuilder", label: "Set menu names and order…",
-    hint: "Optional, for Structured Word documents mode. Drag rows to reorder. Map each top-level collection folder to a friendlier label shown in the site's navigation menu and cards (e.g. AnmWeb1_HOME → Home) — the raw folder name is used for anything left blank." },
-];
-const OPTION_SCHEMA = [...composeOptionSchema(), ...CORE_OPTION_SCHEMA];
+// Build-panel options all come from the plugin registry (src/plugins) — each
+// plugin owns its own optionSchema/settingsSchema fragment. collectionLabelsBuilder
+// (menu names/order for Structured Word documents mode) lives under
+// ro-crate-html-output's makeHtml option, since it only affects the generated
+// HTML, not the crate itself — see applyCollectionLabelOverrides there.
+const OPTION_SCHEMA = composeOptionSchema();
 
 // Shown in the Settings modal (accessed from the button next to Menu).
 const CORE_SETTINGS_SCHEMA = [
@@ -1908,12 +1903,19 @@ async function processFolder(dirHandle, files, options) {
     rootDataset,
     ...(profileWorkflow.metadataLicence ? { metadataLicence: profileWorkflow.metadataLicence } : {}),
     ...(profileWorkflow.fileProperties ? { fileProperties: profileWorkflow.fileProperties } : {}),
+  };
+
+  // collectionLabels/collectionOrder are consumed only by ro-crate-html-output
+  // (applyCollectionLabelOverrides), which renders from a folder-name-keyed
+  // map/list — kept out of effectiveConfig so they never reach crate-building.
+  const effectiveOptions = {
+    ...options,
     ...(collectionLabelsOverride ? { collectionLabels: collectionLabelsOverride } : {}),
     ...(collectionOrderOverride ? { collectionOrder: collectionOrderOverride } : {}),
   };
 
   const ctx = {
-    dirHandle, files, options, log,
+    dirHandle, files, options: effectiveOptions, log,
     config: effectiveConfig,
     configSource: `"${profileLabel(selectedProfile)}" profile`,
     selectedProfileData,

@@ -17,6 +17,50 @@ const TEMPLATE_REPO_OWNER = "benfoley";
 const TEMPLATE_REPO_NAME = "rocss-template-repo";
 const TEMPLATE_REPO_REF = "main";
 
+// Applies the collectionLabelsBuilder option's name/order overrides directly
+// to the shared crate object, for this HTML render only. Safe because this
+// hook runs after ro-crate-json-output/ro-crate-xlsx-output (see
+// src/plugins/index.js's registration order) — by the time this mutates
+// `crate`, both metadata files have already been written from the
+// unmodified names/order, so ro-crate-metadata.json/.xlsx never see this
+// override, only the generated HTML does.
+function applyCollectionLabelOverrides(crate, options) {
+  const labels = options.collectionLabels;
+  const order = options.collectionOrder;
+  if (!labels && !order) return;
+
+  const graph = crate.getJson()["@graph"] || [];
+  const collectionNameToId = new Map();
+  for (const entity of graph) {
+    const types = Array.isArray(entity["@type"]) ? entity["@type"] : [entity["@type"]];
+    const isCollection = types.includes("RepositoryCollection");
+    const isSourceGroup = types.includes("custom:SourceDocumentGroup");
+    if (!isCollection && !isSourceGroup) continue;
+    const folderName = entity.name;
+    if (isCollection) collectionNameToId.set(folderName, entity["@id"]);
+    if (labels && labels[folderName]) {
+      const live = crate.getEntity(entity["@id"]);
+      if (live) live.name = labels[folderName];
+    }
+  }
+
+  if (order) {
+    const derivedContent = crate.getEntity("#derivedContent");
+    if (derivedContent && Array.isArray(derivedContent.hasPart)) {
+      const parts = derivedContent.hasPart;
+      const idOrder = order.map((folderName) => collectionNameToId.get(folderName)).filter(Boolean);
+      parts.sort((a, b) => {
+        const ia = idOrder.indexOf(a["@id"]);
+        const ib = idOrder.indexOf(b["@id"]);
+        if (ia === -1 && ib === -1) return 0;
+        if (ia === -1) return 1;
+        if (ib === -1) return -1;
+        return ia - ib;
+      });
+    }
+  }
+}
+
 function formatDurationMs(ms) {
   if (!Number.isFinite(ms) || ms < 0) return "0.00s";
   if (ms < 1000) return `${ms}ms`;
@@ -352,6 +396,8 @@ export const plugin = {
   optionSchema: {
     key: "makeHtml", label: "Generate ro-crate-preview.html", default: true,
     children: [
+      { key: "collectionLabelsBuilder", type: "collectionLabelsBuilder", label: "Set menu names and order…",
+        hint: "Optional, for Structured Word documents mode. Drag rows to reorder. Map each top-level collection folder to a friendlier label shown in the site's navigation menu and cards (e.g. AnmWeb1_HOME → Home) — the raw folder name is used for anything left blank. Affects only this generated HTML, not ro-crate-metadata.json/.xlsx." },
       { key: "templateRepoFolder", type: "select", label: "Template from rocss-template-repo",
         placeholder: "Loading folders…", hint: "Optional. Select one folder from the template repo." },
       { key: "homePageId", type: "select", label: "Home page",
@@ -380,6 +426,7 @@ export const plugin = {
         return;
       }
       try {
+        applyCollectionLabelOverrides(crate, options);
         // resolveTerm() (used below to place profile-declared property
         // names) needs the context resolved first — crateToPreviewHtml/
         // crateToMultiPageHtml also call this themselves, but only after
