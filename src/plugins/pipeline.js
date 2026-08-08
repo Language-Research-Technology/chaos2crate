@@ -37,7 +37,17 @@ export async function runPipeline(ctx, hookBus) {
 
   ctx.log(`Config: ${ctx.configSource}.`, "muted");
   const inputPlugin = INPUT_PLUGINS[ctx.options.inputMode] || INPUT_PLUGINS.generic;
-  await inputPlugin.buildCrate(ctx, hookBus);
+
+  // An input mode with a flat file list analyses it first, so taps can annotate
+  // ctx.filesWithMeta while it's still just data — before buildCrate turns it
+  // into entities. A mode with no such list (docx) declares no analyzeFiles and
+  // the hook simply doesn't fire; the asymmetry is visible here in the pipeline
+  // rather than hidden inside one plugin's implementation.
+  if (inputPlugin.analyzeFiles) {
+    await inputPlugin.analyzeFiles(ctx);
+    await hookBus.emit(HOOKS.FILES_ANALYZE, ctx);
+  }
+  await inputPlugin.buildCrate(ctx);
 
   await hookBus.emit(HOOKS.CRATE_BUILT, ctx);
 

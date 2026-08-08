@@ -108,7 +108,7 @@ Handlers run **sequentially and awaited**, never in parallel — they mutate a s
 | `crate:validate` | crate is final | `crate` | report on it, **don't mutate** |
 | `output:write` | last | `dirHandle` | write files |
 
-`files:analyze` firing only in generic mode is a real asymmetry, not an oversight: the docx adapter has no flat file list to analyse. A plugin that taps it silently does nothing in docx mode.
+`files:analyze` firing only in generic mode is a real asymmetry, not an oversight: the docx adapter has no flat file list to analyse. It's declared rather than implied — an input plugin with nothing to analyse exposes no `analyzeFiles`, and the pipeline skips the emission (§4.4). A plugin that taps the hook still silently does nothing in docx mode.
 
 ### 4.3 The context object
 
@@ -125,7 +125,11 @@ Plugins are stateless. The bus is created once at module load and handlers regis
 ```js
 await hookBus.emit(CONFIG_PREPARE, ctx);
 const inputPlugin = INPUT_PLUGINS[ctx.options.inputMode] || INPUT_PLUGINS.generic;
-await inputPlugin.buildCrate(ctx, hookBus);        // emits FILES_ANALYZE internally, if it has files
+if (inputPlugin.analyzeFiles) {                     // only modes with a file list
+  await inputPlugin.analyzeFiles(ctx);
+  await hookBus.emit(FILES_ANALYZE, ctx);
+}
+await inputPlugin.buildCrate(ctx);
 await hookBus.emit(CRATE_BUILT, ctx);
 ctx.entities   = graph.length;                      // core: entity stats
 ctx.typeCounts = collectTypeCounts(graph);
@@ -134,6 +138,8 @@ await hookBus.emit(OUTPUT_WRITE, ctx);
 ```
 
 The input plugin is called directly rather than through a hook, because exactly one must run and it must produce `ctx.crate` before anything else can proceed.
+
+**Input plugins expose two methods, and hold no bus.** `analyzeFiles(ctx)` is optional and prepares `ctx.filesWithMeta`; `buildCrate(ctx)` is required and produces `ctx.crate`. The pipeline emits `files:analyze` between them, and only when `analyzeFiles` exists — so a mode with no flat file list (docx) declares none and no emission happens, rather than firing a hook with nothing on `ctx` for taps to read. Every emission in the system is therefore in the block above: hook order can be read off the pipeline without opening a plugin, and since no plugin receives `hookBus`, none can emit.
 
 ### 4.5 The two registries
 
@@ -386,7 +392,7 @@ for (const p of PLUGINS) { walk(p.optionSchema, p.name, 'Build panel'); walk(p.s
 
 #### `generic-input` — `inputMode: "generic"`
 
-Sorts the scanned file list, builds file metadata, emits `files:analyze`, then calls core `buildCrate`. The default mode and the baseline every other plugin assumes.
+`analyzeFiles` sorts the scanned file list and builds file metadata; `buildCrate` turns the result into entities. The pipeline emits `files:analyze` between the two. The default mode and the baseline every other plugin assumes — and the only one with a flat file list, so the only one whose builds emit that hook at all.
 
 **It stands down from inventing structure when something else describes it.** `buildCrate` takes `structureFromMetadata`, set when `xlsx-crate-input` has read a spreadsheet. With it, `addFolderEntities` creates no object-per-top-level-folder and `addFileEntities` writes no `isPartOf`, leaving both to the metadata. Without it the scan's guesses compete with the described entries — surfacing as extra cards in a preview that draws one per `RepositoryObject`, and claiming every file before the described parent could be applied.
 
