@@ -160,11 +160,152 @@ function log(msg, cls = "info") {
   span.textContent = msg + "\n";
   logEl().appendChild(span);
   logEl().scrollTop = logEl().scrollHeight;
+  updateBuildProgressFromLog(msg, cls);
   syncLogActionButtons();
 }
 function clearLog() {
   logEl().textContent = "";
+  resetBuildProgress();
   syncLogActionButtons();
+}
+
+const BUILD_PROGRESS = {
+  active: false,
+  value: 0,
+};
+
+function buildProgressEl() { return $("buildProgress"); }
+
+function setBuildProgress(value, label, opts = {}) {
+  const host = buildProgressEl();
+  if (!host) return;
+  const fill = $("buildProgressFill");
+  const labelEl = $("buildProgressLabel");
+  const pctEl = $("buildProgressPct");
+  const track = host.querySelector(".build-progress-track");
+  const normalized = Math.max(0, Math.min(100, Number(value) || 0));
+  const indeterminate = !!opts.indeterminate;
+  const complete = !!opts.complete;
+  const error = !!opts.error;
+
+  host.classList.remove("hidden");
+  host.classList.toggle("is-indeterminate", indeterminate);
+  host.classList.toggle("is-complete", complete && !error);
+  host.classList.toggle("is-error", error);
+
+  if (!indeterminate && fill) fill.style.width = `${normalized}%`;
+  if (labelEl && label) labelEl.textContent = label;
+  if (pctEl) pctEl.textContent = `${Math.round(normalized)}%`;
+  if (track) track.setAttribute("aria-valuenow", String(Math.round(normalized)));
+  if (track) track.setAttribute("aria-valuetext", label || `${Math.round(normalized)}%`);
+
+  BUILD_PROGRESS.value = normalized;
+}
+
+function startBuildProgress() {
+  BUILD_PROGRESS.active = true;
+  BUILD_PROGRESS.value = 0;
+  setBuildProgress(3, "Starting build…");
+}
+
+function completeBuildProgress() {
+  if (!BUILD_PROGRESS.active) return;
+  setBuildProgress(100, "Build complete.", { complete: true });
+  BUILD_PROGRESS.active = false;
+}
+
+function failBuildProgress(message) {
+  if (!BUILD_PROGRESS.active) return;
+  const next = Math.max(BUILD_PROGRESS.value, 5);
+  setBuildProgress(next, message || "Build failed.", { error: true });
+  BUILD_PROGRESS.active = false;
+}
+
+function resetBuildProgress() {
+  BUILD_PROGRESS.active = false;
+  BUILD_PROGRESS.value = 0;
+  const host = buildProgressEl();
+  if (!host) return;
+  host.classList.add("hidden");
+  host.classList.remove("is-indeterminate", "is-complete", "is-error");
+  const fill = $("buildProgressFill");
+  if (fill) fill.style.width = "0%";
+  const labelEl = $("buildProgressLabel");
+  if (labelEl) labelEl.textContent = "Waiting to build...";
+  const pctEl = $("buildProgressPct");
+  if (pctEl) pctEl.textContent = "0%";
+  const track = host.querySelector(".build-progress-track");
+  if (track) {
+    track.setAttribute("aria-valuenow", "0");
+    track.setAttribute("aria-valuetext", "Waiting to build...");
+  }
+}
+
+function bumpBuildProgress(value, label, opts = {}) {
+  if (!BUILD_PROGRESS.active) return;
+  const next = Math.max(BUILD_PROGRESS.value, value);
+  setBuildProgress(next, label, opts);
+}
+
+function updateBuildProgressFromLog(msg, cls = "info") {
+  const text = String(msg || "").trim();
+  if (!text || !BUILD_PROGRESS.active) return;
+
+  if (cls === "err" || /^Error:/.test(text) || /^HTML preview failed:/.test(text)) {
+    failBuildProgress(text);
+    return;
+  }
+  if (/^Done in /.test(text)) {
+    completeBuildProgress();
+    return;
+  }
+
+  if (/^Config: /.test(text)) {
+    bumpBuildProgress(12, "Applying profile and options…");
+    return;
+  }
+  if (/^Built crate: /.test(text)) {
+    bumpBuildProgress(48, "Crate assembled. Preparing outputs…");
+    return;
+  }
+  if (/^Preview: multipage /.test(text)) {
+    bumpBuildProgress(70, "Preparing multipage preview assets…");
+    return;
+  }
+  if (/^Preview: rendering multipage site/.test(text)) {
+    bumpBuildProgress(74, "Rendering multipage preview…", { indeterminate: true });
+    return;
+  }
+  if (/^Preview: styled tabular /.test(text)) {
+    bumpBuildProgress(74, "Rendering styled preview…", { indeterminate: true });
+    return;
+  }
+  if (/^Preview: plain /.test(text)) {
+    bumpBuildProgress(74, "Rendering preview…", { indeterminate: true });
+    return;
+  }
+  if (/^Preview: rendered root \+ /.test(text)) {
+    bumpBuildProgress(82, "Writing multipage preview files…");
+    return;
+  }
+
+  const match = text.match(/^Preview: wrote (\d+)\/(\d+) page file\(s\)…/);
+  if (match) {
+    const done = Number(match[1]);
+    const total = Number(match[2]);
+    const frac = total > 0 ? Math.min(1, done / total) : 0;
+    const next = 82 + Math.round(frac * 16);
+    bumpBuildProgress(next, `Writing multipage preview files (${done}/${total})…`);
+    return;
+  }
+
+  if (/^Wrote ro-crate-preview\.html\./.test(text)) {
+    bumpBuildProgress(99, "Finalizing preview output…");
+    return;
+  }
+  if (/^Preview summary: /.test(text)) {
+    bumpBuildProgress(99, "Preview generation finished.");
+  }
 }
 
 function renderTypeStatus(typeCounts) {
@@ -1547,15 +1688,22 @@ async function run() {
   if (!dirHandle) return;
   const runBtn = $("runBtn");
   runBtn.disabled = true; runBtn.textContent = "Building…";
+  startBuildProgress();
   $("showHtmlBtn").classList.add("hidden"); buildHtml = null;
   const started = performance.now();
   log("Build started at " + new Date().toLocaleTimeString() + ".", "muted");
   $("statFiles").textContent = "—"; $("statEntities").textContent = "—"; $("statTime").textContent = "—";
   renderTypeStatus([]);
   try {
-    if (!(await verifyPermission(dirHandle, true))) { log("Permission to read/write the folder was denied.", "err"); return; }
+    if (!(await verifyPermission(dirHandle, true))) {
+      log("Permission to read/write the folder was denied.", "err");
+      failBuildProgress("Permission denied.");
+      return;
+    }
+    bumpBuildProgress(8, "Scanning folder…");
     const options = readOptions();
     const files = await walkDirectory(dirHandle);
+    bumpBuildProgress(22, `Scanned ${files.length} file(s). Running pipeline…`);
     const result = await processFolder(dirHandle, files, options);
     $("statFiles").textContent = result.files;
     $("statEntities").textContent = result.entities;
@@ -1573,6 +1721,7 @@ async function run() {
     $("editBtn").disabled = false;
   } catch (e) {
     log("Error: " + (e && e.message ? e.message : e), "err");
+    failBuildProgress("Build failed.");
     console.error(e);
   } finally {
     runBtn.disabled = false; runBtn.textContent = "Build RO-Crate";
@@ -1679,6 +1828,11 @@ function clearLogPanel() {
 
 function isDescribeViewActive() {
   const view = $("view-crate-details");
+  return !!(view && !view.classList.contains("hidden"));
+}
+
+function isSelectProfileViewActive() {
+  const view = $("view-select-profile");
   return !!(view && !view.classList.contains("hidden"));
 }
 
@@ -2589,6 +2743,17 @@ function boot() {
     if (isModalOpen()) return;
     const tag = e.target && e.target.tagName ? e.target.tagName : "";
     if (tag === "TEXTAREA") return;
+
+    // Select-profile step keyboard shortcut: when Continue is enabled,
+    // pressing Enter outside focused controls proceeds to Describe.
+    if (isSelectProfileViewActive() && tag !== "INPUT" && tag !== "SELECT" && tag !== "BUTTON" && tag !== "A") {
+      const continueBtn = $("profileContinueBtn");
+      if (!continueBtn || continueBtn.disabled) return;
+      e.preventDefault();
+      continueBtn.click();
+      return;
+    }
+
     if (tag === "INPUT" || tag === "SELECT" || tag === "BUTTON" || tag === "A") return;
     if (isDescribeViewActive()) {
       e.preventDefault();

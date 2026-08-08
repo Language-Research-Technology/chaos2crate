@@ -16,6 +16,12 @@ const TEMPLATE_REPO_OWNER = "benfoley";
 const TEMPLATE_REPO_NAME = "rocss-template-repo";
 const TEMPLATE_REPO_REF = "main";
 
+function formatDurationMs(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return "0.00s";
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(ms >= 10000 ? 1 : 2)}s`;
+}
+
 function pickPreferredFile(files, ext, hints = []) {
   const byExt = files.filter((f) => f && f.type === "file" && typeof f.name === "string" && f.name.toLowerCase().endsWith(ext));
   if (!byExt.length) return null;
@@ -341,6 +347,10 @@ export const plugin = {
   hooks: {
     [HOOKS.OUTPUT_WRITE]: async (ctx) => {
       const { dirHandle, options, crate, log } = ctx;
+      const previewStartMs = Date.now();
+      let assetResolveMs = 0;
+      let renderMs = 0;
+      let pageWriteMs = 0;
       if (!options.makeHtml) return;
       if (!(options.overwrite || !(await fileExists(dirHandle, HTML_FILE)))) {
         log(`${HTML_FILE} exists and overwrite is off — skipped.`, "warn");
@@ -368,6 +378,7 @@ export const plugin = {
           let template = null, templateSrc = "none";
           let cfg = null, cfgSrc = "none";
           let css = "", cssSrc = "none";
+          const assetResolveStartMs = Date.now();
 
           if (repoSelected) {
             const remote = await fetchTemplateBundle(TEMPLATE_REPO_OWNER, TEMPLATE_REPO_NAME, TEMPLATE_REPO_REF, selectedFolder);
@@ -417,6 +428,7 @@ export const plugin = {
               pageTemplatesSrc = configDirHandle ? "picked folder" : "uploaded files";
             }
           }
+          assetResolveMs = Date.now() - assetResolveStartMs;
           // A template's own config.json-declared propertyGroups (the most
           // specific, deliberate customization) still wins over the
           // profile's — the profile only fills in when the template didn't
@@ -436,29 +448,56 @@ export const plugin = {
 
           if (pageTemplates && !uploadedConfigWithRepoTemplates && cfg && cfg.multipage !== false) {
             log(`Preview: multipage · templates ${pageTemplatesSrc} · config ${cfgSrc}.`, "muted");
+            const multipageRenderStartMs = Date.now();
+            const templateCount = Object.keys(pageTemplates).length;
+            log(`Preview: rendering multipage site (${templateCount} template file(s))…`, "muted");
             const multi = await crateToMultiPageHtml(crate, { config: effectiveCfg, css, pageTemplates });
-            for (const page of multi.pages) {
+            const renderDoneMs = Date.now();
+            renderMs = renderDoneMs - multipageRenderStartMs;
+            log(`Preview: rendered root + ${multi.pages.length} page(s) in ${formatDurationMs(renderDoneMs - multipageRenderStartMs)}. Writing pages…`, "muted");
+
+            const writeStartMs = Date.now();
+            const totalPages = multi.pages.length;
+            const progressStep = totalPages >= 50 ? 25 : totalPages >= 10 ? 10 : 0;
+            for (let i = 0; i < multi.pages.length; i += 1) {
+              const page = multi.pages[i];
               await writeFileAtPath(dirHandle, page.path, page.html);
+              const written = i + 1;
+              if (progressStep && (written % progressStep === 0 || written === totalPages)) {
+                log(`Preview: wrote ${written}/${totalPages} page file(s)…`, "muted");
+              }
             }
-            log(`Wrote ${multi.pages.length} page(s) under ro-crate-preview_html/.`, "ok");
+            pageWriteMs = Date.now() - writeStartMs;
+            log(`Wrote ${multi.pages.length} page(s) under ro-crate-preview_html/ in ${formatDurationMs(Date.now() - writeStartMs)}.`, "ok");
             html = multi.rootHtml;
             ctx.lastHtmlTemplate = null;
           } else if (template) {
             log(`Preview: styled tabular · template ${templateSrc} · config ${cfgSrc} · style ${cssSrc}.`, "muted");
+            const styledRenderStartMs = Date.now();
             html = await crateToPreviewHtml(crate, { template, config: effectiveCfg, css });
+            renderMs = Date.now() - styledRenderStartMs;
             ctx.lastHtmlTemplate = { template, config: effectiveCfg, css, source: templateSrc };
           } else {
             log("Preview: plain (library default template; no custom template file provided).", "muted");
+            const plainRenderStartMs = Date.now();
             html = await crateToPreviewHtml(crate, { layouts: { default: layout } });
+            renderMs = Date.now() - plainRenderStartMs;
             ctx.lastHtmlTemplate = null;
           }
         } else {
           log("Preview: plain (library default template).", "muted");
+          const plainRenderStartMs = Date.now();
           html = await crateToPreviewHtml(crate, { layouts: { default: layout } });
+          renderMs = Date.now() - plainRenderStartMs;
           ctx.lastHtmlTemplate = null;
         }
         await writeFile(dirHandle, HTML_FILE, html);
         log(`Wrote ${HTML_FILE}.`, "ok");
+        const totalPreviewMs = Date.now() - previewStartMs;
+        log(
+          `Preview summary: total ${formatDurationMs(totalPreviewMs)} (assets ${formatDurationMs(assetResolveMs)}, render ${formatDurationMs(renderMs)}, page writes ${formatDurationMs(pageWriteMs)}).`,
+          "muted"
+        );
         ctx.buildHtml = html;
       } catch (e) {
         log(`HTML preview failed: ${e.message}`, "err");

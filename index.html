@@ -106,6 +106,53 @@
   .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 16px; min-width: 90px; }
   .stat .num { font-size: 22px; font-weight: 600; } .stat .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
   .status-block { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-bottom: 12px; }
+  .build-progress {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+    position: sticky;
+    top: 8px;
+    z-index: 4;
+  }
+  .build-progress-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 7px;
+  }
+  .build-progress-label { font-size: 12px; color: var(--muted); }
+  .build-progress-pct { font-size: 12px; color: var(--muted); font-family: var(--mono); }
+  .build-progress-track {
+    height: 8px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+  }
+  .build-progress-fill {
+    height: 100%;
+    width: 0%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #0b7ddd, #0d90ff);
+    transition: width .28s ease;
+  }
+  .build-progress.is-complete .build-progress-fill {
+    background: linear-gradient(90deg, #1f9d57, #3fb950);
+  }
+  .build-progress.is-error .build-progress-fill {
+    background: linear-gradient(90deg, #cc2f2f, #f85149);
+  }
+  .build-progress.is-indeterminate .build-progress-fill {
+    width: 40% !important;
+    animation: buildProgressIndeterminate 1.1s ease-in-out infinite;
+  }
+  @keyframes buildProgressIndeterminate {
+    0% { transform: translateX(-65%); }
+    100% { transform: translateX(200%); }
+  }
   .type-status { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .type-pill { display: inline-flex; align-items: baseline; gap: 6px; border: 1px solid var(--border); border-radius: 999px; padding: 4px 10px; background: var(--panel-2); }
   .type-pill .k { font-size: 12px; color: var(--muted); }
@@ -403,6 +450,15 @@
         <div class="status-block">
           <h2 style="margin:0 0 8px;">Status</h2>
           <div id="typeStatus" class="type-status"><span class="type-empty">Run a build to see entity counts by Type.</span></div>
+        </div>
+        <div id="buildProgress" class="build-progress hidden" aria-live="polite">
+          <div class="build-progress-head">
+            <span id="buildProgressLabel" class="build-progress-label">Waiting to build...</span>
+            <span id="buildProgressPct" class="build-progress-pct">0%</span>
+          </div>
+          <div class="build-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Build progress">
+            <div id="buildProgressFill" class="build-progress-fill"></div>
+          </div>
         </div>
         <div id="log" class="log"><span class="l-muted">Set your options, then click Build RO-Crate.</span></div>
         <div class="log-actions">
