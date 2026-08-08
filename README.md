@@ -110,7 +110,7 @@ per-build options, so they live outside the Build panel:
 
 | setting | effect |
 |--------|--------|
-| Input type | Generic folder of files, or Structured Word documents (.docx) |
+| Input type | Generic folder of files, or Structured Word documents (.docx) — see [docs/docx-authoring.md](docs/docx-authoring.md) for how to write `.docx` files this mode parses |
 | Theme | Light or dark |
 | Top-level folders are: Objects or Collections | Objects = existing behavior (`RepositoryObject`); Collections = `RepositoryCollection` with child folder objects and a `Files` object for direct files |
 | Overwrite existing outputs | off = skip files that already exist |
