@@ -182,11 +182,19 @@ assert.deepEqual(
 for (const [mode, plugin] of Object.entries(INPUT_PLUGINS)) {
   assert.equal(plugin.inputMode, mode, `input plugin "${plugin.name}" should be registered under its own inputMode`);
   assert.equal(typeof plugin.buildCrate, "function", `input plugin "${plugin.name}" should expose buildCrate()`);
+  assert.equal(
+    plugin.buildCrate.length, 1,
+    `input plugin "${plugin.name}" should take only ctx — no plugin holds the hook bus, so no plugin can emit`
+  );
   assert.ok(
     !PLUGINS.includes(plugin),
     `input plugin "${plugin.name}" should stay out of PLUGINS — exactly one runs per build, they aren't additive taps`
   );
 }
+
+// Which modes have a flat file list to analyse is declared, not implied.
+assert.equal(typeof INPUT_PLUGINS.generic.analyzeFiles, "function", "generic mode analyses its file list");
+assert.equal(INPUT_PLUGINS.docx.analyzeFiles, undefined, "docx mode has no flat file list, so declares no analyzeFiles");
 
 /* ---------- the UI schemas are composed from whichever plugins declare them ---------- */
 
@@ -211,5 +219,55 @@ assert.ok(
   PLUGINS.filter((p) => !p.optionSchema && !p.settingsSchema).map((p) => p.name).includes("ro-crate-json-output"),
   "JSON output should declare no schema at all — that absence is how an always-on plugin is expressed"
 );
+
+/* ---------- the pipeline owns every emission, including files:analyze ---------- */
+// It used to be emitted from inside generic-input, which meant the hook order
+// couldn't be read off the pipeline alone and one plugin held the bus. Both
+// halves are asserted here: the ordering around analyzeFiles, and that a mode
+// declaring no analyzeFiles produces no emission at all.
+
+{
+  const { runPipeline } = await import("./src/plugins/pipeline.js");
+
+  const stubCrate = () => ({ getJson: () => ({ "@graph": [] }) });
+  const runWith = async (inputPlugin) => {
+    const mode = inputPlugin.inputMode;
+    INPUT_PLUGINS[mode] = inputPlugin;               // injected, removed below
+    const bus = createHookBus();
+    const ran = [];
+    bus.on(HOOKS.FILES_ANALYZE, () => { ran.push("files:analyze tap"); });
+    bus.on(HOOKS.CRATE_BUILT, () => { ran.push("crate:built tap"); });
+    const ctx = { options: { inputMode: mode }, log: () => {}, configSource: "test", ran };
+    await runPipeline(ctx, bus);
+    delete INPUT_PLUGINS[mode];
+    return ran;
+  };
+
+  const withAnalyze = await runWith({
+    name: "stub-with-analyze", inputMode: "__stub_analyze",
+    analyzeFiles(ctx) { ctx.ran.push("analyzeFiles"); },
+    buildCrate(ctx) { ctx.ran.push("buildCrate"); ctx.crate = stubCrate(); },
+  });
+  assert.deepEqual(
+    withAnalyze,
+    ["analyzeFiles", "files:analyze tap", "buildCrate", "crate:built tap"],
+    "files:analyze must fire between analysing the list and building the crate — taps annotate data, not entities"
+  );
+
+  const withoutAnalyze = await runWith({
+    name: "stub-no-analyze", inputMode: "__stub_plain",
+    buildCrate(ctx) { ctx.ran.push("buildCrate"); ctx.crate = stubCrate(); },
+  });
+  assert.deepEqual(
+    withoutAnalyze,
+    ["buildCrate", "crate:built tap"],
+    "a mode with no file list to analyse should emit no files:analyze at all, rather than one with nothing on ctx"
+  );
+
+  assert.deepEqual(
+    Object.keys(INPUT_PLUGINS).sort(), ["docx", "generic"],
+    "the stub modes should be gone again — this test must not leak into the registry"
+  );
+}
 
 console.log(`test-hooks: all tests passed (${Object.keys(HOOKS).length} hooks, ${PLUGINS.length} plugins, ${Object.keys(INPUT_PLUGINS).length} input modes)`);
