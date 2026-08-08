@@ -21,26 +21,36 @@
 //       media/
 //         clip.mp3
 //
-// Referenced/embedded media is written into `rootHandle`'s own `files/`
-// subfolder (wiped and recreated on each call) so the crate's file @ids
-// resolve relative to the crate root, mirroring the CLI's output/files/.
+// Referenced/embedded media is written into `rootHandle`'s own
+// `ro-crate-preview_files/` subfolder (wiped and recreated on each call, and
+// named to match its multipage-output sibling `ro-crate-preview_html/`) so
+// the crate's file @ids resolve relative to the crate root, mirroring the
+// CLI's output/files/.
 //
 // The root Dataset has exactly two members: #derivedContent, whose hasPart is
 // one RepositoryCollection per top-level folder (the parsed Chapter/
 // DocumentPart structure this file has always built), and #sourceDocuments,
 // whose hasPart is one SourceDocumentGroup per top-level folder holding that
-// folder's original .docx files verbatim (also copied into files/, at their
-// own original relative path) — kept for completeness/download rather than
-// discarded after parsing. structured-docs's generated site only ever
-// navigates into #derivedContent; #sourceDocuments has no page of its own.
+// folder's original .docx files verbatim (also copied into
+// ro-crate-preview_files/, at their own original relative path) — kept for
+// completeness/download rather than discarded after parsing.
+// structured-docs's generated site only ever navigates into #derivedContent;
+// #sourceDocuments has no page of its own.
 
 import mammoth from "mammoth";
 import * as cheerio from "cheerio";
 import { ROCrate } from "ro-crate";
 import { writeFileAtPath } from "../../fs_helpers.js";
 
+// Where copied/embedded media and source .docx files land, relative to the
+// crate root. Distinct from ro-crate-static-site's own generated-output
+// folders (ro-crate-preview.html, ro-crate-preview_html/) only in that this
+// one is populated by this file rather than the renderer, but named to match
+// them rather than the older bare "files" this replaced.
+const OUTPUT_FILES_DIR_NAME = "ro-crate-preview_files";
+
 const CONTROL_AND_GENERATED_NAMES = new Set([
-  "files",
+  OUTPUT_FILES_DIR_NAME,
   "ro-crate-metadata.json",
   "ro-crate-metadata.xlsx",
   "ro-crate-preview.html",
@@ -406,7 +416,7 @@ async function copyMediaToOutputFiles(fileHandle, targetRelativePath, filesDirHa
   const file = await fileHandle.getFile();
   const bytes = await file.arrayBuffer();
   await writeFileAtPath(filesDirHandle, targetRelativePath, bytes);
-  return `files/${targetRelativePath}`;
+  return `${OUTPUT_FILES_DIR_NAME}/${targetRelativePath}`;
 }
 
 async function findImageReference(imageToken, mediaLookup, collectionRelPath, filesDirHandle) {
@@ -425,7 +435,7 @@ async function writeEmbeddedImageToOutputFiles(collectionRelPath, docxBaseName, 
   const docxBaseNormalized = normalizeIdSegment(docxBaseName) || "doc";
   const targetRelativePath = `${collectionRelPath}/media/embedded-${docxBaseNormalized}-${index}.${extension}`;
   await writeFileAtPath(filesDirHandle, targetRelativePath, buffer);
-  return `files/${targetRelativePath}`;
+  return `${OUTPUT_FILES_DIR_NAME}/${targetRelativePath}`;
 }
 
 /* ---------- docx parsing (mirrors build-ro-crate.js's parseStructuredChapters) ---------- */
@@ -625,20 +635,20 @@ async function parseStructuredChapters(fileHandle, mediaLookup, collectionRelPat
 
 // Builds an RO-Crate from `rootHandle` (a FileSystemDirectoryHandle whose
 // direct sub-directories are Collections of structured .docx files), writing
-// referenced/embedded media into `rootHandle/files/...`. `config` is the raw
-// rootDataset config (see docx-tools README). `onProgress(message)` is
-// called with human-readable progress lines, mirroring the CLI's console.log.
-// Returns { crate, collectionCount, documentPartCount }, or null if no
-// collection sub-directories were found.
+// referenced/embedded media into `rootHandle/ro-crate-preview_files/...`.
+// `config` is the raw rootDataset config (see docx-tools README).
+// `onProgress(message)` is called with human-readable progress lines,
+// mirroring the CLI's console.log. Returns { crate, collectionCount,
+// documentPartCount }, or null if no collection sub-directories were found.
 export async function buildCrateFromDocxFolder(rootHandle, config, onProgress = () => {}) {
   const validatedConfig = validateAndNormalizeConfig(config);
 
   try {
-    await rootHandle.removeEntry("files", { recursive: true });
+    await rootHandle.removeEntry(OUTPUT_FILES_DIR_NAME, { recursive: true });
   } catch {
-    // no pre-existing files/ to remove — fine.
+    // no pre-existing ro-crate-preview_files/ to remove — fine.
   }
-  const filesDirHandle = await rootHandle.getDirectoryHandle("files", { create: true });
+  const filesDirHandle = await rootHandle.getDirectoryHandle(OUTPUT_FILES_DIR_NAME, { create: true });
 
   let subDirs = await getSubDirectoryHandles(rootHandle);
   if (subDirs.length === 0) return null;
@@ -702,8 +712,9 @@ export async function buildCrateFromDocxFolder(rootHandle, config, onProgress = 
       const mediaLookup = await buildMediaLookup(docxDirHandle);
       const collectionRelPath = [subDirHandle.name, ...docxDirParts].join("/");
 
-      // The original .docx itself, copied verbatim into files/ at its own
-      // original relative path (so a topic with same-named files in two
+      // The original .docx itself, copied verbatim into
+      // ro-crate-preview_files/ at its own original relative path (so a
+      // topic with same-named files in two
       // subfolders can't collide) and recorded as a File entity — kept
       // alongside the parsed content rather than discarded, under a
       // sourceDocuments collection that mirrors this topic grouping. See
