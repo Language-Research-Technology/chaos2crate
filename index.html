@@ -226,7 +226,12 @@
     background: var(--panel-2); color: var(--muted); font-size: 13px; line-height: 1; cursor: pointer;
   }
   .mapping-row .map-copy-btn:hover { color: var(--text); border-color: var(--accent); }
-  .collection-labels-head, .collection-labels-row { grid-template-columns: minmax(0,1fr) 24px minmax(0,1fr); }
+  .collection-labels-head, .collection-labels-row { grid-template-columns: 18px minmax(0,1fr) 24px minmax(0,1fr); }
+  .drag-handle { cursor: grab; color: var(--muted); user-select: none; text-align: center; font-size: 14px; }
+  .drag-handle:active { cursor: grabbing; }
+  .collection-labels-row[draggable="true"] { cursor: default; }
+  .collection-labels-row.dragging { opacity: 0.35; }
+  .collection-labels-row.drag-over { outline: 2px solid var(--accent); border-radius: 4px; }
   .profile-options { display: flex; flex-direction: column; gap: 10px; margin: 14px 0; }
   .profile-option {
     text-align: left; width: 100%; padding: 12px 14px; border-radius: 10px;
@@ -582,12 +587,12 @@
 
 <div id="collectionLabelsModal" class="modal-overlay hidden">
   <div class="modal mapping-modal">
-    <h3>Collection menu names</h3>
-    <p class="hint" style="margin:-8px 0 0;">Set the menu/card label shown for each top-level collection folder. Rows left blank use the folder name as-is.</p>
+    <h3>Collection menu names and order</h3>
+    <p class="hint" style="margin:-8px 0 0;">Set the menu/card label for each top-level collection. Drag rows to reorder. Rows left blank use the folder name as-is.</p>
     <div id="collectionLabelsBody" class="mapping-body"></div>
     <div class="actions">
       <button id="collectionLabelsCancel" class="secondary" type="button">Cancel</button>
-      <button id="collectionLabelsApply" type="button">Apply names</button>
+      <button id="collectionLabelsApply" type="button">Apply</button>
     </div>
   </div>
 </div>

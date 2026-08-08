@@ -45,8 +45,8 @@ const APP_VERSION = packageJson.version || "dev";
 // crate-building (it sets each Collection entity's own `name`, not just an
 // HTML-rendering label), which isn't itself a plugin (see docx_crate.js).
 const CORE_OPTION_SCHEMA = [
-  { key: "collectionLabelsBuilder", type: "collectionLabelsBuilder", label: "Set menu names for collections…",
-    hint: "Optional, for Structured Word documents mode. Map each top-level collection folder to a friendlier label shown in the site's navigation menu and cards (e.g. AnmWeb1_HOME → Home) — the raw folder name is used for anything left blank." },
+  { key: "collectionLabelsBuilder", type: "collectionLabelsBuilder", label: "Set menu names and order…",
+    hint: "Optional, for Structured Word documents mode. Drag rows to reorder. Map each top-level collection folder to a friendlier label shown in the site's navigation menu and cards (e.g. AnmWeb1_HOME → Home) — the raw folder name is used for anything left blank." },
 ];
 const OPTION_SCHEMA = [...composeOptionSchema(), ...CORE_OPTION_SCHEMA];
 
@@ -817,6 +817,8 @@ function updateCollectionLabelsStatus(count) {
 // The applied mapping (folder name -> label), threaded into effectiveConfig
 // in processFolder's docx-mode branch. Reset whenever a new folder is picked.
 let collectionLabelsOverride = null;
+// Desired display order of collection folders (array of folder names). null = folder-name alphabetical.
+let collectionOrderOverride = null;
 // In-progress edits, kept alive across the modal being closed and reopened
 // so nothing typed is lost until a new folder is picked.
 let collectionLabelsDraft = {};
@@ -827,7 +829,19 @@ async function openCollectionLabelsModal() {
   try {
     const { getSubDirectoryHandles } = await import("./plugins/docx-input/docx_crate.js");
     const subDirs = await getSubDirectoryHandles(dirHandle);
-    folderNames = subDirs.map((h) => h.name).sort((a, b) => a.localeCompare(b));
+    const names = subDirs.map((h) => h.name);
+    if (collectionOrderOverride) {
+      folderNames = names.slice().sort((a, b) => {
+        const ia = collectionOrderOverride.indexOf(a);
+        const ib = collectionOrderOverride.indexOf(b);
+        if (ia === -1 && ib === -1) return a.localeCompare(b);
+        if (ia === -1) return 1;
+        if (ib === -1) return -1;
+        return ia - ib;
+      });
+    } else {
+      folderNames = names.sort((a, b) => a.localeCompare(b));
+    }
   } catch (e) {
     alert("Could not read the folder's sub-directories: " + (e && e.message ? e.message : e));
     return;
@@ -884,13 +898,20 @@ function renderCollectionLabelsRows(folderNames) {
 
   const head = document.createElement("div");
   head.className = "mapping-head collection-labels-head";
-  head.innerHTML = "<span>Folder name</span><span></span><span>Menu label</span>";
+  head.innerHTML = "<span></span><span>Folder name</span><span></span><span>Menu label</span>";
   container.appendChild(head);
 
   folderNames.forEach((folderName) => {
     const row = document.createElement("div");
     row.className = "mapping-row collection-labels-row";
     row.dataset.source = folderName;
+    row.setAttribute("draggable", "true");
+
+    const handle = document.createElement("span");
+    handle.className = "drag-handle";
+    handle.setAttribute("aria-hidden", "true");
+    handle.title = "Drag to reorder";
+    handle.textContent = "⠿";
 
     const src = document.createElement("div");
     src.className = "col-source";
@@ -912,19 +933,56 @@ function renderCollectionLabelsRows(folderNames) {
       label.focus();
     });
 
-    row.append(src, copyBtn, label);
+    row.append(handle, src, copyBtn, label);
     container.appendChild(row);
+  });
+
+  setupCollectionLabelsDrag(container);
+}
+
+function setupCollectionLabelsDrag(container) {
+  let dragSrc = null;
+
+  container.addEventListener("dragstart", (e) => {
+    dragSrc = e.target.closest(".collection-labels-row");
+    if (!dragSrc) return;
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", ""); // required for Firefox
+    setTimeout(() => dragSrc && dragSrc.classList.add("dragging"), 0);
+  });
+
+  container.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    const target = e.target.closest(".collection-labels-row");
+    if (!target || target === dragSrc) return;
+    const rect = target.getBoundingClientRect();
+    if (e.clientY < rect.top + rect.height / 2) {
+      container.insertBefore(dragSrc, target);
+    } else {
+      target.after(dragSrc);
+    }
+  });
+
+  container.addEventListener("drop", (e) => e.preventDefault());
+
+  container.addEventListener("dragend", () => {
+    if (dragSrc) { dragSrc.classList.remove("dragging"); dragSrc = null; }
   });
 }
 
 function applyCollectionLabels() {
   const container = $("collectionLabelsBody");
   const labels = {};
+  const order = [];
   container.querySelectorAll(".collection-labels-row").forEach((row) => {
+    const source = row.dataset.source;
+    order.push(source);
     const value = row.querySelector(".map-target").value.trim();
-    if (value) labels[row.dataset.source] = value;
+    if (value) labels[source] = value;
   });
   collectionLabelsOverride = Object.keys(labels).length ? labels : null;
+  collectionOrderOverride = order.length ? order : null;
   updateCollectionLabelsStatus(Object.keys(labels).length);
   $("collectionLabelsModal").classList.add("hidden");
 }
@@ -1727,6 +1785,7 @@ async function processFolder(dirHandle, files, options) {
     ...(profileWorkflow.metadataLicence ? { metadataLicence: profileWorkflow.metadataLicence } : {}),
     ...(profileWorkflow.fileProperties ? { fileProperties: profileWorkflow.fileProperties } : {}),
     ...(collectionLabelsOverride ? { collectionLabels: collectionLabelsOverride } : {}),
+    ...(collectionOrderOverride ? { collectionOrder: collectionOrderOverride } : {}),
   };
 
   const ctx = {
@@ -1810,6 +1869,7 @@ async function pickFolder(nextView = "view-mode") {
   $("profileStatus").textContent = "";
   $("profileContinueBtn").disabled = true;
   collectionLabelsOverride = null;
+  collectionOrderOverride = null;
   collectionLabelsDraft = {};
   updateCollectionLabelsStatus(0);
   refreshCollectionLabelsBuilderBtn();

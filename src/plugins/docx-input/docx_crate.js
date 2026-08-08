@@ -64,6 +64,9 @@ function validateAndNormalizeConfig(config) {
     // the generated site's navigation/cards (see buildCrateFromDocxFolder).
     // Folders with no entry keep their raw folder name.
     collectionLabels: isPlainObject(config && config.collectionLabels) ? config.collectionLabels : {},
+    // Explicit display order for top-level collections (array of folder names).
+    // Folders not listed are appended after the listed ones in filesystem order.
+    collectionOrder: Array.isArray(config && config.collectionOrder) ? config.collectionOrder : null,
   };
 
   const { rootDataset } = normalized;
@@ -627,8 +630,20 @@ export async function buildCrateFromDocxFolder(rootHandle, config, onProgress = 
   }
   const filesDirHandle = await rootHandle.getDirectoryHandle("files", { create: true });
 
-  const subDirs = await getSubDirectoryHandles(rootHandle);
+  let subDirs = await getSubDirectoryHandles(rootHandle);
   if (subDirs.length === 0) return null;
+
+  if (validatedConfig.collectionOrder) {
+    const order = validatedConfig.collectionOrder;
+    subDirs = subDirs.slice().sort((a, b) => {
+      const ia = order.indexOf(a.name);
+      const ib = order.indexOf(b.name);
+      if (ia === -1 && ib === -1) return 0;
+      if (ia === -1) return 1;
+      if (ib === -1) return -1;
+      return ia - ib;
+    });
+  }
 
   const crate = new ROCrate({ array: true, link: true });
   addContextPrefix(crate, "bibo", "http://purl.org/ontology/bibo/");
