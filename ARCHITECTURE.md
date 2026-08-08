@@ -2,7 +2,7 @@
 
 **What it is:** a browser tool that turns a folder on your computer into an [RO-Crate](https://www.researchobject.org/ro-crate/).
 
-Describes `main` as of `ded84c0`.
+Describes `main` as of `1e3799a`.
 
 ---
 
@@ -153,11 +153,7 @@ Input plugins are deliberately kept out of `PLUGINS`: they're mutually exclusive
 
 **Ordering.** Array order in `PLUGINS` *is* hook-execution order for plugins sharing a stage. Every registration defaults to priority 10 and `Array#sort` is stable, so registering in this order reproduces the original inline sequence with no explicit priority numbers: `xlsx-crate-input` first so the entities it contributes exist for the two that read the graph after it, then AUSTLANG before merge (all three tap `crate:built`), and JSON before XLSX before HTML (all tap `output:write`).
 
-When it finds a spreadsheet, the folder scan **stands down from inventing structure**: `buildCrate` is passed `structureFromMetadata`, so no object-per-top-level-folder is created and files are left without an `isPartOf` for the spreadsheet's own to land in. Otherwise the scan's guesses compete with the described entries — showing up as extra cards in a preview that draws one per `RepositoryObject`, and claiming every file before the described parent could.
-
-Merging follows `ro-crate-excel`'s convention that a workbook is authoritative for what it states — the spreadsheet wins per property, and properties it doesn't mention are kept. Deliberately *not* ro-crate's `addEntity({replace: true})`, which Crate-O uses for the same job: that drops every property the incoming entity omits, which here would throw away the `encodingFormat` and `contentSize` only the folder scan knows. Crate-O has no scan behind it and so loses nothing.
-
-`xlsx-crate-input` is worth a note as the first plugin to tap **two** stages for one job: `config:prepare` to seed the root dataset before the crate exists, then `crate:built` to fold in the rest of the spreadsheet's entities. It hands the parsed crate between them on `ctx.xlsxCrate` rather than reading the file twice — the same pattern `ro-crate-html-output` uses for `ctx.buildHtml`. It is *not* an input plugin: the folder scan still has to run, because `generic-input` is what creates the `File` entities the spreadsheet's `isPartOf` and `image` references point at.
+`xlsx-crate-input` is the one plugin that taps **two** stages for a single job — `config:prepare` and `crate:built` — because half its work has to happen before the crate exists. It is deliberately *not* an input plugin: the folder scan still has to run, since `generic-input` is what creates the `File` entities the spreadsheet's `isPartOf` and `image` references point at. What it does at each stage, and how it merges, is in §8.
 
 ### 4.6 Schema composition
 
@@ -354,6 +350,10 @@ Saving rewrites the JSON and regenerates the xlsx and HTML if those files exist,
 
 Sorts the scanned file list, builds file metadata, emits `files:analyze`, then calls core `buildCrate`. The default mode and the baseline every other plugin assumes.
 
+**It stands down from inventing structure when something else describes it.** `buildCrate` takes `structureFromMetadata`, set when `xlsx-crate-input` has read a spreadsheet. With it, `addFolderEntities` creates no object-per-top-level-folder and `addFileEntities` writes no `isPartOf`, leaving both to the metadata. Without it the scan's guesses compete with the described entries — surfacing as extra cards in a preview that draws one per `RepositoryObject`, and claiming every file before the described parent could be applied.
+
+Two names in `GENERATED_FILENAMES` are worth knowing about, since `walkDirectory` tests it against directory entries as well as files: `ro-crate-preview_html` (this tool's own multipage output — without it every rebuild folds the previous build's pages in as collection content) and `additional-ro-crate-metadata.xlsx` (metadata about the crate rather than content).
+
 #### `docx-input` — `inputMode: "docx"`
 
 Treats a folder of Word documents as a structured corpus. Substitutes for the whole assembly step — it produces `ctx.crate` directly rather than going through `buildCrate`, which is why it's an input plugin and not a `crate:built` tap. Runs `scanDocxFolder` first as a dry run: throws with guidance if no `.docx` files are found, warns if none of the sampled files use Heading 1/2/3 styles. `docx_crate.js` pulls in `mammoth` and `cheerio`, so it's dynamically imported and lands in its own ~810 kB chunk.
@@ -367,6 +367,27 @@ Treats a folder of Word documents as a structured corpus. Substitutes for the wh
 **Behaviours to preserve.** Files matching `notes?` are excluded entirely. Only a table appearing as the *very first* content under a Heading 2/3 is parsed as structured rows. The `files/` directory is deleted and rebuilt every run — media not referenced by the current build is discarded.
 
 ### 7.2 `crate:built` taps
+
+#### `xlsx-crate-input` — option `xlsxCrate`
+
+Takes a build's metadata from an `.xlsx` that is *itself* an RO-Crate: `additional-ro-crate-metadata.xlsx` in the picked folder, or one uploaded through the option's file picker, which overrides it. Distinct from `merge`, which reads an arbitrary spreadsheet and needs a mapping config to say what the columns mean — here the workbook already carries RO-Crate structure, so `ro-crate-excel`'s `workbookToCrate()` returns a graph directly.
+
+The only plugin that taps **two** stages for one job, because the crate doesn't exist yet when the first half is needed:
+
+| Hook | Does |
+|---|---|
+| `config:prepare` | resolve the source, read it, validate it against the profile, seed `ctx.config.rootDataset` |
+| `crate:built` | merge its entities in, then apply its collection membership |
+
+The parsed crate is passed between them on `ctx.xlsxCrate` rather than being read twice — the same pattern `ro-crate-html-output` uses for `ctx.buildHtml`. That handle is also the signal `generic-input` reads for `structureFromMetadata` (§8).
+
+Three merge decisions, each with a reason worth keeping:
+
+- **Root properties fill gaps only.** A workbook must not overwrite what someone typed into Describe.
+- **Entity properties are overwritten.** The spreadsheet wins on every property it states; properties it doesn't mention survive. Gap-filling let the folder scan win simply by writing first, which is how media files ended up belonging to a folder object rather than to the entry the spreadsheet named. This mirrors how `ro-crate-excel` merges a workbook's `RootDataset` sheet into an existing crate. It is deliberately *not* ro-crate's `addEntity({replace: true})` — the call Crate-O uses for the same job — because that drops every property the incoming entity omits, discarding the `encodingFormat` and `contentSize` only the folder scan knows. Crate-O has no scan behind it and so loses nothing.
+- **Collection membership is replaced, not unioned.** The scan's folder objects aren't additional members; they're its guess at the same thing. Members the crate has no entity for are dropped with a warning rather than becoming references to nothing, and a workbook with no usable membership leaves the scan's answer alone.
+
+Profile-rule failures are reported as errors, straight from `MaspValidator`. Structural problems a profile can't express are warnings the plugin computes: a reference to an `@id` nothing describes, and a property no rule mentions. Both need filtering to stay useful — `license`/`conformsTo`/`encodingFormat` point at external identifiers nobody writes entities for, and a crate's own `rdf:Property` definitions aren't data the profile grades. On a real birds workbook that's the difference between 2 actionable warnings and 17.
 
 #### `austlang` — option `enableLanguageLookups`
 
@@ -578,6 +599,7 @@ src/
   default_profile.js             the bundled schema.org fallback (§5.1)
   fs_helpers.js                  CORE — File System Access wrappers
   github.js                      shared fetch primitives + listing cache
+  preview_assets.js              path + url() rewriting for the blob-served preview
 
   plugins/
     hooks.js                     hook bus + the five hook names
@@ -586,6 +608,8 @@ src/
 
     generic-input/index.js       input plugin — folder scan
     docx-input/index.js          input plugin — docx corpus
+    xlsx-crate-input/index.js    config:prepare + crate:built — spreadsheet as crate
+    xlsx-crate-input/xlsx_crate.js  reading, seeding, merging, membership, warnings
     docx-input/docx_crate.js       parsing, media extraction, entity building
     austlang/index.js            crate:built — language identification
     austlang/matcher.js            matching logic (dynamically imported)
