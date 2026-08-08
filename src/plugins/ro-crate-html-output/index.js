@@ -362,7 +362,7 @@ export const plugin = {
       { key: "styledPreview", label: "Upload template files", default: false,
         hint: "Off = the library's plain preview.", children: [
         { key: "configFile", type: "file", label: "Config (JSON)", accept: ".json,.css,.html,application/json,text/css,text/html",
-          hint: "Required. If config uses relative paths, include sibling template/style files in the same upload/drop." },
+          hint: "Required. If config uses relative paths, use \"Choose folder\" (or drag the whole folder in) to keep subfolders intact — picking loose files individually flattens them and can break relative paths." },
       ] },
     ],
   },
