@@ -716,7 +716,9 @@ export async function buildCrateFromDocxFolder(rootHandle, config, onProgress = 
         const tableRowParts = [];
         (chapter.tableRows || []).forEach((row, rowIndex) => {
           const rowId = `${chapterId}-row-${rowIndex + 1}`;
-          const rowEntity = { "@id": rowId, "@type": "bibo:DocumentPart", position: rowIndex + 1, text: row.text };
+          // A table row is a content block inside a chapter, not a document in
+          // its own right — it has no heading, so it is not a bibo:DocumentPart.
+          const rowEntity = { "@id": rowId, "@type": "custom:TableRow", position: rowIndex + 1, text: row.text };
           const groupedRowMediaParts = buildGroupedMediaParts(crate, mediaEntitiesAdded, rowId, row);
           if (groupedRowMediaParts.length > 0) rowEntity.hasPart = groupedRowMediaParts;
           crate.addEntity(rowEntity);
@@ -753,7 +755,7 @@ export async function buildCrateFromDocxFolder(rootHandle, config, onProgress = 
       collectionHasPart.push({ "@id": documentPartId });
     }
 
-    crate.addEntity({ "@id": collectionId, "@type": "Collection", name: collectionLabel, hasPart: collectionHasPart });
+    crate.addEntity({ "@id": collectionId, "@type": "RepositoryCollection", name: collectionLabel, hasPart: collectionHasPart });
     rootHasPart.push({ "@id": collectionId });
   }
 
