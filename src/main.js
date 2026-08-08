@@ -3167,6 +3167,12 @@ function boot() {
       return;
     }
     if (isBuildViewActive()) {
+      const showHtmlBtn = $("showHtmlBtn");
+      if (showHtmlBtn && !showHtmlBtn.classList.contains("hidden")) {
+        e.preventDefault();
+        showHtmlBtn.click();
+        return;
+      }
       const runBtn = $("runBtn");
       if (!runBtn || runBtn.disabled) return;
       e.preventDefault();
