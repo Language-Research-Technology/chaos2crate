@@ -457,7 +457,7 @@ Selecting a profile is optional; Describe and Build are not. Skipping selection 
 
 **Show** displays an existing crate in three tabs: preview, JSON, and the workbook rendered as HTML tables (capped at 200 rows and 20 columns, with a sheet switcher). Tabs fall back to whichever outputs exist.
 
-The preview opens in a real browser tab rather than an iframe, because the generated pages rely on `:target` CSS that doesn't work in `srcdoc`. Local assets are rewritten to blob URLs first. Links between pages of a multi-page site are defanged and intercepted: an injected script posts the target path back to the opener, which materialises that page on demand with the same rewriting. Pages can't be pre-rewritten in bulk because their links are mutually cyclic.
+The preview opens in a real browser tab rather than an iframe, because the generated pages rely on `:target` CSS that doesn't work in `srcdoc`. Local assets are rewritten to blob URLs first — in `src` and `href` attributes, **and in CSS `url()`**, both inline `style` attributes and `<style>` blocks. The CSS half is not an edge case: the birds root template gives each card its picture with `style="background-image: url('files/images/magpie.jpg')"`, which carries no `src` or `href`, so an attributes-only rewrite left every card blank. That failure is easy to miss because the written file, opened from disk, resolves those paths perfectly well — only the blob-served preview has no folder to resolve against. Links between pages of a multi-page site are defanged and intercepted: an injected script posts the target path back to the opener, which materialises that page on demand with the same rewriting. Pages can't be pre-rewritten in bulk because their links are mutually cyclic.
 
 **Settings** — input mode, theme, folder mode, overwrite, local template upload, xlsx — persist to `localStorage` and are profile-independent. Build options don't persist; they reset from the profile on every run.
 
@@ -524,6 +524,7 @@ Six suites, run by `npm test`. Every one exits non-zero when the behaviour it co
 | Profile load, Describe derivation, validation | `test-default-profile.mjs` | ✅ |
 | Default profile — overlay, minimality, layout resolution | `test-default-profile.mjs` | ✅ |
 | Multipage templates — ref collection, upload/folder resolution, tail fallback, explicit failure | `test-page-templates.mjs` | ✅ |
+| Preview asset URLs — path normalisation, attribute and CSS `url()` rewriting | `test-preview-assets.mjs` | ✅ |
 | Spreadsheet crate — round trip, prefill source choice, seeding, entity merge, warnings | `test-xlsx-crate.mjs` | ✅ |
 | Merge — typed `Place` → linked `Geometry` | `test-place-merge.mjs` | ✅ |
 | Place lookup — manual records | `test-place-merge.mjs` | ✅ |

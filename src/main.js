@@ -11,6 +11,9 @@ import {
   writeFile, verifyPermission, fileExists, readFileText, readJsonFromFolder,
 } from "./fs_helpers.js";
 import { listGitHubFolder } from "./github.js";
+import {
+  isAbsoluteLikeUrl, normalizeRelativePath, mapAssetUrl, rewriteCssUrls,
+} from "./preview_assets.js";
 import packageJson from "../package.json";
 import { createHookBus } from "./plugins/hooks.js";
 import { registerAllPlugins, composeOptionSchema, composeSettingsSchema } from "./plugins/index.js";
@@ -1809,33 +1812,9 @@ function revokePreviewUrls() {
 // navigation (see openPageInPreview) can revoke it before replacing it.
 let currentPageUrl = null;
 
-function isAbsoluteLikeUrl(value) {
-  return /^[a-z][a-z0-9+.-]*:/i.test(value) || value.startsWith("//") || value.startsWith("#");
-}
-
-function splitUrlParts(value) {
-  const hashIdx = value.indexOf("#");
-  const queryIdx = value.indexOf("?");
-  const cut = [hashIdx, queryIdx].filter((n) => n >= 0).reduce((a, b) => Math.min(a, b), value.length);
-  return {
-    base: value.slice(0, cut),
-    suffix: value.slice(cut),
-  };
-}
-
-function normalizeRelativePath(value) {
-  let v = (value || "").trim();
-  if (!v) return "";
-  try { v = decodeURIComponent(v); } catch { /* keep as-is */ }
-  v = v.replace(/\\/g, "/").replace(/^\.\//, "").replace(/^\/+/, "");
-  const out = [];
-  for (const part of v.split("/")) {
-    if (!part || part === ".") continue;
-    if (part === "..") { out.pop(); continue; }
-    out.push(part);
-  }
-  return out.join("/");
-}
+// isAbsoluteLikeUrl / splitUrlParts / normalizeRelativePath / mapAssetUrl /
+// rewriteCssUrls now live in src/preview_assets.js — imported at the top of
+// this file — so they can be tested without a DOM.
 
 // Builds a relative-path -> blob URL map for every non-HTML file under
 // `handle` (media, xlsx, json, css, …). HTML files are deliberately excluded
@@ -1898,18 +1877,32 @@ function rewritePageAssets(html, assetMap) {
     for (const attr of ["src", "href"]) {
       const raw = el.getAttribute(attr);
       if (!raw || isAbsoluteLikeUrl(raw)) continue;
-      const { base, suffix } = splitUrlParts(raw);
-      const key = normalizeRelativePath(base);
+      const key = normalizeRelativePath(raw.split(/[?#]/)[0]);
       if (!key) continue;
       if (key.toLowerCase().endsWith(".html")) {
         el.setAttribute("data-r2c-page", key);
         if (attr === "href") el.setAttribute("href", "#");
         continue;
       }
-      const mapped = assetMap.get(key) || assetMap.get(encodeURI(key));
-      if (mapped) el.setAttribute(attr, mapped + suffix);
+      const mapped = mapAssetUrl(raw, assetMap);
+      if (mapped) el.setAttribute(attr, mapped);
     }
   }
+
+  // CSS carries just as many asset references as markup does, and none of
+  // them are src/href: a template setting a card's picture with
+  // style="background-image: url('files/images/magpie.jpg')" would otherwise
+  // resolve against nothing and show an empty box.
+  for (const el of doc.querySelectorAll("[style]")) {
+    const style = el.getAttribute("style");
+    const rewritten = rewriteCssUrls(style, assetMap);
+    if (rewritten !== style) el.setAttribute("style", rewritten);
+  }
+  for (const styleEl of doc.querySelectorAll("style")) {
+    const rewritten = rewriteCssUrls(styleEl.textContent, assetMap);
+    if (rewritten !== styleEl.textContent) styleEl.textContent = rewritten;
+  }
+
   doc.body.insertAdjacentHTML("beforeend", PREVIEW_NAV_SCRIPT);
   return `<!doctype html>\n${doc.documentElement.outerHTML}`;
 }
