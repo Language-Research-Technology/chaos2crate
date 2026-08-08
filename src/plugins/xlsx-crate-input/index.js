@@ -60,8 +60,11 @@ export const plugin = {
 
     [HOOKS.CRATE_BUILT]: async (ctx) => {
       if (!ctx.options.xlsxCrate || !ctx.xlsxCrate) return;
-      const { mergeCrateEntities } = await import("./xlsx_crate.js");
+      const { mergeCrateEntities, applyCollectionMembership } = await import("./xlsx_crate.js");
       mergeCrateEntities(ctx.crate, ctx.xlsxCrate, ctx.log);
+      // After the merge, so the entities the workbook's membership points at
+      // are already in the crate to be checked against.
+      applyCollectionMembership(ctx.crate, ctx.xlsxCrate, ctx.log);
     },
   },
 };

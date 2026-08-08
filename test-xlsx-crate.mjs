@@ -17,6 +17,7 @@ import {
   rootPropertiesFromCrate,
   seedRootDataset,
   mergeCrateEntities,
+  applyCollectionMembership,
   collectWarnings,
 } from "./src/plugins/xlsx-crate-input/xlsx_crate.js";
 
@@ -169,9 +170,94 @@ assert.equal(readBack.rootDataset.name?.[0] ?? readBack.rootDataset.name, "Birds
   assert.equal(enriched, 1, "the file already present should be enriched, not duplicated");
 
   const file = target.getEntity("files/magpie.jpg");
-  assert.equal(String(file.encodingFormat), "image/jpeg", "the folder scan's media type must not be overwritten");
+  assert.equal(String(file.encodingFormat), "image/jpeg", "a property the spreadsheet says nothing about survives — the scan is the only source of media type");
   assert.equal(file.isPartOf?.[0]?.["@id"] ?? file.isPartOf?.["@id"], "#magpie", "the spreadsheet's link should be added");
   assert.equal(String(target.rootDataset.name), "target", "the source root must not overwrite the target root");
+}
+
+{
+  // The spreadsheet wins on properties it states, even when the folder scan
+  // already set them. Gap-filling let the scan win by being written first,
+  // which is how media files ended up belonging to a folder object rather than
+  // to the entry the spreadsheet named.
+  const target = new ROCrate({ array: true, link: true });
+  target.rootDataset.name = "target";
+  target.addEntity({
+    "@id": "files/magpie.jpg",
+    "@type": "File",
+    encodingFormat: "image/jpeg",
+    contentSize: "12345",
+    isPartOf: { "@id": "#some-folder-object" },
+  });
+
+  mergeCrateEntities(target, readBack);
+  const file = target.getEntity("files/magpie.jpg");
+
+  assert.equal(
+    file.isPartOf?.[0]?.["@id"] ?? file.isPartOf?.["@id"], "#magpie",
+    "the spreadsheet's isPartOf must replace the scan's guess, not lose to it"
+  );
+  assert.equal(String(file.encodingFormat), "image/jpeg", "…while properties only the scan knows survive");
+  assert.equal(String(file.contentSize), "12345", "…including the ones ro-crate's addEntity({replace:true}) would have dropped");
+}
+
+/* ---------- collection membership ---------- */
+
+// What the folder scan leaves behind: a member per top-level folder, and no
+// idea that #magpie is what the collection actually contains.
+function scannedCrate() {
+  const target = new ROCrate({ array: true, link: true });
+  target.rootDataset.name = "Birds";
+  target.addEntity({ "@id": "#about", "@type": "RepositoryObject", name: "about" });
+  target.addEntity({ "@id": "#files", "@type": "RepositoryObject", name: "files" });
+  target.rootDataset["pcdm:hasMember"] = [{ "@id": "#about" }, { "@id": "#files" }];
+  return target;
+}
+
+{
+  const target = scannedCrate();
+  mergeCrateEntities(target, readBack);
+  const result = applyCollectionMembership(target, readBack);
+
+  const members = (target.rootDataset["pcdm:hasMember"] || []).map((m) => m["@id"]);
+  assert.deepEqual(members, ["#magpie"], "the workbook's members replace the folder scan's, rather than joining them");
+  assert.deepEqual(result.kept, ["#magpie"]);
+  assert.equal(result.replaced, 2, "the report should say how many scanned members were dropped");
+  assert.ok(target.getEntity("#about"), "the folder objects stay in the graph — only membership changes");
+}
+
+{
+  // A workbook naming a member it never described mustn't produce a card
+  // pointing at nothing.
+  const target = scannedCrate();
+  const source = new ROCrate({ array: true, link: true });
+  source.addEntity({ "@id": "#real", "@type": "RepositoryObject", name: "real" });
+  source.rootDataset["pcdm:hasMember"] = [{ "@id": "#real" }, { "@id": "#ghost" }];
+  mergeCrateEntities(target, source);
+  const result = applyCollectionMembership(target, source);
+
+  assert.deepEqual((target.rootDataset["pcdm:hasMember"] || []).map((m) => m["@id"]), ["#real"]);
+  assert.deepEqual(result.missing, ["#ghost"], "an undescribed member should be reported, not silently dropped");
+}
+
+{
+  // Nothing usable in the workbook: keep what the scan worked out.
+  const target = scannedCrate();
+  const empty = new ROCrate({ array: true, link: true });
+  assert.equal(applyCollectionMembership(target, empty), null, "a workbook with no membership leaves the scan's alone");
+  assert.deepEqual(
+    (target.rootDataset["pcdm:hasMember"] || []).map((m) => m["@id"]),
+    ["#about", "#files"],
+    "…and the scanned members survive untouched"
+  );
+}
+
+{
+  const target = scannedCrate();
+  const source = new ROCrate({ array: true, link: true });
+  source.rootDataset["pcdm:hasMember"] = [{ "@id": "#nothing-here" }];
+  assert.equal(applyCollectionMembership(target, source, () => {}), null, "membership naming only absent entities is refused");
+  assert.equal((target.rootDataset["pcdm:hasMember"] || []).length, 2, "…leaving the folder structure rather than an empty collection");
 }
 
 /* ---------- warnings ---------- */
