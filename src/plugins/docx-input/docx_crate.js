@@ -633,17 +633,18 @@ export async function buildCrateFromDocxFolder(rootHandle, config, onProgress = 
   let subDirs = await getSubDirectoryHandles(rootHandle);
   if (subDirs.length === 0) return null;
 
-  if (validatedConfig.collectionOrder) {
-    const order = validatedConfig.collectionOrder;
-    subDirs = subDirs.slice().sort((a, b) => {
+  const order = validatedConfig.collectionOrder;
+  subDirs = subDirs.slice().sort((a, b) => {
+    if (order) {
       const ia = order.indexOf(a.name);
       const ib = order.indexOf(b.name);
-      if (ia === -1 && ib === -1) return 0;
+      if (ia === -1 && ib === -1) return a.name.localeCompare(b.name);
       if (ia === -1) return 1;
       if (ib === -1) return -1;
       return ia - ib;
-    });
-  }
+    }
+    return a.name.localeCompare(b.name);
+  });
 
   const crate = new ROCrate({ array: true, link: true });
   addContextPrefix(crate, "bibo", "http://purl.org/ontology/bibo/");
