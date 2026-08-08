@@ -70,7 +70,7 @@
   .id-input-group { display: flex; align-items: stretch; border-radius: 8px; border: 1px solid var(--border); background: var(--panel-2); overflow: hidden; }
   .id-input-group .id-prefix { display: flex; align-items: center; padding: 0 0 0 10px; color: var(--muted); font-family: var(--mono); font-size: 12px; white-space: nowrap; }
   .crate-form .id-input-group input[type="text"] { flex: 1; min-width: 0; border: none; border-radius: 0; background: transparent; padding-left: 2px; }
-  .build-grid { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); min-height: 0; }
+  .build-grid { flex: 1; display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); min-height: 0; }
   .config { padding: 24px 28px; border-right: 1px solid var(--border); overflow-y: auto; }
   .config input:not([type="checkbox"]):not([type="radio"]),
   .config select,
@@ -82,11 +82,90 @@
   h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 14px; font-weight: 600; }
   .field { margin-bottom: 14px; }
   .field .hint { color: var(--muted); font-size: 12px; margin-top: 4px; }
-  .checkbox { display: flex; align-items: flex-start; gap: 9px; }
-  .checkbox input { width: 16px; height: 16px; margin-top: 2px; accent-color: var(--accent); }
+  .checkbox { display: flex; align-items: center; gap: 9px; }
   .checkbox label { margin: 0; font-size: 13px; font-weight: 500; }
-  .subpanel { margin: 8px 0 2px 25px; padding-left: 14px; border-left: 2px solid var(--border); }
   .subpanel.hidden { display: none; }
+
+  /* ON/OFF toggle switch — wraps every boolean option's checkbox input.
+     The input stays in the DOM (id, checked, change listeners all still
+     work) but is visually hidden; .slider is styled off its :checked state. */
+  .switch { position: relative; display: inline-block; flex-shrink: 0; width: 38px; height: 22px; }
+  .switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+  .switch .slider { position: absolute; inset: 0; background: var(--border); border-radius: 999px; transition: background-color .15s ease; }
+  .switch .slider::before {
+    content: ""; position: absolute; left: 3px; top: 3px; width: 16px; height: 16px;
+    background: #fff; border-radius: 50%; box-shadow: 0 1px 2px rgba(0,0,0,0.3); transition: transform .15s ease;
+  }
+  .switch input:checked + .slider { background: var(--ok); }
+  .switch input:checked + .slider::before { transform: translateX(16px); }
+  .switch input:focus-visible + .slider { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* Shared option-row building blocks (used by Settings, which lists its
+     options as a flat card/divider list — see below). Each top-level option
+     is a card; options nested inside it (a subpanel) sit inside that same
+     card, separated by a dotted divider instead of getting a card of their own. */
+  .options-grid { display: flex; flex-direction: column; gap: 12px; }
+  .opt-field {
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;
+  }
+  .opt-field.nested {
+    background: transparent; border: none; border-top: 1px dotted var(--border);
+    border-radius: 0; padding: 12px 0 0; margin-top: 12px;
+  }
+  /* Settings are flat (no sub-options), so a full card per row is too heavy
+     — a plain top divider is enough to separate them. */
+  #settingsForm.options-grid { gap: 0; }
+  #settingsForm .opt-field {
+    background: transparent; border: none; border-top: 1px solid var(--border);
+    border-radius: 0; padding: 14px 0;
+  }
+  #settingsForm .opt-field:first-child { border-top: none; padding-top: 0; }
+  #settingsForm .opt-field-control select,
+  #settingsForm .opt-field-control input[type="text"] { background: var(--panel-2); }
+  .opt-field-title { display: block; font-size: 13px; font-weight: 500; margin-bottom: 8px; }
+  .opt-field-row { display: grid; grid-template-columns: minmax(110px, 220px) 1fr; column-gap: 16px; align-items: start; }
+  .opt-field-control { display: flex; align-items: center; }
+  .opt-field-control select,
+  .opt-field-control input[type="text"] {
+    width: 100%; padding: 8px 9px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--panel); color: var(--text); font-family: var(--mono); font-size: 12px; box-sizing: border-box;
+  }
+  .opt-field-desc { color: var(--muted); font-size: 12px; }
+  .opt-field-desc .hint { margin-top: 0; }
+  .subpanel { margin: 4px 0 2px; }
+
+  /* Options panel: one tile per major option group (a top-level plugin
+     option), laid out in a grid. A tile carries only its title and a
+     description of what's inside — clicking it opens that group's real
+     options in a modal, plain-listed with no column layout. */
+  .options-tile-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+  .option-tile {
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 16px;
+    text-align: left; cursor: pointer; font: inherit; color: inherit;
+    display: flex; flex-direction: column; gap: 8px; transition: border-color .12s;
+  }
+  .option-tile:hover, .option-tile:focus-visible { border-color: var(--accent); }
+  .option-tile-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+  .option-tile-title { font-size: 13px; font-weight: 600; }
+  .option-tile-badge {
+    flex-shrink: 0; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+    padding: 2px 7px; border-radius: 999px; background: var(--border); color: var(--muted);
+  }
+  .option-tile-badge.on { background: rgba(11,125,221,0.15); color: var(--accent); }
+  .option-tile-desc { font-size: 12px; color: var(--muted); line-height: 1.5; }
+
+  /* The group modal itself: plain fields, no column layout — label above
+     control above hint, same shape as the very first simple field styles
+     above (.field/.checkbox/.hint), just with full-width inputs. */
+  .option-group-modal { max-width: 560px; }
+  .plain-label { display: block; font-size: 12.5px; font-weight: 500; margin-bottom: 6px; }
+  #optionGroupModalBody .field:last-child { margin-bottom: 0; }
+  #optionGroupModalBody select,
+  #optionGroupModalBody input[type="text"] {
+    width: 100%; padding: 9px 10px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--panel-2); color: var(--text); font-family: var(--mono); font-size: 12px; box-sizing: border-box;
+  }
+  #optionGroupModalBody .subpanel { margin: 10px 0 4px; }
   .file-field { margin-bottom: 12px; }
   .file-field .file-label { font-size: 12.5px; font-weight: 500; margin-bottom: 5px; }
   .dropzone { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 14px 12px; border: 1px dashed var(--border); border-radius: 8px; color: var(--muted); font-size: 12.5px; cursor: pointer; text-align: center; transition: border-color .12s, background .12s, color .12s; }
@@ -100,9 +179,9 @@
   button.big { padding: 13px 26px; font-size: 15px; } button:disabled { opacity: 0.5; cursor: not-allowed; }
   .run-row { margin-top: 8px; } .run-row button { width: 100%; padding: 12px; font-size: 15px; }
   .note { color: var(--muted); font-size: 12px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
-  .log { flex: 1; background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; overflow-y: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.7; white-space: pre-wrap; min-height: 0; }
+  .log { flex: 0 0 auto; height: 30vh; background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; overflow-y: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.7; white-space: pre-wrap; min-height: 0; }
   .l-info { color: var(--text); } .l-muted { color: var(--muted); } .l-ok { color: var(--ok); } .l-warn { color: var(--warn); } .l-err { color: var(--err); }
-  .results-bar { display: flex; align-items: center; margin: 0 0 14px; }
+  .results-bar { display: flex; align-items: center; margin: 18px 0 14px; padding-top: 18px; border-top: 1px solid var(--border); }
   .summary { display: flex; gap: 20px; margin-bottom: 16px; flex-wrap: wrap; }
   .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 16px; min-width: 90px; }
   .stat .num { font-size: 22px; font-weight: 600; } .stat .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
@@ -190,6 +269,7 @@
   .seg-btn:disabled { opacity: 0.4; cursor: not-allowed; }
   .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center; z-index: 50; }
   .modal { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 26px 28px; max-width: 440px; box-shadow: 0 18px 50px rgba(0,0,0,0.5); }
+  #settingsModal .modal { max-width: 560px; }
   .modal h3 { margin: 0 0 10px; font-size: 17px; } .modal p { margin: 0 0 20px; color: var(--muted); } .modal .actions { display: flex; gap: 10px; justify-content: flex-end; }
   .modal.mapping-modal { max-width: 680px; width: 90vw; max-height: 82vh; display: flex; flex-direction: column; }
   .mapping-load { margin-top: 14px; }
@@ -314,11 +394,9 @@
   .hidden { display: none !important; }
 
   @media (min-width: 768px) {
-    .build-grid { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
+    .build-grid { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
     .config {
       grid-column: 1;
-      justify-self: end;
-      width: min(100%, 500px);
       border-right: 1px solid var(--border);
       border-left: none;
     }
@@ -436,7 +514,7 @@
     <section id="view-build" class="build-grid hidden">
       <div class="config">
         <h2>Options</h2>
-        <div id="optionsForm"></div>
+        <div id="optionsTiles" class="options-tile-grid"></div>
         <h2>Run</h2>
         <div class="run-row"><button id="runBtn">Build RO-Crate</button></div>
         <div class="run-row"><button id="showHtmlBtn" class="secondary hidden">Open the HTML &nearr;</button></div>
@@ -444,19 +522,6 @@
           <code>config.json</code> if present in the folder.</div>
       </div>
       <div class="output">
-        <div class="results-bar">
-          <h2 style="margin:0;">Results</h2>
-          <div style="flex:1;"></div>
-        </div>
-        <div class="summary">
-          <div class="stat"><div id="statFiles" class="num">&mdash;</div><div class="lbl">Files seen</div></div>
-          <div class="stat"><div id="statEntities" class="num">&mdash;</div><div class="lbl">Entities</div></div>
-          <div class="stat"><div id="statTime" class="num">&mdash;</div><div class="lbl">Time</div></div>
-        </div>
-        <div class="status-block">
-          <h2 style="margin:0 0 8px;">Status</h2>
-          <div id="typeStatus" class="type-status"><span class="type-empty">Run a build to see entity counts by Type.</span></div>
-        </div>
         <div id="buildProgress" class="build-progress hidden" aria-live="polite">
           <div class="build-progress-head">
             <span id="buildProgressLabel" class="build-progress-label">Waiting to build...</span>
@@ -470,6 +535,19 @@
         <div class="log-actions">
           <button id="clearLogBtn" class="secondary" style="padding:5px 10px;">Clear</button>
           <button id="saveLogBtn" class="secondary" style="padding:5px 10px;" disabled>Save log</button>
+        </div>
+        <div class="results-bar">
+          <h2 style="margin:0;">Results</h2>
+          <div style="flex:1;"></div>
+        </div>
+        <div class="summary">
+          <div class="stat"><div id="statFiles" class="num">&mdash;</div><div class="lbl">Files seen</div></div>
+          <div class="stat"><div id="statEntities" class="num">&mdash;</div><div class="lbl">Entities</div></div>
+          <div class="stat"><div id="statTime" class="num">&mdash;</div><div class="lbl">Time</div></div>
+        </div>
+        <div class="status-block">
+          <h2 style="margin:0 0 8px;">Status</h2>
+          <div id="typeStatus" class="type-status"><span class="type-empty">Run a build to see entity counts by Type.</span></div>
         </div>
       </div>
     </section>
@@ -554,9 +632,19 @@
 <div id="settingsModal" class="modal-overlay hidden">
   <div class="modal">
     <h3>Settings</h3>
-    <div id="settingsForm"></div>
+    <div id="settingsForm" class="options-grid"></div>
     <div class="actions">
       <button id="settingsClose">Done</button>
+    </div>
+  </div>
+</div>
+
+<div id="optionGroupModal" class="modal-overlay hidden">
+  <div class="modal option-group-modal">
+    <h3 id="optionGroupModalTitle"></h3>
+    <div id="optionGroupModalBody"></div>
+    <div class="actions">
+      <button id="optionGroupModalClose">Done</button>
     </div>
   </div>
 </div>

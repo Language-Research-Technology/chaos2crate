@@ -351,12 +351,63 @@ function refreshMergeMappingBuilderBtn() {
 
 function hintEl(text) { const h = document.createElement("div"); h.className = "hint"; h.textContent = text; return h; }
 
+// Wraps an existing checkbox <input> in the markup an ON/OFF slider needs
+// (input + adjacent .slider span, both inside a positioned label) — the
+// input itself keeps its id/checked/listeners, just visually hidden.
+function toggleSwitchEl(input) {
+  const label = document.createElement("label");
+  label.className = "switch";
+  const slider = document.createElement("span");
+  slider.className = "slider";
+  label.append(input, slider);
+  return label;
+}
+
+// Each option is a title row (bordered — dotted when nested inside a
+// parent's subpanel) followed by a control | description row. Used by
+// Settings. mode "plain" instead builds a column-free field (label above a
+// full-width control) — used inside an option group's modal, per group.
+function optFieldWrap(opt, mode, forId) {
+  const wrap = document.createElement("div");
+  wrap.id = "field_opt_" + opt.key;
+  if (mode === "plain") {
+    wrap.className = "field";
+    const label = document.createElement("label");
+    label.className = "plain-label";
+    if (forId) label.htmlFor = forId;
+    label.textContent = opt.label;
+    wrap.appendChild(label);
+    return wrap;
+  }
+  wrap.className = "opt-field" + (mode ? " nested" : "");
+  const title = document.createElement("label");
+  title.className = "opt-field-title";
+  if (forId) title.htmlFor = forId;
+  title.textContent = opt.label;
+  wrap.appendChild(title);
+  return wrap;
+}
+function optFieldRow(controlEl, descText) {
+  const row = document.createElement("div");
+  row.className = "opt-field-row";
+  const control = document.createElement("div");
+  control.className = "opt-field-control";
+  control.appendChild(controlEl);
+  const desc = document.createElement("div");
+  desc.className = "opt-field-desc";
+  if (descText) desc.appendChild(hintEl(descText));
+  row.append(control, desc);
+  return row;
+}
+
 function buildForm() {
   Object.keys(uploads).forEach((k) => delete uploads[k]);
   resetUploadedConfigDirHandle();
-  const form = $("optionsForm");
-  form.innerHTML = "";
-  renderOptions(OPTION_SCHEMA, form);
+  const tiles = $("optionsTiles");
+  tiles.innerHTML = "";
+  const groupModalBody = $("optionGroupModalBody");
+  groupModalBody.innerHTML = "";
+  renderOptionGroupTiles(OPTION_SCHEMA, tiles, groupModalBody);
   loadTemplateRepoFolderOptions();
   const settings = $("settingsForm");
   settings.innerHTML = "";
@@ -377,6 +428,99 @@ function buildForm() {
   const templateRepoSelect = $("opt_templateRepoFolder");
   if (templateRepoSelect) templateRepoSelect.addEventListener("change", uncheckUploadWhenTemplateRepoSelected);
   refreshTemplateUploadVisibility();
+}
+
+// Each entry in OPTION_SCHEMA is one plugin's top-level toggle — the natural
+// "major option group" boundary. Each becomes a tile (title + description
+// only); the group's real fields are built once, in plain/column-free
+// layout, into a hidden panel inside the shared modal, and a tile click just
+// shows that one panel. Building the fields into the DOM up front (rather
+// than on click) keeps every $("opt_"+key) lookup elsewhere working
+// regardless of whether its group's tile has ever been opened.
+function renderOptionGroupTiles(schema, tilesContainer, modalBody) {
+  for (const opt of schema) {
+    const panel = document.createElement("div");
+    panel.className = "option-group-panel hidden";
+    panel.id = "groupPanel_" + opt.key;
+    panel.appendChild(buildGroupToggleField(opt));
+    modalBody.appendChild(panel);
+
+    const tile = document.createElement("button");
+    tile.type = "button";
+    tile.className = "option-tile";
+    tile.id = "tile_" + opt.key;
+
+    const head = document.createElement("div");
+    head.className = "option-tile-head";
+    const title = document.createElement("span");
+    title.className = "option-tile-title";
+    title.textContent = opt.label;
+    const badge = document.createElement("span");
+    badge.className = "option-tile-badge";
+    head.append(title, badge);
+
+    const desc = document.createElement("div");
+    desc.className = "option-tile-desc";
+    desc.textContent = groupDescription(opt);
+
+    tile.append(head, desc);
+    tile.addEventListener("click", () => openOptionGroupModal(opt.key, opt.label));
+    tilesContainer.appendChild(tile);
+
+    // Keep the tile's on/off badge in sync with the group's real (hidden) toggle.
+    const input = $("opt_" + opt.key);
+    const syncBadge = () => {
+      badge.textContent = input.checked ? "On" : "Off";
+      badge.classList.toggle("on", input.checked);
+    };
+    input.addEventListener("change", syncBadge);
+    syncBadge();
+  }
+}
+
+// The group's own toggle, inside its modal. The modal header already shows
+// the group's label, so this skips repeating it as a field title (unlike
+// buildCheckboxField) — just the checkbox itself, labelled "Enabled".
+function buildGroupToggleField(opt) {
+  const wrap = document.createElement("div");
+  wrap.className = "field";
+  wrap.id = "field_opt_" + opt.key;
+  const row = document.createElement("div");
+  row.className = "checkbox";
+  const input = document.createElement("input");
+  input.type = "checkbox"; input.id = "opt_" + opt.key; input.checked = !!opt.default;
+  const label = document.createElement("label");
+  label.htmlFor = input.id; label.textContent = "Enabled";
+  row.append(toggleSwitchEl(input), label);
+  wrap.appendChild(row);
+  if (opt.hint) wrap.appendChild(hintEl(opt.hint));
+
+  if (opt.children) {
+    const panel = document.createElement("div");
+    panel.className = "subpanel"; panel.id = "panel_" + opt.key;
+    renderOptions(opt.children, panel, "plain");
+    wrap.appendChild(panel);
+    const sync = () => panel.classList.toggle("hidden", !input.checked);
+    input.addEventListener("change", sync);
+    sync();
+  }
+  return wrap;
+}
+
+function groupDescription(opt) {
+  if (opt.hint) return opt.hint;
+  if (Array.isArray(opt.children) && opt.children.length) {
+    return "Includes: " + opt.children.map((c) => c.label.replace(/[…:]$/, "")).join(", ");
+  }
+  return "";
+}
+
+function openOptionGroupModal(key, label) {
+  $("optionGroupModalTitle").textContent = label;
+  document.querySelectorAll("#optionGroupModalBody .option-group-panel").forEach((el) => {
+    el.classList.toggle("hidden", el.id !== "groupPanel_" + key);
+  });
+  $("optionGroupModal").classList.remove("hidden");
 }
 
 function resetTemplateRepoSelectionWhenUploadEnabled() {
@@ -456,6 +600,11 @@ function applyBuildOptionsFromProfile(buildOptions) {
     const field = $("field_opt_" + key);
     if (field) field.classList.toggle("hidden", !enabled.has(key));
 
+    // Top-level keys also have a tile in the options grid (nested/child keys
+    // don't — they only ever show up inside their group's modal).
+    const tile = $("tile_" + key);
+    if (tile) tile.classList.toggle("hidden", !enabled.has(key));
+
     // File/mappingBuilder/collectionLabelsBuilder fields have no opt_<key>
     // control of their own — their visibility above is the whole story.
     const el = $("opt_" + key);
@@ -487,38 +636,39 @@ function applyBuildOptionsFromProfile(buildOptions) {
   if (inputModeEl && declared.inputMode) inputModeEl.disabled = true;
 }
 
-function renderOptions(schema, parent) {
+function renderOptions(schema, parent, nested = false) {
   for (const opt of schema) {
-    if (opt.type === "file") { parent.appendChild(buildFileField(opt)); continue; }
-    if (opt.type === "select") { parent.appendChild(buildSelectField(opt)); continue; }
-    if (opt.type === "text") { parent.appendChild(buildTextField(opt)); continue; }
-    if (opt.type === "mappingBuilder") { parent.appendChild(buildMappingBuilderField(opt)); continue; }
-    if (opt.type === "collectionLabelsBuilder") { parent.appendChild(buildCollectionLabelsField(opt)); continue; }
-
-    const wrap = document.createElement("div");
-    wrap.className = "field";
-    wrap.id = "field_opt_" + opt.key;
-    const row = document.createElement("div");
-    row.className = "checkbox";
-    const input = document.createElement("input");
-    input.type = "checkbox"; input.id = "opt_" + opt.key; input.checked = !!opt.default;
-    const label = document.createElement("label");
-    label.htmlFor = input.id; label.textContent = opt.label;
-    row.append(input, label);
-    wrap.appendChild(row);
-    if (opt.hint) wrap.appendChild(hintEl(opt.hint));
-
-    if (opt.children) {
-      const panel = document.createElement("div");
-      panel.className = "subpanel"; panel.id = "panel_" + opt.key;
-      renderOptions(opt.children, panel);
-      wrap.appendChild(panel);
-      const sync = () => panel.classList.toggle("hidden", !input.checked);
-      input.addEventListener("change", sync);
-      sync();
-    }
-    parent.appendChild(wrap);
+    if (opt.type === "file") { parent.appendChild(buildFileField(opt, nested)); continue; }
+    if (opt.type === "select") { parent.appendChild(buildSelectField(opt, nested)); continue; }
+    if (opt.type === "text") { parent.appendChild(buildTextField(opt, nested)); continue; }
+    if (opt.type === "mappingBuilder") { parent.appendChild(buildMappingBuilderField(opt, nested)); continue; }
+    if (opt.type === "collectionLabelsBuilder") { parent.appendChild(buildCollectionLabelsField(opt, nested)); continue; }
+    parent.appendChild(buildCheckboxField(opt, nested));
   }
+}
+
+function buildCheckboxField(opt, mode) {
+  const input = document.createElement("input");
+  input.type = "checkbox"; input.id = "opt_" + opt.key; input.checked = !!opt.default;
+
+  const wrap = optFieldWrap(opt, mode, input.id);
+  if (mode === "plain") {
+    wrap.appendChild(toggleSwitchEl(input));
+    if (opt.hint) wrap.appendChild(hintEl(opt.hint));
+  } else {
+    wrap.appendChild(optFieldRow(toggleSwitchEl(input), opt.hint));
+  }
+
+  if (opt.children) {
+    const panel = document.createElement("div");
+    panel.className = "subpanel"; panel.id = "panel_" + opt.key;
+    renderOptions(opt.children, panel, mode === "plain" ? "plain" : true);
+    wrap.appendChild(panel);
+    const sync = () => panel.classList.toggle("hidden", !input.checked);
+    input.addEventListener("change", sync);
+    sync();
+  }
+  return wrap;
 }
 
 // Recursively read a dropped folder's contents via the (Chromium/Firefox)
@@ -556,11 +706,9 @@ async function readDroppedItems(items) {
   return out;
 }
 
-function buildFileField(opt) {
-  const wrap = document.createElement("div");
-  wrap.className = "field file-field";
-  wrap.id = "field_opt_" + opt.key;
-  wrap.appendChild(Object.assign(document.createElement("div"), { className: "file-label", textContent: opt.label }));
+function buildFileField(opt, nested) {
+  const wrap = optFieldWrap(opt, nested);
+  wrap.classList.add("file-field");
 
   const drop = document.createElement("label");
   drop.className = "dropzone"; drop.htmlFor = "file_" + opt.key;
@@ -758,22 +906,9 @@ async function reportOnFolderXlsxCrate() {
   await reportOnXlsxCrate(new File([bytes], FOLDER_XLSX_NAME), FOLDER_XLSX_NAME, "found in the folder");
 }
 
-function buildSelectField(opt) {
-  const wrap = document.createElement("div");
-  wrap.className = "field";
-  wrap.id = "field_opt_" + opt.key;
-  wrap.appendChild(Object.assign(document.createElement("div"), { className: "file-label", textContent: opt.label }));
-
+function buildSelectField(opt, nested) {
   const select = document.createElement("select");
   select.id = "opt_" + opt.key;
-  select.style.width = "100%";
-  select.style.padding = "9px 10px";
-  select.style.borderRadius = "8px";
-  select.style.border = "1px solid var(--border)";
-  select.style.background = "var(--panel-2)";
-  select.style.color = "var(--text)";
-  select.style.fontFamily = "var(--mono)";
-  select.style.fontSize = "12px";
 
   const ph = document.createElement("option");
   ph.value = "";
@@ -791,42 +926,36 @@ function buildSelectField(opt) {
 
   if (typeof opt.default === "string") select.value = opt.default;
 
-  wrap.appendChild(select);
-  if (opt.hint) wrap.appendChild(hintEl(opt.hint));
+  const wrap = optFieldWrap(opt, nested, select.id);
+  if (nested === "plain") {
+    wrap.appendChild(select);
+    if (opt.hint) wrap.appendChild(hintEl(opt.hint));
+  } else {
+    wrap.appendChild(optFieldRow(select, opt.hint));
+  }
   return wrap;
 }
 
-function buildTextField(opt) {
-  const wrap = document.createElement("div");
-  wrap.className = "field";
-  wrap.id = "field_opt_" + opt.key;
-  wrap.appendChild(Object.assign(document.createElement("div"), { className: "file-label", textContent: opt.label }));
-
+function buildTextField(opt, nested) {
   const input = document.createElement("input");
   input.type = "text";
   input.id = "opt_" + opt.key;
   if (opt.placeholder) input.placeholder = opt.placeholder;
-  input.style.width = "100%";
-  input.style.padding = "9px 10px";
-  input.style.borderRadius = "8px";
-  input.style.border = "1px solid var(--border)";
-  input.style.background = "var(--panel-2)";
-  input.style.color = "var(--text)";
-  input.style.fontFamily = "var(--mono)";
-  input.style.fontSize = "12px";
-  input.style.boxSizing = "border-box";
 
   if (typeof opt.default === "string") input.value = opt.default;
 
-  wrap.appendChild(input);
-  if (opt.hint) wrap.appendChild(hintEl(opt.hint));
+  const wrap = optFieldWrap(opt, nested, input.id);
+  if (nested === "plain") {
+    wrap.appendChild(input);
+    if (opt.hint) wrap.appendChild(hintEl(opt.hint));
+  } else {
+    wrap.appendChild(optFieldRow(input, opt.hint));
+  }
   return wrap;
 }
 
-function buildMappingBuilderField(opt) {
-  const wrap = document.createElement("div");
-  wrap.className = "field";
-  wrap.id = "field_opt_" + opt.key;
+function buildMappingBuilderField(opt, nested) {
+  const wrap = optFieldWrap(opt, nested);
   const btn = document.createElement("button");
   btn.type = "button"; btn.className = "secondary"; btn.style.width = "100%";
   btn.textContent = opt.label;
@@ -852,10 +981,8 @@ let collectionLabelsBuilderBtn = null;
 function refreshCollectionLabelsBuilderBtn() {
   if (collectionLabelsBuilderBtn) collectionLabelsBuilderBtn.disabled = !dirHandle;
 }
-function buildCollectionLabelsField(opt) {
-  const wrap = document.createElement("div");
-  wrap.className = "field";
-  wrap.id = "field_opt_" + opt.key;
+function buildCollectionLabelsField(opt, nested) {
+  const wrap = optFieldWrap(opt, nested);
   const btn = document.createElement("button");
   btn.type = "button"; btn.className = "secondary"; btn.style.width = "100%";
   btn.textContent = opt.label;
@@ -2103,8 +2230,13 @@ function isBuildViewActive() {
   return !!(view && !view.classList.contains("hidden"));
 }
 
+function isModeViewActive() {
+  const view = $("view-mode");
+  return !!(view && !view.classList.contains("hidden"));
+}
+
 function isModalOpen() {
-  const ids = ["modal", "settingsModal", "mergeMappingModal", "collectionLabelsModal"];
+  const ids = ["modal", "settingsModal", "mergeMappingModal", "collectionLabelsModal", "optionGroupModal"];
   return ids.some((id) => {
     const el = $(id);
     return !!(el && !el.classList.contains("hidden"));
@@ -2909,6 +3041,8 @@ function boot() {
   $("settingsBtn").addEventListener("click", () => $("settingsModal").classList.remove("hidden"));
   $("settingsClose").addEventListener("click", () => $("settingsModal").classList.add("hidden"));
   $("settingsModal").addEventListener("click", (e) => { if (e.target === $("settingsModal")) $("settingsModal").classList.add("hidden"); });
+  $("optionGroupModalClose").addEventListener("click", () => $("optionGroupModal").classList.add("hidden"));
+  $("optionGroupModal").addEventListener("click", (e) => { if (e.target === $("optionGroupModal")) $("optionGroupModal").classList.add("hidden"); });
   $("mergeMappingCancel").addEventListener("click", () => $("mergeMappingModal").classList.add("hidden"));
   $("mergeMappingApply").addEventListener("click", applyMergeMapping);
   $("mergeMappingModal").addEventListener("click", (e) => { if (e.target === $("mergeMappingModal")) $("mergeMappingModal").classList.add("hidden"); });
@@ -3013,6 +3147,16 @@ function boot() {
       if (!continueBtn || continueBtn.disabled) return;
       e.preventDefault();
       continueBtn.click();
+      return;
+    }
+
+    // Main menu shortcut: pressing Enter activates whichever build step is
+    // bolded (step-current) — the next enabled action in the chain.
+    if (isModeViewActive() && tag !== "INPUT" && tag !== "SELECT" && tag !== "BUTTON" && tag !== "A") {
+      const currentStep = document.querySelector(".build-step.step-current");
+      if (!currentStep || currentStep.disabled) return;
+      e.preventDefault();
+      currentStep.click();
       return;
     }
 
