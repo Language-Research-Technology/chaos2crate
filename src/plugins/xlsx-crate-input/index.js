@@ -83,6 +83,27 @@ async function resolveSource(options, dirHandle) {
   return { name: FOLDER_XLSX_NAME, origin: "found in the folder", bytes };
 }
 
+// A pre-existing cycle-detection gap in ro-crate-masp's validator (its
+// per-entity "already validated" cache is only written *after* a check
+// completes, not before it starts — see masp.js) means a circular reference
+// between entities can make it re-attempt, and re-fail, the same rule for
+// the same entity many times before it exhausts the call stack. Left alone,
+// that turns into hundreds of identical "property X failed for entity Y"
+// log() calls in one synchronous burst. Collapse consecutive duplicates and
+// cap the total so one bad entity can't flood the log.
+const MAX_LOGGED_MESSAGES = 40;
+function logDeduped(messages, log, cls, bullet) {
+  const counts = new Map();
+  for (const msg of messages) counts.set(msg, (counts.get(msg) || 0) + 1);
+  const unique = [...counts.entries()];
+  for (const [msg, count] of unique.slice(0, MAX_LOGGED_MESSAGES)) {
+    log(`  ${bullet} ${msg}${count > 1 ? ` (×${count})` : ""}`, cls);
+  }
+  if (unique.length > MAX_LOGGED_MESSAGES) {
+    log(`  …and ${unique.length - MAX_LOGGED_MESSAGES} more distinct message(s) suppressed.`, cls);
+  }
+}
+
 // Validate the spreadsheet's own crate against the profile before its data
 // reaches the build, so problems are attributed to the spreadsheet rather
 // than surfacing later as puzzling errors about the built crate.
@@ -91,7 +112,7 @@ async function reportOnCrate(ctx, crate, sourceName) {
   const { collectWarnings } = await import("./xlsx_crate.js");
 
   const warnings = collectWarnings(crate, selectedProfileData?.validator || null);
-  for (const w of warnings) log(`  ! ${w.message}`, "warn");
+  logDeduped(warnings.map((w) => w.message), log, "warn", "!");
 
   if (!selectedProfileData) return;
   try {
@@ -101,7 +122,7 @@ async function reportOnCrate(ctx, crate, sourceName) {
       log(`${sourceName} conforms to the selected profile${warnings.length ? ` (${warnings.length} warning(s) above)` : ""}.`, "ok");
     } else {
       log(`${sourceName} has ${result.errors.length} profile error(s):`, "warn");
-      for (const e of result.errors) log(`  • ${e.message}`, "warn");
+      logDeduped(result.errors.map((e) => e.message), log, "warn", "•");
     }
   } catch (e) {
     log(`Could not validate ${sourceName} against the profile: ${e.message}`, "warn");

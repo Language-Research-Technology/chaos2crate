@@ -385,8 +385,9 @@ export function createPlaceLookupService(options = {}, log = () => {}) {
   const manualRecords = buildManualRecords(settings.records || settings.cache);
   const resultCache = new Map();
   let hasLoggedConfig = false;
+  const PREFETCH_CONCURRENCY = 5;
 
-  return {
+  const service = {
     async lookup(placeName) {
       const key = normalizePlaceName(placeName);
       if (!key || !enabled) return null;
@@ -453,5 +454,30 @@ export function createPlaceLookupService(options = {}, log = () => {}) {
       resultCache.set(key, match);
       return match;
     },
+
+    // Resolves every name in `placeNames` up front, `PREFETCH_CONCURRENCY` at
+    // a time, logging progress as each one finishes (picked up by the build
+    // progress bar) — so a merge with many distinct Place values doesn't look
+    // frozen while lookups run one after another.
+    async prefetch(placeNames, progressLog = log) {
+      if (!enabled) return;
+      const names = [...new Set(placeNames)].filter((n) => normalizePlaceName(n) && !resultCache.has(normalizePlaceName(n)));
+      const total = names.length;
+      if (!total) return;
+      progressLog(`Place lookup: resolving ${total} place name(s)…`, "muted");
+      let done = 0;
+      let next = 0;
+      const worker = async () => {
+        while (next < names.length) {
+          const name = names[next++];
+          await service.lookup(name);
+          done++;
+          progressLog(`Place lookup: resolved ${done}/${total} place name(s)…`, "muted");
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(PREFETCH_CONCURRENCY, total) }, worker));
+    },
   };
+
+  return service;
 }

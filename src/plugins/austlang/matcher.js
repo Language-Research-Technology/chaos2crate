@@ -67,16 +67,28 @@ function findAustlangMatches(haystack, includeAlt) {
 // reordering, filtering or appending to that array; with positional keys any
 // of those would silently attribute languages to the wrong files. Ids are
 // stable whatever happens to the array.
+// Matching ~1.2k Austlang entries (more with alternate names) against every
+// file is real CPU work — chunked with a yield every CHUNK files so the tab
+// stays responsive and the progress log below can actually paint between
+// batches, instead of running as one uninterrupted synchronous loop.
+const CHUNK = 25;
+
 export async function identifyAllLanguages(filesWithMeta, includeAlt, log = () => {}) {
-  log(`Identifying subject languages for ${filesWithMeta.length} file(s) (offline AUSTLANG, by filename)…`, "muted");
+  const total = filesWithMeta.length;
+  log(`Identifying subject languages for ${total} file(s) (offline AUSTLANG, by filename)…`, "muted");
   const cache = new Map();
   const byId = new Map();
-  for (const file of filesWithMeta) {
+  for (let i = 0; i < total; i++) {
+    const file = filesWithMeta[i];
     const base = pStripExt(file.fileName);
     let matches = cache.get(base);
     if (!matches) { matches = findAustlangMatches(base, includeAlt); cache.set(base, matches); }
     if (matches.length) log(`  ${file.fileName} → ${matches.map((m) => m.name).join(", ")}`, "muted");
     byId.set(file.id, { matchedLanguages: matches });
+    if ((i + 1) % CHUNK === 0 || i + 1 === total) {
+      log(`Language identification: ${i + 1}/${total} file(s)…`, "muted");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
   }
   return byId;
 }
