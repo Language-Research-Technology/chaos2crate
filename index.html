@@ -234,6 +234,9 @@
     0% { transform: translateX(-65%); }
     100% { transform: translateX(200%); }
   }
+  .sub-progress { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
+  .sub-progress-track { height: 5px; }
+  .sub-progress-fill { background: linear-gradient(90deg, #8a6fd8, #a98cf0); }
   .type-status { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .type-pill { display: inline-flex; align-items: baseline; gap: 6px; border: 1px solid var(--border); border-radius: 999px; padding: 4px 10px; background: var(--panel-2); }
   .type-pill .k { font-size: 12px; color: var(--muted); }
@@ -530,6 +533,15 @@
           </div>
           <div class="build-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Build progress">
             <div id="buildProgressFill" class="build-progress-fill"></div>
+          </div>
+          <div id="subProgress" class="sub-progress hidden" aria-live="polite">
+            <div class="build-progress-head">
+              <span id="subProgressLabel" class="build-progress-label">Working…</span>
+              <span id="subProgressPct" class="build-progress-pct">0%</span>
+            </div>
+            <div class="build-progress-track sub-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Sub-step progress">
+              <div id="subProgressFill" class="build-progress-fill sub-progress-fill"></div>
+            </div>
           </div>
         </div>
         <div id="log" class="log"><span class="l-muted">Set your options, then click Build RO-Crate.</span></div>

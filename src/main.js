@@ -219,6 +219,7 @@ function failBuildProgress(message) {
 function resetBuildProgress() {
   BUILD_PROGRESS.active = false;
   BUILD_PROGRESS.value = 0;
+  hideSubProgress();
   const host = buildProgressEl();
   if (!host) return;
   host.classList.add("hidden");
@@ -242,15 +243,52 @@ function bumpBuildProgress(value, label, opts = {}) {
   setBuildProgress(next, label, opts);
 }
 
+// A secondary bar, nested under the main build progress bar, for tracking
+// long-running lookup sub-steps (place-name geocoding, AUSTLANG language
+// identification) that would otherwise sit silent inside a single "Merging…"
+// / "Identifying…" step on the main bar for a long time.
+function subProgressEl() { return $("subProgress"); }
+
+function startSubProgress(label) {
+  const host = subProgressEl();
+  if (!host) return;
+  host.classList.remove("hidden");
+  setSubProgress(0, label);
+}
+
+function setSubProgress(value, label) {
+  const host = subProgressEl();
+  if (!host) return;
+  const fill = $("subProgressFill");
+  const labelEl = $("subProgressLabel");
+  const pctEl = $("subProgressPct");
+  const track = host.querySelector(".sub-progress-track");
+  const normalized = Math.max(0, Math.min(100, Number(value) || 0));
+
+  if (fill) fill.style.width = `${normalized}%`;
+  if (labelEl && label) labelEl.textContent = label;
+  if (pctEl) pctEl.textContent = `${Math.round(normalized)}%`;
+  if (track) track.setAttribute("aria-valuenow", String(Math.round(normalized)));
+  if (track) track.setAttribute("aria-valuetext", label || `${Math.round(normalized)}%`);
+}
+
+function hideSubProgress() {
+  const host = subProgressEl();
+  if (!host) return;
+  host.classList.add("hidden");
+}
+
 function updateBuildProgressFromLog(msg, cls = "info") {
   const text = String(msg || "").trim();
   if (!text || !BUILD_PROGRESS.active) return;
 
   if (cls === "err" || /^Error:/.test(text) || /^HTML preview failed:/.test(text)) {
+    hideSubProgress();
     failBuildProgress(text);
     return;
   }
   if (/^Done in /.test(text)) {
+    hideSubProgress();
     completeBuildProgress();
     return;
   }
@@ -260,7 +298,52 @@ function updateBuildProgressFromLog(msg, cls = "info") {
     return;
   }
   if (/^Built crate: /.test(text)) {
+    hideSubProgress();
     bumpBuildProgress(48, "Crate assembled. Preparing outputs…");
+    return;
+  }
+
+  if (/^Identifying subject languages for /.test(text)) {
+    bumpBuildProgress(14, "Identifying subject languages…");
+    startSubProgress("Identifying subject languages…");
+    return;
+  }
+  const langMatch = text.match(/^Language identification: (\d+)\/(\d+) file\(s\)…/);
+  if (langMatch) {
+    const done = Number(langMatch[1]);
+    const total = Number(langMatch[2]);
+    const frac = total > 0 ? Math.min(1, done / total) : 0;
+    setSubProgress(frac * 100, `Identifying subject languages (${done}/${total})…`);
+    return;
+  }
+  if (/^Identified \d+ unique language\(s\)\./.test(text)) {
+    hideSubProgress();
+    bumpBuildProgress(22, "Languages identified.");
+    return;
+  }
+
+  if (/^Merging /.test(text)) {
+    hideSubProgress();
+    bumpBuildProgress(30, "Merging spreadsheet metadata…");
+    return;
+  }
+  if (/^Place lookup: resolving /.test(text)) {
+    bumpBuildProgress(32, "Resolving place coordinates…");
+    startSubProgress("Resolving place coordinates…");
+    return;
+  }
+  const placeMatch = text.match(/^Place lookup: resolved (\d+)\/(\d+) place name\(s\)…/);
+  if (placeMatch) {
+    const done = Number(placeMatch[1]);
+    const total = Number(placeMatch[2]);
+    const frac = total > 0 ? Math.min(1, done / total) : 0;
+    const next = 32 + Math.round(frac * 14);
+    bumpBuildProgress(next, `Resolving place coordinates (${done}/${total})…`);
+    setSubProgress(frac * 100, `Resolving place coordinates (${done}/${total})…`);
+    return;
+  }
+  if (/^Merged \d+ value\(s\) from /.test(text)) {
+    hideSubProgress();
     return;
   }
   if (/^Preview: multipage /.test(text)) {

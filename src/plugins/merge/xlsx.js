@@ -178,6 +178,12 @@ function generatedEntityId(type, value) {
   return `#${slug}`;
 }
 
+function splitMappingValues(value) {
+  return value
+    .split(/\s*[,/]\s*/).map((v) => v.trim()).filter(Boolean)
+    .map((v) => v.replace(/[\[\]?()']/g, "").trim()).filter(Boolean);
+}
+
 function generatedGeometryId(placeEntity, placeName) {
   const explicit = String(placeEntity?.geo?.["@id"] || "").trim();
   if (explicit) return explicit;
@@ -249,6 +255,25 @@ export async function mergeXlsxIntoCrate(crate, xlsxData, mergeConfig, log = () 
   const unmatchedRowIds = [];     // spreadsheet @ids with no matching entity
   const usedCustomProps = new Set(); // "custom:" target properties actually written
 
+  // Every distinct "Place" value gets network-looked-up exactly once here,
+  // with bounded concurrency and progress logging — the merge loop below then
+  // hits placeLookup's cache (populated by this prefetch) instead of awaiting
+  // a fresh lookup per row, which used to serialize one network round trip
+  // (up to ~10s worst case each, across variants/providers) per row.
+  const placeMappings = mappings.filter((m) => m.type === "Place");
+  if (placeMappings.length) {
+    const placeCols = new Set(placeMappings.map((m) => headers.indexOf(m.source)).filter((c) => c !== -1));
+    const uniquePlaces = new Set();
+    for (const row of dataRows) {
+      for (const col of placeCols) {
+        const raw = cellText(row[col]).trim();
+        if (!raw) continue;
+        for (const val of splitMappingValues(raw)) uniquePlaces.add(val);
+      }
+    }
+    if (uniquePlaces.size) await placeLookup.prefetch([...uniquePlaces], log);
+  }
+
   for (const row of dataRows) {
     const entityId = cellText(row[idCol]).trim();
     if (!entityId) continue;
@@ -263,9 +288,7 @@ export async function mergeXlsxIntoCrate(crate, xlsxData, mergeConfig, log = () 
       if (!value) continue;
 
       if (mapping.type) {
-        const values = value
-          .split(/\s*[,/]\s*/).map((v) => v.trim()).filter(Boolean)
-          .map((v) => v.replace(/[\[\]?()']/g, "").trim()).filter(Boolean);
+        const values = splitMappingValues(value);
         if (!values.length) continue;
         const refs = [];
         for (const val of values) {
