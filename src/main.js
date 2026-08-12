@@ -149,14 +149,33 @@ function syncLogActionButtons() {
   if (saveBtn && !hasLog) saveBtn.disabled = true;
 }
 
+// Reading scrollHeight (to autoscroll) and textContent (to enable/disable
+// the log buttons) both force a synchronous layout. Fine for the occasional
+// log() call, but a validator that emits hundreds of near-duplicate error
+// lines in one synchronous burst turns that into hundreds of forced layouts
+// back to back — enough on its own to trip a browser's "page unresponsive"
+// warning. Appending the span is cheap and stays synchronous (so lines never
+// go missing if a build throws mid-burst); the layout-forcing follow-up work
+// is coalesced to once per animation frame regardless of burst size.
+let logFlushScheduled = false;
+function scheduleLogFlush() {
+  if (logFlushScheduled) return;
+  logFlushScheduled = true;
+  requestAnimationFrame(() => {
+    logFlushScheduled = false;
+    const el = logEl();
+    el.scrollTop = el.scrollHeight;
+    syncLogActionButtons();
+  });
+}
+
 function log(msg, cls = "info") {
   const span = document.createElement("span");
   span.className = "l-" + cls;
   span.textContent = msg + "\n";
   logEl().appendChild(span);
-  logEl().scrollTop = logEl().scrollHeight;
   updateBuildProgressFromLog(msg, cls);
-  syncLogActionButtons();
+  scheduleLogFlush();
 }
 function clearLog() {
   logEl().textContent = "";
