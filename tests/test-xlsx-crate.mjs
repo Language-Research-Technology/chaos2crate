@@ -201,6 +201,68 @@ assert.equal(readBack.rootDataset.name?.[0] ?? readBack.rootDataset.name, "Birds
   assert.equal(String(file.contentSize), "12345", "…including the ones ro-crate's addEntity({replace:true}) would have dropped");
 }
 
+{
+  // The workbook is authored as its own standalone crate, so per RO-Crate
+  // convention its entities point at their root as "./" — but the target
+  // crate's root can carry a different, persistent @id (set in the Describe
+  // step). A "./" reference copied over verbatim would point at an entity
+  // the target doesn't have.
+  const target = new ROCrate({
+    "@context": "https://w3id.org/ro/crate/1.2/context",
+    "@graph": [
+      { "@id": "ro-crate-metadata.json", "@type": "CreativeWork", about: { "@id": "arcp://name,birds/root" } },
+      { "@id": "arcp://name,birds/root", "@type": "Dataset", name: "target" },
+    ],
+  }, { array: true, link: true });
+
+  const source = new ROCrate({ array: true, link: true });
+  source.addEntity({ "@id": "#magpie", "@type": "RepositoryObject", name: "magpie", memberOf: { "@id": "./" } });
+
+  const { remapped } = mergeCrateEntities(target, source);
+  assert.equal(remapped, 1, "a reference to the workbook's own root should be remapped");
+  const magpie = target.getEntity("#magpie");
+  assert.equal(
+    magpie.memberOf?.[0]?.["@id"] ?? magpie.memberOf?.["@id"],
+    "arcp://name,birds/root",
+    "…to the target crate's actual root id, not left as the workbook's own \"./\""
+  );
+}
+
+{
+  // Scoped to memberOf specifically — a property that happens to also
+  // reference the workbook's root, but doesn't mean "belongs to the root
+  // collection", must be left exactly as the workbook stated it.
+  const target = new ROCrate({
+    "@context": "https://w3id.org/ro/crate/1.2/context",
+    "@graph": [
+      { "@id": "ro-crate-metadata.json", "@type": "CreativeWork", about: { "@id": "arcp://name,birds/root" } },
+      { "@id": "arcp://name,birds/root", "@type": "Dataset", name: "target" },
+    ],
+  }, { array: true, link: true });
+
+  const source = new ROCrate({ array: true, link: true });
+  source.addEntity({ "@id": "#note", "@type": "CreativeWork", name: "note", about: { "@id": "./" } });
+
+  const { remapped } = mergeCrateEntities(target, source);
+  assert.equal(remapped, 0, "a non-memberOf reference to the workbook's root should not be touched");
+  const note = target.getEntity("#note");
+  assert.equal(note.about?.[0]?.["@id"] ?? note.about?.["@id"], "./", "…it survives exactly as the workbook wrote it");
+}
+
+{
+  // When the target's root really is "./" (no custom id set), there's
+  // nothing to remap — the reference already resolves correctly.
+  const target = new ROCrate({ array: true, link: true });
+  target.rootDataset.name = "target";
+  const source = new ROCrate({ array: true, link: true });
+  source.addEntity({ "@id": "#magpie", "@type": "RepositoryObject", name: "magpie", memberOf: { "@id": "./" } });
+
+  const { remapped } = mergeCrateEntities(target, source);
+  assert.equal(remapped, 0, "no remap needed when the target root is already \"./\"");
+  const magpie = target.getEntity("#magpie");
+  assert.equal(magpie.memberOf?.[0]?.["@id"] ?? magpie.memberOf?.["@id"], "./");
+}
+
 /* ---------- collection membership ---------- */
 
 // What the folder scan leaves behind: a member per top-level folder, and no
