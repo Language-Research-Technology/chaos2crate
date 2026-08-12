@@ -4,6 +4,23 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>chaos2crate</title>
+<script>
+  (() => {
+    // Any query string might resolve to a forced-profile match (bare tokens
+    // are checked against the profile list, which requires a network fetch
+    // main.js hasn't made yet at this point) — hide the Profile step
+    // pessimistically so it never flashes visible, then main.js's
+    // refreshBuildStepActions() reveals it again once resolution finds no
+    // match.
+    const search = window.location.search;
+    if (search.length > 1) {
+      document.write('<style>html.profile-override-present #buildStepProfile{display:none !important;}</style>');
+      document.documentElement.classList.add("profile-override-present");
+      const profileId = new URLSearchParams(search).get("profile");
+      if (profileId && profileId.trim()) document.documentElement.dataset.profileOverride = profileId.trim();
+    }
+  })();
+</script>
 <style>
   :root {
     --bg: #f4f7fb; --panel: #ffffff; --panel-2: #eef3f9; --border: #d2dbe8;
@@ -15,6 +32,9 @@
     --bg: #0f1419; --panel: #1a2029; --panel-2: #222a35; --border: #2d3742;
     --text: #e6edf3; --muted: #8b98a5; --accent: #4f9cf9; --accent-hover: #6aabfa;
     --ok: #3fb950; --ok-hover: #56c368; --warn: #d29922; --err: #f85149;
+  }
+  html.profile-override-present #buildStepProfile {
+    display: none !important;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; }

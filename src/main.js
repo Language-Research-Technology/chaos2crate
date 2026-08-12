@@ -14,6 +14,11 @@ import { listGitHubFolder } from "./github.js";
 import {
   isAbsoluteLikeUrl, normalizeRelativePath, mapAssetUrl, rewriteCssUrls,
 } from "./preview_assets.js";
+import {
+  readExplicitProfileIdFromQuery,
+  matchForcedProfileIdFromQuery,
+  collectOptionSubtreeKeys,
+} from "./profile_url_override.js";
 import packageJson from "../package.json";
 import { createHookBus, HOOKS, announceAndEmit } from "./plugins/hooks.js";
 import { registerAllPlugins, composeOptionSchema, composeSettingsSchema } from "./plugins/index.js";
@@ -52,6 +57,7 @@ const APP_VERSION = packageJson.version || "dev";
 // ro-crate-html-output's makeHtml option, since it only affects the generated
 // HTML, not the crate itself — see applyCollectionLabelOverrides there.
 const OPTION_SCHEMA = composeOptionSchema();
+const FORCED_PROFILE_HTML_OPTION_KEYS = collectOptionSubtreeKeys(OPTION_SCHEMA, ["makeHtml"]);
 
 // Shown in the Settings modal (accessed from the button next to Menu).
 const CORE_SETTINGS_SCHEMA = [
@@ -78,12 +84,90 @@ const CORE_SETTINGS_SCHEMA = [
     hint: "Shows or hides the Upload template files option in Build settings." },
 ];
 const SETTINGS_SCHEMA = [...CORE_SETTINGS_SCHEMA, ...composeSettingsSchema()];
+const EXPLICIT_FORCED_PROFILE_ID = readExplicitProfileIdFromQuery(window.location.search);
+const FORCED_PROFILE_QUERY_FALLBACK_ID = EXPLICIT_FORCED_PROFILE_ID;
 
 /* ---------- DOM helpers ---------- */
 const $ = (id) => document.getElementById(id);
 const logEl = () => $("log");
 const SETTINGS_STORAGE_KEY = "chaos2crate.settings";
 const LEGACY_SETTINGS_STORAGE_KEY = "resources2crate.settings";
+let currentBuildOptionUiHiddenKeys = new Set();
+let availableProfileIdsPromise = null;
+let forcedProfileId = null;
+let forcedProfileInitPromise = null;
+// False until we've either trusted an explicit ?profile= id or finished
+// checking the query against the known profile list — refreshBuildStepActions()
+// uses this to avoid prematurely revealing the Profile step while that check
+// (a network fetch, for the bare-token case) is still in flight.
+let forcedProfileResolved = false;
+// Fetching the forced profile's full data (validator + field schema) is a
+// second network round trip. Kicking it off as soon as forcedProfileId is
+// known — rather than waiting until after the folder picker closes — lets it
+// run in parallel with the user's OS-level folder pick, so Describe/Build
+// aren't left waiting on it afterwards.
+let forcedProfileDataPromise = null;
+let forcedProfileDataError = null;
+
+function activeBuildOptionUiHiddenKeys() {
+  return forcedProfileId && selectedProfile === forcedProfileId
+    ? FORCED_PROFILE_HTML_OPTION_KEYS
+    : new Set();
+}
+
+function isBuildOptionUiHidden(key) {
+  return currentBuildOptionUiHiddenKeys.has(key);
+}
+
+async function loadAvailableProfileIds() {
+  if (!availableProfileIdsPromise) {
+    availableProfileIdsPromise = listGitHubFolder(MASP_PROFILES_REPO_OWNER, MASP_PROFILES_REPO_NAME, MASP_PROFILES_REPO_REF, "")
+      .then((entries) => entries
+        .filter((entry) => entry && entry.type === "dir")
+        .map((entry) => entry.name)
+        .sort((a, b) => a.localeCompare(b)))
+      .catch((e) => {
+        availableProfileIdsPromise = null;
+        throw e;
+      });
+  }
+  return availableProfileIdsPromise;
+}
+
+function ensureForcedProfileDataLoading() {
+  if (!forcedProfileId || forcedProfileDataPromise) return forcedProfileDataPromise;
+  forcedProfileDataError = null;
+  forcedProfileDataPromise = loadProfileData(forcedProfileId).catch((e) => {
+    forcedProfileDataError = e;
+    forcedProfileDataPromise = null;
+    return null;
+  });
+  return forcedProfileDataPromise;
+}
+
+async function initializeForcedProfileFromUrl() {
+  if (EXPLICIT_FORCED_PROFILE_ID) {
+    forcedProfileId = EXPLICIT_FORCED_PROFILE_ID;
+    forcedProfileResolved = true;
+    ensureForcedProfileDataLoading();
+    refreshBuildStepActions();
+  }
+  if (!forcedProfileInitPromise) {
+    forcedProfileInitPromise = (async () => {
+      try {
+        const matched = matchForcedProfileIdFromQuery(window.location.search, await loadAvailableProfileIds());
+        if (matched) forcedProfileId = matched;
+      } catch {
+        if (!forcedProfileId) forcedProfileId = FORCED_PROFILE_QUERY_FALLBACK_ID;
+      }
+      forcedProfileResolved = true;
+      ensureForcedProfileDataLoading();
+      refreshBuildStepActions();
+      return forcedProfileId;
+    })();
+  }
+  return forcedProfileInitPromise;
+}
 
 function normalizeThemeMode(value) {
   return value === "dark" ? "dark" : "light";
@@ -797,6 +881,11 @@ function refreshTemplateUploadVisibility() {
   const uploadField = $("field_opt_styledPreview");
   if (!localTemplateToggle || !uploadField) return;
 
+  if (isBuildOptionUiHidden("styledPreview")) {
+    uploadField.classList.add("hidden");
+    return;
+  }
+
   const enabled = !!localTemplateToggle.checked;
   uploadField.classList.toggle("hidden", !enabled);
 
@@ -841,20 +930,22 @@ function collectSchemaKeys(schema, set) {
 // inputMode is force-locked rather than merely pre-selected, since
 // Describe's field set and the docx vs. generic parsing path both depend
 // on it matching the profile.
-function applyBuildOptionsFromProfile(buildOptions) {
+function applyBuildOptionsFromProfile(buildOptions, uiHiddenKeys = new Set()) {
   const allKeys = new Set();
   collectSchemaKeys(OPTION_SCHEMA, allKeys);
   const declared = buildOptions || {};
   const enabled = new Set(declared.enabledOptionKeys || []);
+  currentBuildOptionUiHiddenKeys = new Set(uiHiddenKeys);
 
   for (const key of allKeys) {
     const field = $("field_opt_" + key);
-    if (field) field.classList.toggle("hidden", !enabled.has(key));
+    const showInUi = enabled.has(key) && !currentBuildOptionUiHiddenKeys.has(key);
+    if (field) field.classList.toggle("hidden", !showInUi);
 
     // Top-level keys also have a tile in the options grid (nested/child keys
     // don't — they only ever show up inside their group's modal).
     const tile = $("tile_" + key);
-    if (tile) tile.classList.toggle("hidden", !enabled.has(key));
+    if (tile) tile.classList.toggle("hidden", !showInUi);
 
     // File/mappingBuilder/collectionLabelsBuilder fields have no opt_<key>
     // control of their own — their visibility above is the whole story.
@@ -1815,6 +1906,43 @@ async function ensureProfileData() {
   return selectedProfileData;
 }
 
+async function loadProfileData(profileId) {
+  let profileJson, modeJson;
+  if (profileId === DEFAULT_PROFILE_ID) {
+    ({ profileJson, modeJson } = (await import("./default_profile.js")).getDefaultProfile());
+  } else {
+    const masp = await import("./masp.js");
+    ({ profileJson, modeJson } = await masp.fetchProfile(MASP_PROFILES_REPO_OWNER, MASP_PROFILES_REPO_NAME, MASP_PROFILES_REPO_REF, profileId));
+  }
+  return buildProfileData(profileJson, modeJson);
+}
+
+async function applyForcedProfileSelection() {
+  if (!forcedProfileId) return false;
+  const idBeingApplied = forcedProfileId;
+  try {
+    // Reuses the fetch kicked off as soon as forcedProfileId became known
+    // (see ensureForcedProfileDataLoading) — normally already settled by the
+    // time the folder picker closes, so this resolves instantly instead of
+    // leaving Describe/Build waiting on a fresh network round trip.
+    const data = await ensureForcedProfileDataLoading();
+    if (!data) throw forcedProfileDataError || new Error("forced profile failed to load");
+    selectedProfileData = data;
+    selectedProfile = idBeingApplied;
+    $("profileStatus").textContent = `Forced profile: ${profileLabel(idBeingApplied)}.`;
+    return true;
+  } catch (e) {
+    console.error(`Could not load forced profile "${idBeingApplied}":`, e);
+    $("profileStatus").textContent = "Could not load forced profile: " + (e && e.message ? e.message : e);
+    forcedProfileId = null;
+    selectedProfile = null;
+    selectedProfileData = null;
+    return false;
+  } finally {
+    refreshBuildStepActions();
+  }
+}
+
 // Loading the default can only fail on a genuine fault (a bad bundle, a
 // profile the validator rejects) — but callers are fire-and-forget `void`
 // calls, so an unhandled rejection would read to the user as a button that
@@ -1839,8 +1967,7 @@ async function openProfileSelection() {
   container.appendChild(hintEl("Loading profiles…"));
   beginStartProgress("Loading available profiles…");
   try {
-    const entries = await listGitHubFolder(MASP_PROFILES_REPO_OWNER, MASP_PROFILES_REPO_NAME, MASP_PROFILES_REPO_REF, "");
-    const folderNames = entries.filter((e) => e && e.type === "dir").map((e) => e.name).sort((a, b) => a.localeCompare(b));
+    const folderNames = await loadAvailableProfileIds();
     renderProfileOptions(folderNames);
     completeStartProgress(`Found ${folderNames.length} profile(s) (plus the bundled default).`);
   } catch (e) {
@@ -1891,14 +2018,7 @@ async function chooseProfile(profileId) {
   setProfileOptionsDisabled(true);
   beginStartProgress(`Loading profile "${label}"…`);
   try {
-    let profileJson, modeJson;
-    if (profileId === DEFAULT_PROFILE_ID) {
-      ({ profileJson, modeJson } = (await import("./default_profile.js")).getDefaultProfile());
-    } else {
-      const masp = await import("./masp.js");
-      ({ profileJson, modeJson } = await masp.fetchProfile(MASP_PROFILES_REPO_OWNER, MASP_PROFILES_REPO_NAME, MASP_PROFILES_REPO_REF, profileId));
-    }
-    selectedProfileData = await buildProfileData(profileJson, modeJson);
+    selectedProfileData = await loadProfileData(profileId);
     selectedProfile = profileId;
     // An extension point for plugins that want to react to the profile
     // choice (e.g. re-checking folder content against it) — nothing taps it
@@ -2231,18 +2351,32 @@ function refreshBuildStepActions() {
   const hasFolder = !!dirHandle;
   const hasProfile = !!selectedProfile;
   const hasDescribe = !!rootDatasetOverride;
+  const hideProfileStep = !!forcedProfileId;
+  // Mirrors index.html's pessimistic pre-hydration hide (any query string
+  // hides the step until resolution proves one way or the other). Only ever
+  // clear it once resolution has actually finished — this runs once already
+  // during boot() before that resolution completes (via refreshModeCards()),
+  // and clearing unconditionally there would flash the step visible again
+  // for the split second before the real answer (e.g. a bare-token match
+  // still awaiting its network fetch) comes back.
+  if (hideProfileStep) {
+    document.documentElement.classList.add("profile-override-present");
+  } else if (forcedProfileResolved) {
+    document.documentElement.classList.remove("profile-override-present");
+  }
   // Describe waits on an explicit profile pick (selectedProfile is only set
   // by chooseProfile(), never by ensureProfileData()'s silent default
   // fallback) so a folder alone doesn't unlock it.
+  profileBtn.classList.toggle("hidden", hideProfileStep);
   profileBtn.disabled = !hasFolder;
   describeBtn.disabled = !(hasFolder && hasProfile);
   buildBtn.disabled = !(hasFolder && hasDescribe);
 
   // Bold whichever step is furthest along the enabled chain, so it's obvious
   // at a glance what the next/current action is.
-  const steps = [folderBtn, profileBtn, describeBtn, buildBtn];
+  const steps = hideProfileStep ? [folderBtn, describeBtn, buildBtn] : [folderBtn, profileBtn, describeBtn, buildBtn];
   const current = steps.filter((btn) => !btn.disabled).pop();
-  for (const btn of steps) btn.classList.toggle("step-current", btn === current);
+  for (const btn of [folderBtn, profileBtn, describeBtn, buildBtn]) btn.classList.toggle("step-current", btn === current);
 }
 
 /* ---------- File System Access ---------- */
@@ -2362,6 +2496,7 @@ async function run() {
 
 /* ---------- actions ---------- */
 async function pickFolder(nextView = "view-mode") {
+  await initializeForcedProfileFromUrl();
   try {
     dirHandle = await window.showDirectoryPicker({ mode: "readwrite" });
   } catch (e) {
@@ -2409,6 +2544,7 @@ async function pickFolder(nextView = "view-mode") {
   }
   $("ctxFolder").textContent = dirHandle.name;
   logStart("Checking for existing outputs…");
+  if (forcedProfileId) await applyForcedProfileSelection();
   await refreshModeCards();
   completeStartProgress("Ready.");
   showView(nextView);
@@ -2447,7 +2583,10 @@ async function openBuild() {
   $("saveLogBtn").disabled = true;
   seedBuildLogFromStart();
   log("Set your options, then click Build RO-Crate.", "muted");
-  applyBuildOptionsFromProfile(selectedProfileData ? selectedProfileData.workflow.tools?.chaos2crate?.buildOptions : null);
+  applyBuildOptionsFromProfile(
+    selectedProfileData ? selectedProfileData.workflow.tools?.chaos2crate?.buildOptions : null,
+    activeBuildOptionUiHiddenKeys(),
+  );
   // applyBuildOptionsFromProfile() just reset every Build-option field's
   // visibility from scratch (including "Upload template files", shown
   // whenever a profile enables "styledPreview"), which would otherwise
@@ -3342,6 +3481,7 @@ function boot() {
   buildForm();
   showView("view-mode");
   refreshModeCards();
+  void initializeForcedProfileFromUrl();
 
   $("menuBtn").addEventListener("click", async () => {
     if (!confirmLeaveEditIfDirty()) return;
