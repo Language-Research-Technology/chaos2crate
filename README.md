@@ -97,7 +97,7 @@ The crate object is then serialized with `crate.getJson()` (JSON), fed to `ro-cr
 | Spreadsheet (XLSX) | the workbook used for merge; can contain multiple sheets |
 | Build mapping from spreadsheet columns… | opens a mapping popup to set source → target property mappings (plus optional entity type) |
 | Generate ro-crate-preview.html | write the HTML preview (on by default) |
-| Template from rocss-template-repo | pick a folder from `benfoley/rocss-template-repo`; downloads and uses that folder's template config |
+| Template from rocss-templates | pick a folder from `Language-Research-Technology/rocss-templates`; downloads and uses that folder's template config |
 | Upload template files | upload a single `config.json`; template and style are resolved from values inside that config |
 
 Which of these are actually shown depends on the selected profile's `crate-o-mode.json`

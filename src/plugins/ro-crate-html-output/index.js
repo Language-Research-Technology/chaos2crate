@@ -13,8 +13,8 @@ import { resolveProfileGroups } from "./layout.js";
 
 const HTML_FILE = "ro-crate-preview.html";
 const MULTIPAGE_DIR = "ro-crate-preview_html";
-const TEMPLATE_REPO_OWNER = "benfoley";
-const TEMPLATE_REPO_NAME = "rocss-template-repo";
+const TEMPLATE_REPO_OWNER = "Language-Research-Technology";
+const TEMPLATE_REPO_NAME = "rocss-templates";
 const TEMPLATE_REPO_REF = "main";
 
 // Applies the collectionLabelsBuilder option's name/order overrides directly
@@ -136,7 +136,7 @@ function hasUploadedMatch(uploadedFiles, spec) {
 // The Build panel's "Home page" and "Site domain" fields are per-crate
 // choices, so when set they override whatever the template itself shipped
 // for homePageId/domain — those are typically a placeholder value or
-// another project's (see benfoley/rocss-template-repo#3). Left blank, the
+// another project's (see Language-Research-Technology/rocss-templates#3). Left blank, the
 // template's own config is untouched, so a template with sensible values of
 // its own still works with neither field filled in. `cfg` may be null (no
 // template/config resolved at all), in which case there is nothing to
@@ -361,7 +361,7 @@ async function fetchTemplateBundle(owner, repo, ref, folderPath) {
     catch (e) { throw new Error(`Template config ${configFile.name} is not valid JSON: ${e.message}`); }
   }
 
-  // Multipage bundles (see rocss-template-repo's README) keep their per-role
+  // Multipage bundles (see rocss-templates' README) keep their per-role
   // templates in a templates/ subfolder, referenced from config.json as
   // e.g. "templates/root-template.html" — a path relative to this folder.
   // Fetch every .html file there, keyed by that same relative path, so
@@ -398,7 +398,7 @@ export const plugin = {
     children: [
       { key: "collectionLabelsBuilder", type: "collectionLabelsBuilder", label: "Set menu names and order…",
         hint: "Optional, for Structured Word documents mode. Drag rows to reorder. Map each top-level collection folder to a friendlier label shown in the site's navigation menu and cards (e.g. AnmWeb1_HOME → Home) — the raw folder name is used for anything left blank. Affects only this generated HTML, not ro-crate-metadata.json/.xlsx." },
-      { key: "templateRepoFolder", type: "select", label: "Template from rocss-template-repo",
+      { key: "templateRepoFolder", type: "select", label: "Template from rocss-templates",
         placeholder: "Loading folders…", hint: "Optional. Select one folder from the template repo." },
       { key: "homePageId", type: "select", label: "Home page",
         placeholder: "No home page — show the collection index",
