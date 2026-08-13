@@ -238,7 +238,7 @@ function failBuildProgress(message) {
 function resetBuildProgress() {
   BUILD_PROGRESS.active = false;
   BUILD_PROGRESS.value = 0;
-  hideSubProgress();
+  hideSubProgress(true);
   const host = buildProgressEl();
   if (!host) return;
   host.classList.add("hidden");
@@ -268,10 +268,13 @@ function bumpBuildProgress(value, label, opts = {}) {
 // / "Identifying…" step on the main bar for a long time.
 function subProgressEl() { return $("subProgress"); }
 
+let subProgressFadeTimer = null;
+
 function startSubProgress(label) {
   const host = subProgressEl();
   if (!host) return;
-  host.classList.remove("hidden");
+  if (subProgressFadeTimer) { clearTimeout(subProgressFadeTimer); subProgressFadeTimer = null; }
+  host.classList.remove("hidden", "fading-out");
   setSubProgress(0, label);
 }
 
@@ -291,10 +294,26 @@ function setSubProgress(value, label) {
   if (track) track.setAttribute("aria-valuetext", label || `${Math.round(normalized)}%`);
 }
 
-function hideSubProgress() {
+// Fades out over 2s rather than snapping straight to hidden — a lookup
+// sub-step finishing and disappearing instantly reads as a flicker, easy to
+// miss entirely on a fast merge. `instant` skips the fade (used when the
+// whole build is being reset/cleared, where a lingering fade would be
+// confusing rather than legible).
+function hideSubProgress(instant = false) {
   const host = subProgressEl();
   if (!host) return;
-  host.classList.add("hidden");
+  if (subProgressFadeTimer) { clearTimeout(subProgressFadeTimer); subProgressFadeTimer = null; }
+  if (instant || host.classList.contains("hidden")) {
+    host.classList.add("hidden");
+    host.classList.remove("fading-out");
+    return;
+  }
+  host.classList.add("fading-out");
+  subProgressFadeTimer = setTimeout(() => {
+    subProgressFadeTimer = null;
+    host.classList.add("hidden");
+    host.classList.remove("fading-out");
+  }, 2000);
 }
 
 function updateBuildProgressFromLog(msg, cls = "info") {
