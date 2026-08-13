@@ -234,7 +234,16 @@
     0% { transform: translateX(-65%); }
     100% { transform: translateX(200%); }
   }
-  .sub-progress { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
+  .sub-progress {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--border);
+    opacity: 1;
+    transition: opacity 2s ease;
+  }
+  /* .fading-out drives the transition; .hidden (added once it's done) takes
+     it out of layout so the dashed divider doesn't linger at opacity: 0. */
+  .sub-progress.fading-out { opacity: 0; }
   .sub-progress-track { height: 5px; }
   .sub-progress-fill { background: linear-gradient(90deg, #8a6fd8, #a98cf0); }
   .type-status { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
