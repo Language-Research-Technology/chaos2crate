@@ -364,7 +364,7 @@ A profile's `enabledOptionKeys` (§5.4) names keys from this table. Child keys a
 | ↳ `doPlaceLookups` | `merge` | Build panel | coordinate lookup for merged `Place` entities |
 | `makeHtml` | `ro-crate-html-output` | Build panel | write `ro-crate-preview.html` |
 | ↳ `collectionLabelsBuilder` | `ro-crate-html-output` | Build panel | menu names/order for Structured Word documents mode — applied to the generated HTML only; `docx_crate.js` always uses each folder's own name/order for the crate itself |
-| ↳ `templateRepoFolder` | `ro-crate-html-output` | Build panel | folder in `rocss-template-repo` |
+| ↳ `templateRepoFolder` | `ro-crate-html-output` | Build panel | folder in `rocss-templates` |
 | ↳ `styledPreview` | `ro-crate-html-output` | Build panel | upload template files instead |
 | ↳ ↳ `configFile` | `ro-crate-html-output` | Build panel | the uploaded `config.json` and its siblings |
 | `makeXlsx` | `ro-crate-xlsx-output` | Settings modal | write `ro-crate-metadata.xlsx` |
@@ -486,7 +486,7 @@ The largest plugin, owning the whole template-resolution cluster that used to si
 
 **Template precedence:** repo folder → uploaded file → local folder.
 
-1. **Template repository** — lists folders in `benfoley/rocss-template-repo` and fetches the chosen folder's template, config, stylesheet, and any `templates/` subfolder for multi-page rendering.
+1. **Template repository** — lists folders in `Language-Research-Technology/rocss-templates` and fetches the chosen folder's template, config, stylesheet, and any `templates/` subfolder for multi-page rendering.
 2. **Uploaded files** — a `config.json` from which template and style references are resolved: inline strings, `http(s)` URLs, sibling uploaded files, or paths inside a local folder the user grants access to once per session.
 3. **Plain** — the library's single-page renderer with the profile's layout.
 

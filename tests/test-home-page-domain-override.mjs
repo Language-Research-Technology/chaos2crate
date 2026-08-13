@@ -1,7 +1,7 @@
 // The Build panel's "Home page" and "Site domain" fields override whatever
 // homePageId/domain a template's own config.json shipped, since those are
 // almost always a placeholder or another project's value (see
-// benfoley/rocss-template-repo#3, where a shipped homePageId from one crate
+// Language-Research-Technology/rocss-templates#3, where a shipped homePageId from one crate
 // silently produced a blank home page for every other crate built with the
 // same template). Left blank, the template's own config wins unchanged, so a
 // template with sensible values of its own still works untouched.

@@ -801,7 +801,7 @@ export async function buildCrateFromDocxFolder(rootHandle, config, onProgress = 
     }
   }
 
-  // The generated site (rocss-template-repo's structured-docs templates)
+  // The generated site (rocss-templates' structured-docs templates)
   // only ever navigates into #derivedContent — sourceDocuments exists in the
   // crate for completeness/download but has no page of its own and is never
   // linked to, so wrapping the per-topic RepositoryCollections one level
