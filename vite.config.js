@@ -14,15 +14,24 @@ import { nodePolyfills } from "vite-plugin-node-polyfills";
 // vite-plugin-node-polyfills injects an import above it first, pushing the
 // shebang to a later line where it's just an invalid `#` token. Strip it
 // ourselves, before that plugin runs (enforce: "pre").
-function stripLibraryShebangs() {
+//
+// The same file also ends with a `if (require.main === module) { ... }`
+// CLI-entry-point block. `@rollup/plugin-commonjs` rewrites `require(...)`
+// calls but leaves the bare `require.main` property access alone, so the
+// bundled module references a `require` global that doesn't exist in the
+// browser — throwing "require is not defined" the moment the module (which
+// every profile load pulls in) is evaluated, CLI usage or not. Neutralize
+// the guard so that block is dead code.
+function patchMaspValidatorCjsArtifacts() {
   return {
-    name: "strip-library-shebangs",
+    name: "patch-masp-validator-cjs-artifacts",
     enforce: "pre",
     transform(code, id) {
-      if (id.includes("/node_modules/ro-crate-masp/") && code.startsWith("#!")) {
-        return code.replace(/^#!.*\n/, "");
-      }
-      return null;
+      if (!id.includes("/node_modules/ro-crate-masp/")) return null;
+      let out = code;
+      if (out.startsWith("#!")) out = out.replace(/^#!.*\n/, "");
+      out = out.replace("if (require.main === module) {", "if (false) {");
+      return out === code ? null : out;
     },
   };
 }
@@ -30,7 +39,7 @@ function stripLibraryShebangs() {
 export default defineConfig({
   base: "./",
   plugins: [
-    stripLibraryShebangs(),
+    patchMaspValidatorCjsArtifacts(),
     nodePolyfills({
       globals: { Buffer: true, global: true, process: true },
       protocolImports: true,
