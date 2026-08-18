@@ -1782,6 +1782,8 @@ function reportProfileLoadFailure(e) {
   const message = e && e.message ? e.message : String(e);
   console.error("Could not load the default profile:", e);
   $("profileStatus").textContent = "Could not load the default profile: " + message;
+  logStart(`Could not load the default profile: ${message}`, "err");
+  failStartProgress();
   showView("view-select-profile");
 }
 
@@ -1793,15 +1795,19 @@ async function openProfileSelection() {
   const container = $("profileOptionsBody");
   container.innerHTML = "";
   container.appendChild(hintEl("Loading profiles…"));
+  beginStartProgress("Loading available profiles…");
   try {
     const entries = await listGitHubFolder(MASP_PROFILES_REPO_OWNER, MASP_PROFILES_REPO_NAME, MASP_PROFILES_REPO_REF, "");
     const folderNames = entries.filter((e) => e && e.type === "dir").map((e) => e.name).sort((a, b) => a.localeCompare(b));
     renderProfileOptions(folderNames);
+    completeStartProgress(`Found ${folderNames.length} profile(s) (plus the bundled default).`);
   } catch (e) {
     // The remote list failing is not fatal — the bundled default is still
     // offered, which is the whole point of bundling it.
     renderProfileOptions([]);
     $("profileOptionsBody").appendChild(hintEl("Could not load the profile list: " + (e && e.message ? e.message : e)));
+    logStart(`Could not load the profile list: ${e && e.message ? e.message : e}`, "warn");
+    completeStartProgress("Using the bundled default profile only.");
   }
   showView("view-select-profile");
 }
@@ -1841,6 +1847,7 @@ async function chooseProfile(profileId) {
   continueBtn.disabled = true;
   status.textContent = `Loading ${label}…`;
   setProfileOptionsDisabled(true);
+  beginStartProgress(`Loading profile "${label}"…`);
   try {
     let profileJson, modeJson;
     if (profileId === DEFAULT_PROFILE_ID) {
@@ -1852,11 +1859,13 @@ async function chooseProfile(profileId) {
     selectedProfileData = await buildProfileData(profileJson, modeJson);
     selectedProfile = profileId;
     status.textContent = `Ready: ${selectedProfileData.rootClassDefinition.name} (${selectedProfileData.fieldSchema.length} field(s)).`;
+    completeStartProgress(`Profile "${label}" ready: ${selectedProfileData.rootClassDefinition.name} (${selectedProfileData.fieldSchema.length} field(s)).`);
     continueBtn.disabled = false;
   } catch (e) {
     selectedProfile = null;
     selectedProfileData = null;
     status.textContent = "Could not load profile: " + (e && e.message ? e.message : e);
+    failStartProgress(`Could not load profile "${label}": ${e && e.message ? e.message : e}`);
   } finally {
     setProfileOptionsDisabled(false);
     renderProfileOptions(
