@@ -183,6 +183,23 @@ function clearLog() {
   syncLogActionButtons();
 }
 
+// Carries the start page's setup history (folder pick, profile load) into
+// the build log instead of opening Build on a blank panel — cloning the
+// spans directly rather than replaying them through log() so this can't
+// trip updateBuildProgressFromLog() on old messages (e.g. a stray "Error:"
+// from a profile that failed to load earlier, then got fixed).
+function seedBuildLogFromStart() {
+  const startLines = $("startLog");
+  if (!startLines || !startLines.children.length) return;
+  const el = logEl();
+  for (const node of startLines.children) el.appendChild(node.cloneNode(true));
+  const divider = document.createElement("span");
+  divider.className = "l-muted";
+  divider.textContent = "──\n";
+  el.appendChild(divider);
+  scheduleLogFlush();
+}
+
 const BUILD_PROGRESS = {
   active: false,
   value: 0,
@@ -2410,6 +2427,7 @@ async function openBuild() {
   clearLog();
   $("showHtmlBtn").classList.add("hidden");
   $("saveLogBtn").disabled = true;
+  seedBuildLogFromStart();
   log("Set your options, then click Build RO-Crate.", "muted");
   applyBuildOptionsFromProfile(selectedProfileData ? selectedProfileData.workflow.buildOptions : null);
   // applyBuildOptionsFromProfile() just reset every Build-option field's
