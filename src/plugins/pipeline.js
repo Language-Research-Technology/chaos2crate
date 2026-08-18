@@ -32,11 +32,24 @@ function collectTypeCounts(graph) {
 // selectedProfileData. Mutated in place as the pipeline runs; the caller
 // reads ctx.buildHtml/ctx.lastHtmlTemplate back out afterward (set by
 // ro-crate-html-output, if it ran).
+// Announces a hook stage before firing it — which plugins are tapping it,
+// in run order — so the build log traces the pipeline's actual shape for
+// this build instead of only whatever each plugin chooses to self-report.
+// Silent (no line) for a stage nothing taps, so an all-defaults build
+// (no AUSTLANG, no merge, no spreadsheet crate) doesn't get noise for
+// files:analyze/crate:validate having no listeners.
+async function announceAndEmit(hookBus, hookName, ctx) {
+  const names = hookBus.pluginNamesFor(hookName);
+  if (names.length) ctx.log(`→ ${hookName}: ${names.join(", ")}.`, "muted");
+  await hookBus.emit(hookName, ctx);
+}
+
 export async function runPipeline(ctx, hookBus) {
-  await hookBus.emit(HOOKS.CONFIG_PREPARE, ctx);
+  await announceAndEmit(hookBus, HOOKS.CONFIG_PREPARE, ctx);
 
   ctx.log(`Config: ${ctx.configSource}.`, "muted");
   const inputPlugin = INPUT_PLUGINS[ctx.options.inputMode] || INPUT_PLUGINS.generic;
+  ctx.log(`Input mode: ${inputPlugin.name}.`, "muted");
 
   // An input mode with a flat file list analyses it first, so taps can annotate
   // ctx.filesWithMeta while it's still just data — before buildCrate turns it
@@ -45,18 +58,18 @@ export async function runPipeline(ctx, hookBus) {
   // rather than hidden inside one plugin's implementation.
   if (inputPlugin.analyzeFiles) {
     await inputPlugin.analyzeFiles(ctx);
-    await hookBus.emit(HOOKS.FILES_ANALYZE, ctx);
+    await announceAndEmit(hookBus, HOOKS.FILES_ANALYZE, ctx);
   }
   await inputPlugin.buildCrate(ctx);
 
-  await hookBus.emit(HOOKS.CRATE_BUILT, ctx);
+  await announceAndEmit(hookBus, HOOKS.CRATE_BUILT, ctx);
 
   const graph = ctx.crate.getJson()["@graph"] || [];
   ctx.entities = graph.length;
   ctx.typeCounts = collectTypeCounts(graph);
 
-  await hookBus.emit(HOOKS.CRATE_VALIDATE, ctx);
-  await hookBus.emit(HOOKS.OUTPUT_WRITE, ctx);
+  await announceAndEmit(hookBus, HOOKS.CRATE_VALIDATE, ctx);
+  await announceAndEmit(hookBus, HOOKS.OUTPUT_WRITE, ctx);
 
   return { files: ctx.sourceCount, entities: ctx.entities, typeCounts: ctx.typeCounts };
 }

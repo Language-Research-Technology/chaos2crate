@@ -38,7 +38,7 @@ export const INPUT_PLUGINS = {
 export function registerAllPlugins(hookBus, plugins = PLUGINS) {
   for (const plugin of plugins) {
     for (const [hookName, handler] of Object.entries(plugin.hooks || {})) {
-      hookBus.on(hookName, handler);
+      hookBus.on(hookName, handler, { pluginName: plugin.name });
     }
   }
 }
