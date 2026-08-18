@@ -316,6 +316,94 @@ function hideSubProgress(instant = false) {
   }, 2000);
 }
 
+// Start-page ("Choose folder") status panel — a much quieter cousin of the
+// Build panel's .log/.build-progress. It only ever shows a single status
+// line and a thin progress bar; the line-by-line history sits behind a
+// Details toggle so folder-pick activity doesn't compete for attention with
+// the mode cards above it.
+function startProgressHostEl() { return $("startProgress"); }
+
+let startProgressFadeTimer = null;
+
+function resetStartPanel() {
+  if (startProgressFadeTimer) { clearTimeout(startProgressFadeTimer); startProgressFadeTimer = null; }
+  const panel = $("startLogPanel");
+  if (!panel) return;
+  panel.classList.remove("hidden");
+  const host = startProgressHostEl();
+  if (host) host.classList.remove("fading-out", "is-complete", "is-error", "is-indeterminate");
+  const fill = $("startProgressFill");
+  if (fill) fill.style.width = "0%";
+  const logHost = $("startLog");
+  if (logHost) logHost.textContent = "";
+  const statusEl = $("startLogStatus");
+  if (statusEl) { statusEl.textContent = ""; statusEl.className = "start-log-status"; }
+}
+
+function logStart(msg, cls = "info") {
+  const panel = $("startLogPanel");
+  if (!panel) return;
+  panel.classList.remove("hidden");
+  const statusEl = $("startLogStatus");
+  if (statusEl) { statusEl.textContent = msg; statusEl.className = "start-log-status l-" + cls; }
+  const logHost = $("startLog");
+  if (logHost) {
+    const span = document.createElement("span");
+    span.className = "l-" + cls;
+    span.textContent = msg + "\n";
+    logHost.appendChild(span);
+    logHost.scrollTop = logHost.scrollHeight;
+  }
+}
+
+function setStartProgress(value, opts = {}) {
+  const host = startProgressHostEl();
+  if (!host) return;
+  const fill = $("startProgressFill");
+  const track = host.querySelector(".start-progress-track");
+  const indeterminate = !!opts.indeterminate;
+  const complete = !!opts.complete;
+  const error = !!opts.error;
+  host.classList.toggle("is-indeterminate", indeterminate);
+  host.classList.toggle("is-complete", complete && !error);
+  host.classList.toggle("is-error", error);
+  const normalized = Math.max(0, Math.min(100, Number(value) || 0));
+  if (!indeterminate && fill) fill.style.width = `${normalized}%`;
+  if (track) track.setAttribute("aria-valuenow", String(Math.round(normalized)));
+}
+
+function beginStartProgress(label) {
+  const host = startProgressHostEl();
+  if (!host) return;
+  if (startProgressFadeTimer) { clearTimeout(startProgressFadeTimer); startProgressFadeTimer = null; }
+  host.classList.remove("fading-out");
+  setStartProgress(8, { indeterminate: true });
+  if (label) logStart(label);
+}
+
+// Fades the bar out shortly after completion (same 2s treatment as the
+// build panel's sub-progress) — the status line and Details history stay put
+// so "what happened when I picked this folder" is still there to check.
+function completeStartProgress(label) {
+  setStartProgress(100, { complete: true });
+  if (label) logStart(label, "ok");
+  const host = startProgressHostEl();
+  if (!host) return;
+  if (startProgressFadeTimer) clearTimeout(startProgressFadeTimer);
+  startProgressFadeTimer = setTimeout(() => {
+    startProgressFadeTimer = null;
+    host.classList.add("fading-out");
+  }, 600);
+}
+
+function failStartProgress(label) {
+  const host = startProgressHostEl();
+  if (startProgressFadeTimer) { clearTimeout(startProgressFadeTimer); startProgressFadeTimer = null; }
+  if (host) host.classList.remove("fading-out");
+  setStartProgress(100, { error: true });
+  if (label) logStart(label, "err");
+}
+
 function updateBuildProgressFromLog(msg, cls = "info") {
   const text = String(msg || "").trim();
   if (!text || !BUILD_PROGRESS.active) return;
@@ -2235,8 +2323,12 @@ async function pickFolder(nextView = "view-mode") {
   } catch (e) {
     if (e && e.name === "AbortError") return;
     console.error("Could not open folder:", e);
+    logStart(`Could not open folder: ${e.message}`, "err");
+    failStartProgress();
     return;
   }
+  resetStartPanel();
+  beginStartProgress(`Selected folder "${dirHandle.name}".`);
   rootDatasetOverride = null;
   selectedProfile = null;
   selectedProfileData = null;
@@ -2257,16 +2349,24 @@ async function pickFolder(nextView = "view-mode") {
   buildHtml = null;
   lastHtmlTemplate = null;
   resetCrateDetailsForm();
+  logStart("Looking for existing crate metadata…");
   try {
     // Remembers the existing root entity for buildDescribeField() to prefill
     // from, and (if one is found) synthesizes rootDatasetOverride from it so
     // refreshModeCards() below can enable the Build step right away.
-    await populateCrateDetailsFromExistingCrate(dirHandle);
+    const found = await populateCrateDetailsFromExistingCrate(dirHandle);
+    logStart(
+      found ? `Found existing metadata (${existingCrateSourceLabel}).` : "No existing crate metadata found.",
+      found ? "ok" : "muted",
+    );
   } catch (e) {
     console.warn("Could not prefill describe form from existing crate JSON:", e);
+    logStart(`Could not read existing crate metadata: ${e.message}`, "warn");
   }
   $("ctxFolder").textContent = dirHandle.name;
+  logStart("Checking for existing outputs…");
   await refreshModeCards();
+  completeStartProgress("Ready.");
   showView(nextView);
 }
 
@@ -3306,6 +3406,14 @@ function boot() {
   $("clearLogBtn").addEventListener("click", clearLogPanel);
   $("saveLogBtn").addEventListener("click", saveLog);
   syncLogActionButtons();
+  $("startLogToggle").addEventListener("click", () => {
+    const logHost = $("startLog");
+    const btn = $("startLogToggle");
+    const expanded = !logHost.classList.contains("hidden");
+    logHost.classList.toggle("hidden");
+    btn.setAttribute("aria-expanded", String(!expanded));
+    btn.textContent = expanded ? "Details" : "Hide";
+  });
   $("rebuildBtn").addEventListener("click", () => {
     if (!dirHandle) return;
     void openBuild();

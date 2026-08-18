@@ -26,8 +26,13 @@
   .context-bar { display: flex; align-items: center; gap: 14px; padding: 12px 28px; min-height: 56px; border-bottom: 1px solid var(--border); background: var(--panel); font-size: 13px; }
   .context-bar .folder { font-family: var(--mono); } .context-bar .folder .k { color: var(--muted); } .context-bar .spacer { flex: 1; }
   main { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-  .center-step { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 40px; gap: 22px; }
+  .center-step { flex: 1; display: flex; flex-direction: column; align-items: center; text-align: center; padding: 40px; gap: 22px; min-height: 0; }
   .center-step .lead { font-size: 22px; font-weight: 600; } .center-step .sub { color: var(--muted); max-width: 480px; }
+  /* mode-cards gets pushed to vertical center of the space above the log
+     panel via auto margins, rather than justify-content:center on the whole
+     section — that way the (usually hidden) log panel below can dock to the
+     bottom of the page instead of being dragged into the centered block. */
+  .center-step .mode-cards { margin-top: auto; margin-bottom: auto; }
   .step-num { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
   .mode-cards { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; }
   .mode-card { width: 250px; background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 26px 22px; cursor: pointer; text-align: left; transition: border-color .12s, transform .12s; }
@@ -246,6 +251,23 @@
   .sub-progress.fading-out { opacity: 0; }
   .sub-progress-track { height: 5px; }
   .sub-progress-fill { background: linear-gradient(90deg, #8a6fd8, #a98cf0); }
+  /* Start-page log panel — a much more discreet cousin of .log/.build-progress
+     on the Build panel: a single status line plus a thin progress bar, docked
+     under the mode cards, with the fuller line-by-line log tucked behind a
+     Details toggle instead of always on screen. */
+  .start-log-panel { width: 100%; max-width: 640px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; }
+  .start-log-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .start-log-status { flex: 1; min-width: 0; text-align: left; font-family: var(--mono); font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .start-log-toggle { flex-shrink: 0; background: transparent; border: none; border-radius: 0; padding: 2px 4px; font-size: 11px; font-weight: 500; color: var(--muted); cursor: pointer; text-decoration: underline; }
+  .start-log-toggle:hover { background: transparent; color: var(--text); }
+  .start-progress { margin-top: 8px; opacity: 1; transition: opacity 2s ease; }
+  .start-progress.fading-out { opacity: 0; }
+  .start-progress-track { height: 4px; border-radius: 999px; overflow: hidden; background: var(--panel-2); border: 1px solid var(--border); }
+  .start-progress-fill { height: 100%; width: 0%; border-radius: 999px; background: linear-gradient(90deg, #0b7ddd, #0d90ff); transition: width .28s ease; }
+  .start-progress.is-complete .start-progress-fill { background: linear-gradient(90deg, #1f9d57, #3fb950); }
+  .start-progress.is-error .start-progress-fill { background: linear-gradient(90deg, #cc2f2f, #f85149); }
+  .start-progress.is-indeterminate .start-progress-fill { width: 40% !important; animation: buildProgressIndeterminate 1.1s ease-in-out infinite; }
+  .start-log { margin-top: 8px; max-height: 130px; overflow-y: auto; text-align: left; font-family: var(--mono); font-size: 11.5px; line-height: 1.6; white-space: pre-wrap; border-top: 1px dashed var(--border); padding-top: 8px; }
   .type-status { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .type-pill { display: inline-flex; align-items: baseline; gap: 6px; border: 1px solid var(--border); border-radius: 999px; padding: 4px 10px; background: var(--panel-2); }
   .type-pill .k { font-size: 12px; color: var(--muted); }
@@ -483,6 +505,19 @@
           <div class="t">Edit</div>
           <div class="d">Edit entities and properties in the existing <code>ro-crate-metadata.json</code>.</div>
         </div>
+      </div>
+
+      <div id="startLogPanel" class="start-log-panel hidden">
+        <div class="start-log-row">
+          <span id="startLogStatus" class="start-log-status" aria-live="polite"></span>
+          <button id="startLogToggle" class="start-log-toggle" type="button" aria-expanded="false">Details</button>
+        </div>
+        <div id="startProgress" class="start-progress">
+          <div class="start-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Folder scan progress">
+            <div id="startProgressFill" class="start-progress-fill"></div>
+          </div>
+        </div>
+        <div id="startLog" class="start-log hidden"></div>
       </div>
     </section>
 
