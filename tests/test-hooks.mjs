@@ -149,7 +149,11 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
   const logged = [];
   const ctx = { log: (msg, cls) => logged.push([msg, cls]) };
   await announceAndEmit(bus, HOOKS.OUTPUT_WRITE, ctx);
-  assert.deepEqual(logged, [], "a stage nobody taps should log nothing — an all-defaults run shouldn't get noisier");
+  assert.deepEqual(
+    logged,
+    [["→ output:write: (no plugins tap this).", "muted"]],
+    "a stage nobody taps should still log — confirmation the hook point itself fired, not just what ran"
+  );
 }
 
 /* ---------- the real registry produces the documented order ---------- */

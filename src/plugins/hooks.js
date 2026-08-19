@@ -37,14 +37,15 @@ export function createHookBus() {
 }
 
 // Announces a hook stage before firing it — which plugins are tapping it, in
-// run order — via ctx.log, so a caller's log traces the pipeline's actual
-// shape instead of only whatever each plugin chooses to self-report. Silent
-// (no line) for a stage nothing taps, so an all-defaults run isn't noisier
-// than before. Shared by the build pipeline (src/plugins/pipeline.js) and
-// main.js's folder-pick/profile-select steps, so both trace hooks the same
-// way.
+// run order, or that none are — via ctx.log, so a caller's log traces the
+// pipeline's actual shape instead of only whatever each plugin chooses to
+// self-report. Always logs, even for a stage nothing taps: that's still
+// confirmation the hook point itself exists and fired, which matters most
+// for a hook like profile:selected that's a pure extension point today.
+// Shared by the build pipeline (src/plugins/pipeline.js) and main.js's
+// folder-pick/profile-select steps, so both trace hooks the same way.
 export async function announceAndEmit(hookBus, hookName, ctx) {
   const names = hookBus.pluginNamesFor(hookName);
-  if (names.length) ctx.log(`→ ${hookName}: ${names.join(", ")}.`, "muted");
+  ctx.log(`→ ${hookName}: ${names.length ? names.join(", ") : "(no plugins tap this)"}.`, "muted");
   await hookBus.emit(hookName, ctx);
 }

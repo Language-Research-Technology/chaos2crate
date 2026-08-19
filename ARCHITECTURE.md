@@ -98,7 +98,7 @@ Not a WordPress-style actions/filters split: a handler that only reads `ctx` beh
 
 Handlers run **sequentially and awaited**, never in parallel — they mutate a shared crate, so ordering is load-bearing.
 
-A small helper sits next to the bus: `announceAndEmit(hookBus, hookName, ctx)` calls `ctx.log` with which plugins are registered for a hook, in run order, before calling `emit` — silently, if none are. Every caller below uses it instead of `emit` directly, so a build or a folder pick traces its own actual shape rather than relying on each plugin to self-report. Any `ctx` passed through it must carry a `log` function.
+A small helper sits next to the bus: `announceAndEmit(hookBus, hookName, ctx)` calls `ctx.log` with which plugins are registered for a hook, in run order, before calling `emit` — and logs even when none are, as confirmation the hook point itself exists and fired, not just a report of what ran. Every caller below uses it instead of `emit` directly, so a build or a folder pick traces its own actual shape rather than relying on each plugin to self-report. Any `ctx` passed through it must carry a `log` function.
 
 ### 4.2 The hooks
 
@@ -123,7 +123,7 @@ Five fire from `runPipeline` during an actual build (§4.4); two fire earlier, f
 | `folder:picked` | a folder handle was just obtained | `dirHandle`, `crateJson`/`crateSourceLabel` (mutable) | offer existing crate metadata to prefill Describe from |
 | `profile:selected` | a profile finished loading | `dirHandle`, `profileId`, `profileData` | react to the choice — currently untapped |
 
-`folder:picked` decides whether the folder holds metadata worth prefilling the Describe step from, and which file — previously a direct call from `main.js` into `xlsx-crate-input`'s helpers, now that plugin's own tap (§7.2), so which sources count as "existing crate metadata" is the plugin's call rather than the app's. `profile:selected` currently has no tap; it exists so a future plugin could react to a profile choice (re-check folder content against it, adjust prefill) without `main.js` needing to know that plugin exists.
+`folder:picked` decides whether the folder holds metadata worth prefilling the Describe step from, and which file — previously a direct call from `main.js` into `xlsx-crate-input`'s helpers, now that plugin's own tap (§7.2), so which sources count as "existing crate metadata" is the plugin's call rather than the app's. `profile:selected` currently has no tap; it exists so a future plugin could react to a profile choice (re-check folder content against it, adjust prefill) without `main.js` needing to know that plugin exists. It still fires, and still logs `→ profile:selected: (no plugins tap this).` (§4.1) — visible proof the extension point is live even with nothing registered against it.
 
 ### 4.3 The context object
 
