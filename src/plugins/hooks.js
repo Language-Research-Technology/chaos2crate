@@ -15,15 +15,21 @@ export const HOOKS = {
 };
 
 export function createHookBus() {
-  const registry = new Map(); // hookName -> [{ handler, priority }]
+  const registry = new Map(); // hookName -> [{ handler, priority, pluginName }]
   return {
-    on(hookName, handler, { priority = 10 } = {}) {
+    on(hookName, handler, { priority = 10, pluginName } = {}) {
       if (!registry.has(hookName)) registry.set(hookName, []);
-      registry.get(hookName).push({ handler, priority });
+      registry.get(hookName).push({ handler, priority, pluginName });
       registry.get(hookName).sort((a, b) => a.priority - b.priority);
     },
     async emit(hookName, ctx) {
       for (const { handler } of registry.get(hookName) || []) await handler(ctx);
+    },
+    // Names of the plugins tapping a hook, in the order they'll run — lets
+    // the pipeline log which plugins are about to fire for a stage without
+    // every plugin having to announce itself individually.
+    pluginNamesFor(hookName) {
+      return (registry.get(hookName) || []).map((r) => r.pluginName).filter(Boolean);
     },
   };
 }

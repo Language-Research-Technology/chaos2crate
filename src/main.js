@@ -183,6 +183,23 @@ function clearLog() {
   syncLogActionButtons();
 }
 
+// Carries the start page's setup history (folder pick, profile load) into
+// the build log instead of opening Build on a blank panel — cloning the
+// spans directly rather than replaying them through log() so this can't
+// trip updateBuildProgressFromLog() on old messages (e.g. a stray "Error:"
+// from a profile that failed to load earlier, then got fixed).
+function seedBuildLogFromStart() {
+  const startLines = $("startLog");
+  if (!startLines || !startLines.children.length) return;
+  const el = logEl();
+  for (const node of startLines.children) el.appendChild(node.cloneNode(true));
+  const divider = document.createElement("span");
+  divider.className = "l-muted";
+  divider.textContent = "──\n";
+  el.appendChild(divider);
+  scheduleLogFlush();
+}
+
 const BUILD_PROGRESS = {
   active: false,
   value: 0,
@@ -314,6 +331,94 @@ function hideSubProgress(instant = false) {
     host.classList.add("hidden");
     host.classList.remove("fading-out");
   }, 2000);
+}
+
+// Start-page ("Choose folder") status panel — a much quieter cousin of the
+// Build panel's .log/.build-progress. It only ever shows a single status
+// line and a thin progress bar; the line-by-line history sits behind a
+// Details toggle so folder-pick activity doesn't compete for attention with
+// the mode cards above it.
+function startProgressHostEl() { return $("startProgress"); }
+
+let startProgressFadeTimer = null;
+
+function resetStartPanel() {
+  if (startProgressFadeTimer) { clearTimeout(startProgressFadeTimer); startProgressFadeTimer = null; }
+  const panel = $("startLogPanel");
+  if (!panel) return;
+  panel.classList.remove("hidden");
+  const host = startProgressHostEl();
+  if (host) host.classList.remove("fading-out", "is-complete", "is-error", "is-indeterminate");
+  const fill = $("startProgressFill");
+  if (fill) fill.style.width = "0%";
+  const logHost = $("startLog");
+  if (logHost) logHost.textContent = "";
+  const statusEl = $("startLogStatus");
+  if (statusEl) { statusEl.textContent = ""; statusEl.className = "start-log-status"; }
+}
+
+function logStart(msg, cls = "info") {
+  const panel = $("startLogPanel");
+  if (!panel) return;
+  panel.classList.remove("hidden");
+  const statusEl = $("startLogStatus");
+  if (statusEl) { statusEl.textContent = msg; statusEl.className = "start-log-status l-" + cls; }
+  const logHost = $("startLog");
+  if (logHost) {
+    const span = document.createElement("span");
+    span.className = "l-" + cls;
+    span.textContent = msg + "\n";
+    logHost.appendChild(span);
+    logHost.scrollTop = logHost.scrollHeight;
+  }
+}
+
+function setStartProgress(value, opts = {}) {
+  const host = startProgressHostEl();
+  if (!host) return;
+  const fill = $("startProgressFill");
+  const track = host.querySelector(".start-progress-track");
+  const indeterminate = !!opts.indeterminate;
+  const complete = !!opts.complete;
+  const error = !!opts.error;
+  host.classList.toggle("is-indeterminate", indeterminate);
+  host.classList.toggle("is-complete", complete && !error);
+  host.classList.toggle("is-error", error);
+  const normalized = Math.max(0, Math.min(100, Number(value) || 0));
+  if (!indeterminate && fill) fill.style.width = `${normalized}%`;
+  if (track) track.setAttribute("aria-valuenow", String(Math.round(normalized)));
+}
+
+function beginStartProgress(label) {
+  const host = startProgressHostEl();
+  if (!host) return;
+  if (startProgressFadeTimer) { clearTimeout(startProgressFadeTimer); startProgressFadeTimer = null; }
+  host.classList.remove("fading-out");
+  setStartProgress(8, { indeterminate: true });
+  if (label) logStart(label);
+}
+
+// Fades the bar out shortly after completion (same 2s treatment as the
+// build panel's sub-progress) — the status line and Details history stay put
+// so "what happened when I picked this folder" is still there to check.
+function completeStartProgress(label) {
+  setStartProgress(100, { complete: true });
+  if (label) logStart(label, "ok");
+  const host = startProgressHostEl();
+  if (!host) return;
+  if (startProgressFadeTimer) clearTimeout(startProgressFadeTimer);
+  startProgressFadeTimer = setTimeout(() => {
+    startProgressFadeTimer = null;
+    host.classList.add("fading-out");
+  }, 600);
+}
+
+function failStartProgress(label) {
+  const host = startProgressHostEl();
+  if (startProgressFadeTimer) { clearTimeout(startProgressFadeTimer); startProgressFadeTimer = null; }
+  if (host) host.classList.remove("fading-out");
+  setStartProgress(100, { error: true });
+  if (label) logStart(label, "err");
 }
 
 function updateBuildProgressFromLog(msg, cls = "info") {
@@ -1694,6 +1799,8 @@ function reportProfileLoadFailure(e) {
   const message = e && e.message ? e.message : String(e);
   console.error("Could not load the default profile:", e);
   $("profileStatus").textContent = "Could not load the default profile: " + message;
+  logStart(`Could not load the default profile: ${message}`, "err");
+  failStartProgress();
   showView("view-select-profile");
 }
 
@@ -1705,15 +1812,19 @@ async function openProfileSelection() {
   const container = $("profileOptionsBody");
   container.innerHTML = "";
   container.appendChild(hintEl("Loading profiles…"));
+  beginStartProgress("Loading available profiles…");
   try {
     const entries = await listGitHubFolder(MASP_PROFILES_REPO_OWNER, MASP_PROFILES_REPO_NAME, MASP_PROFILES_REPO_REF, "");
     const folderNames = entries.filter((e) => e && e.type === "dir").map((e) => e.name).sort((a, b) => a.localeCompare(b));
     renderProfileOptions(folderNames);
+    completeStartProgress(`Found ${folderNames.length} profile(s) (plus the bundled default).`);
   } catch (e) {
     // The remote list failing is not fatal — the bundled default is still
     // offered, which is the whole point of bundling it.
     renderProfileOptions([]);
     $("profileOptionsBody").appendChild(hintEl("Could not load the profile list: " + (e && e.message ? e.message : e)));
+    logStart(`Could not load the profile list: ${e && e.message ? e.message : e}`, "warn");
+    completeStartProgress("Using the bundled default profile only.");
   }
   showView("view-select-profile");
 }
@@ -1753,6 +1864,7 @@ async function chooseProfile(profileId) {
   continueBtn.disabled = true;
   status.textContent = `Loading ${label}…`;
   setProfileOptionsDisabled(true);
+  beginStartProgress(`Loading profile "${label}"…`);
   try {
     let profileJson, modeJson;
     if (profileId === DEFAULT_PROFILE_ID) {
@@ -1764,11 +1876,13 @@ async function chooseProfile(profileId) {
     selectedProfileData = await buildProfileData(profileJson, modeJson);
     selectedProfile = profileId;
     status.textContent = `Ready: ${selectedProfileData.rootClassDefinition.name} (${selectedProfileData.fieldSchema.length} field(s)).`;
+    completeStartProgress(`Profile "${label}" ready: ${selectedProfileData.rootClassDefinition.name} (${selectedProfileData.fieldSchema.length} field(s)).`);
     continueBtn.disabled = false;
   } catch (e) {
     selectedProfile = null;
     selectedProfileData = null;
     status.textContent = "Could not load profile: " + (e && e.message ? e.message : e);
+    failStartProgress(`Could not load profile "${label}": ${e && e.message ? e.message : e}`);
   } finally {
     setProfileOptionsDisabled(false);
     renderProfileOptions(
@@ -2235,8 +2349,12 @@ async function pickFolder(nextView = "view-mode") {
   } catch (e) {
     if (e && e.name === "AbortError") return;
     console.error("Could not open folder:", e);
+    logStart(`Could not open folder: ${e.message}`, "err");
+    failStartProgress();
     return;
   }
+  resetStartPanel();
+  beginStartProgress(`Selected folder "${dirHandle.name}".`);
   rootDatasetOverride = null;
   selectedProfile = null;
   selectedProfileData = null;
@@ -2257,16 +2375,24 @@ async function pickFolder(nextView = "view-mode") {
   buildHtml = null;
   lastHtmlTemplate = null;
   resetCrateDetailsForm();
+  logStart("Looking for existing crate metadata…");
   try {
     // Remembers the existing root entity for buildDescribeField() to prefill
     // from, and (if one is found) synthesizes rootDatasetOverride from it so
     // refreshModeCards() below can enable the Build step right away.
-    await populateCrateDetailsFromExistingCrate(dirHandle);
+    const found = await populateCrateDetailsFromExistingCrate(dirHandle);
+    logStart(
+      found ? `Found existing metadata (${existingCrateSourceLabel}).` : "No existing crate metadata found.",
+      found ? "ok" : "muted",
+    );
   } catch (e) {
     console.warn("Could not prefill describe form from existing crate JSON:", e);
+    logStart(`Could not read existing crate metadata: ${e.message}`, "warn");
   }
   $("ctxFolder").textContent = dirHandle.name;
+  logStart("Checking for existing outputs…");
   await refreshModeCards();
+  completeStartProgress("Ready.");
   showView(nextView);
 }
 
@@ -2301,6 +2427,7 @@ async function openBuild() {
   clearLog();
   $("showHtmlBtn").classList.add("hidden");
   $("saveLogBtn").disabled = true;
+  seedBuildLogFromStart();
   log("Set your options, then click Build RO-Crate.", "muted");
   applyBuildOptionsFromProfile(selectedProfileData ? selectedProfileData.workflow.buildOptions : null);
   // applyBuildOptionsFromProfile() just reset every Build-option field's
@@ -3306,6 +3433,14 @@ function boot() {
   $("clearLogBtn").addEventListener("click", clearLogPanel);
   $("saveLogBtn").addEventListener("click", saveLog);
   syncLogActionButtons();
+  $("startLogToggle").addEventListener("click", () => {
+    const logHost = $("startLog");
+    const btn = $("startLogToggle");
+    const expanded = !logHost.classList.contains("hidden");
+    logHost.classList.toggle("hidden");
+    btn.setAttribute("aria-expanded", String(!expanded));
+    btn.textContent = expanded ? "Details" : "Hide";
+  });
   $("rebuildBtn").addEventListener("click", () => {
     if (!dirHandle) return;
     void openBuild();
