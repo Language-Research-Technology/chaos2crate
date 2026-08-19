@@ -11,7 +11,8 @@ import {
   extractDocumentText,
   toMammothInputOptions,
 } from "../src/plugins/ca-data-prep/process.js";
-import { readDocxFileBytesFromDirHandle } from "../src/plugins/ca-data-prep/index.js";
+import { plugin, readDocxFileBytesFromDirHandle } from "../src/plugins/ca-data-prep/index.js";
+import { HOOKS } from "../src/plugins/hooks.js";
 
 const text = `Transcript: ABC
 Recording date: 2025-01-01
@@ -57,6 +58,18 @@ assert.ok(Object.hasOwn(toMammothInputOptions(arrayBufferInput), "arrayBuffer"))
 assert.ok(Object.hasOwn(toMammothInputOptions(viewInput), "arrayBuffer"));
 assert.ok(Object.hasOwn(toMammothInputOptions(Buffer.from([1, 2, 3])), "buffer"));
 
+const realDocxUrl = new URL("../../c2c-data-prep-spec/input/AmAus02_transcript_plain.docx", import.meta.url);
+const realDocxBytes = await fs.readFile(realDocxUrl);
+const fileLike = {
+  fileName: "demo.docx",
+  relativePath: "demo.docx",
+  arrayBuffer: async () => realDocxBytes.buffer.slice(realDocxBytes.byteOffset, realDocxBytes.byteOffset + realDocxBytes.byteLength),
+};
+const ctx = { options: { processTranscriptDocuments: true }, filesWithMeta: [fileLike], log: () => {} };
+await plugin.hooks[HOOKS.FILES_ANALYZE](ctx);
+assert.equal(ctx.caDataPrep.documentRecords[0].csvId, "./c2c-output/demo.csv");
+assert.equal(ctx.caDataPrep.documentRecords[0].objectId, "./c2c-output/demo");
+
 const fakeDir = {
   async getDirectoryHandle(name, { create = false } = {}) {
     if (name === "nested") {
@@ -77,8 +90,6 @@ const fakeDir = {
 const bytes = await readDocxFileBytesFromDirHandle(fakeDir, "nested/sample.docx");
 assert.deepEqual(new Uint8Array(bytes), new Uint8Array([1, 2, 3, 4]));
 
-const realDocxUrl = new URL("../../c2c-data-prep-spec/input/AmAus02_transcript_plain.docx", import.meta.url);
-const realDocxBytes = await fs.readFile(realDocxUrl);
 assert.ok((await extractDocumentText(realDocxBytes)).length > 0, "Buffer input should parse via Mammoth");
 assert.ok((await extractDocumentText(realDocxBytes.buffer.slice(realDocxBytes.byteOffset, realDocxBytes.byteOffset + realDocxBytes.byteLength))).length > 0, "ArrayBuffer input should parse via Mammoth");
 assert.ok((await extractDocumentText(new File([realDocxBytes], "sample.docx", { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }))).length > 0, "File input should parse via Mammoth");
