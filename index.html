@@ -192,11 +192,16 @@
   .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 16px; min-width: 90px; }
   .stat .num { font-size: 22px; font-weight: 600; } .stat .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
   .status-block { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-bottom: 12px; }
+  /* No border/radius of its own — it now sits inside .log-panel-card (build
+     view), which already draws that edge, so this stays flush with the
+     log-status-row above it instead of nesting a second, visibly boxed
+     panel. The background stays: position:sticky needs an opaque background
+     to occlude the log/results content that scrolls past underneath it
+     while it's pinned, and var(--panel) matches the card around it, so it
+     reads as one surface rather than a patch. */
   .build-progress {
     background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 10px 12px;
+    padding: 10px 0 0;
     margin-bottom: 12px;
     position: sticky;
     top: 8px;
@@ -256,7 +261,11 @@
      sits above, the fuller line-by-line text is tucked behind the Details
      toggle instead of always on screen, and the status line always shows
      the latest line so there's something to read either way. */
-  .start-log-panel { width: 100%; max-width: 640px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; }
+  /* The card both logs sit in. .start-log-panel layers the start page's own
+     width cap and centering on top — the Build panel's copy doesn't need
+     either, since .output's grid column already bounds its width. */
+  .log-panel-card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; }
+  .start-log-panel { width: 100%; max-width: 640px; }
   .log-status-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
   .log-status-text { flex: 1; min-width: 0; text-align: left; font-family: var(--mono); font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .log-status-actions { flex-shrink: 0; display: flex; align-items: center; gap: 6px; }
@@ -519,7 +528,7 @@
         </div>
       </div>
 
-      <div id="startLogPanel" class="start-log-panel hidden">
+      <div id="startLogPanel" class="log-panel-card start-log-panel hidden">
         <div class="log-status-row">
           <span id="startLogStatus" class="log-status-text" aria-live="polite"></span>
           <div class="log-status-actions">
@@ -585,35 +594,37 @@
           <code>config.json</code> if present in the folder.</div>
       </div>
       <div class="output">
-        <div class="log-status-row">
-          <span id="buildLogStatus" class="log-status-text">Set your options, then click Build RO-Crate.</span>
-          <div class="log-status-actions">
-            <button id="copyLogBtn" class="icon-copy-btn" type="button" title="Copy log to clipboard" aria-label="Copy log to clipboard">&#128203;</button>
-            <button id="logToggleBtn" class="log-status-toggle" type="button" aria-expanded="false">Details</button>
+        <div id="buildLogPanel" class="log-panel-card">
+          <div class="log-status-row">
+            <span id="buildLogStatus" class="log-status-text">Set your options, then click Build RO-Crate.</span>
+            <div class="log-status-actions">
+              <button id="copyLogBtn" class="icon-copy-btn" type="button" title="Copy log to clipboard" aria-label="Copy log to clipboard">&#128203;</button>
+              <button id="logToggleBtn" class="log-status-toggle" type="button" aria-expanded="false">Details</button>
+            </div>
           </div>
-        </div>
-        <div id="buildProgress" class="build-progress hidden" aria-live="polite">
-          <div class="build-progress-head">
-            <span id="buildProgressLabel" class="build-progress-label">Waiting to build...</span>
-            <span id="buildProgressPct" class="build-progress-pct">0%</span>
-          </div>
-          <div class="build-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Build progress">
-            <div id="buildProgressFill" class="build-progress-fill"></div>
-          </div>
-          <div id="subProgress" class="sub-progress hidden" aria-live="polite">
+          <div id="buildProgress" class="build-progress hidden" aria-live="polite">
             <div class="build-progress-head">
-              <span id="subProgressLabel" class="build-progress-label">Working…</span>
-              <span id="subProgressPct" class="build-progress-pct">0%</span>
+              <span id="buildProgressLabel" class="build-progress-label">Waiting to build...</span>
+              <span id="buildProgressPct" class="build-progress-pct">0%</span>
             </div>
-            <div class="build-progress-track sub-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Sub-step progress">
-              <div id="subProgressFill" class="build-progress-fill sub-progress-fill"></div>
+            <div class="build-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Build progress">
+              <div id="buildProgressFill" class="build-progress-fill"></div>
+            </div>
+            <div id="subProgress" class="sub-progress hidden" aria-live="polite">
+              <div class="build-progress-head">
+                <span id="subProgressLabel" class="build-progress-label">Working…</span>
+                <span id="subProgressPct" class="build-progress-pct">0%</span>
+              </div>
+              <div class="build-progress-track sub-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Sub-step progress">
+                <div id="subProgressFill" class="build-progress-fill sub-progress-fill"></div>
+              </div>
             </div>
           </div>
-        </div>
-        <div id="log" class="log hidden"><span class="l-muted">Set your options, then click Build RO-Crate.</span></div>
-        <div id="logActions" class="log-actions hidden">
-          <button id="clearLogBtn" class="secondary" style="padding:5px 10px;">Clear</button>
-          <button id="saveLogBtn" class="secondary" style="padding:5px 10px;" disabled>Save log</button>
+          <div id="log" class="log hidden"><span class="l-muted">Set your options, then click Build RO-Crate.</span></div>
+          <div id="logActions" class="log-actions hidden">
+            <button id="clearLogBtn" class="secondary" style="padding:5px 10px;">Clear</button>
+            <button id="saveLogBtn" class="secondary" style="padding:5px 10px;" disabled>Save log</button>
+          </div>
         </div>
         <div class="results-bar">
           <h2 style="margin:0;">Results</h2>
