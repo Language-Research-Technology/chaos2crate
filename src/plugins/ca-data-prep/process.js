@@ -475,6 +475,14 @@ export function buildRoCrateMetadata(collectionName, documents) {
       speaker: document.speakerRefs,
     };
 
+    const csvFileEntity = {
+      "@id": document.csvId,
+      "@type": "File",
+      name: document.csvName,
+      encodingFormat: "text/csv",
+      isPartOf: { "@id": document.objectId },
+    };
+
     const annotationEntity = {
       "@id": document.annotationId,
       "@type": "Annotation",
@@ -490,12 +498,7 @@ export function buildRoCrateMetadata(collectionName, documents) {
       name: document.docxName,
       encodingFormat: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     });
-    crate.addEntity({
-      "@id": document.csvId,
-      "@type": "File",
-      name: document.csvName,
-      encodingFormat: "text/csv",
-    });
+    crate.addEntity(csvFileEntity);
 
     for (const person of document.persons) crate.addEntity(person);
   }

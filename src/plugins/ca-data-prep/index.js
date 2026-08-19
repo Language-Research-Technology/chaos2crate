@@ -47,6 +47,7 @@ export const plugin = {
           for (const row of result.rows) lines.push(`${row.speakerID},${row.text},${row.section}`);
           return lines.join("\n") + "\n";
         })();
+        const outputDirName = "c2c-output";
 
         const speakerRefs = Array.from(result.speakerMap.entries()).map(([speakerID, details]) => ({
           "@id": details.optionalCode || `#${speakerID}`,
@@ -56,10 +57,11 @@ export const plugin = {
           baseName,
           docxName: file.fileName || file.name,
           csvName: `${baseName}.csv`,
+          outputDirName,
           sourcePath: file.relativePath,
-          objectId: `./${baseName}`,
+          objectId: `./${outputDirName}/${baseName}`,
           docxId: file.relativePath,
-          csvId: `./${baseName}.csv`,
+          csvId: `./${outputDirName}/${baseName}.csv`,
           annotationId: `#annotation-${baseName}`,
           speakerRefs,
           persons: buildSpeakerPersonEntities(result.speakerMap),
@@ -79,8 +81,8 @@ export const plugin = {
       if (!documentRecords.length) return;
 
       for (const document of documentRecords) {
-        await writeFileAtPath(ctx.dirHandle, `${document.baseName}.csv`, document.csvText);
-        await writeFileAtPath(ctx.dirHandle, `${document.baseName}.log.txt`, document.logText);
+        await writeFileAtPath(ctx.dirHandle, `${document.outputDirName}/${document.baseName}.csv`, document.csvText);
+        await writeFileAtPath(ctx.dirHandle, `${document.outputDirName}/${document.baseName}.log.txt`, document.logText);
       }
 
       ctx.crate = buildRoCrateMetadata((ctx.dirHandle && ctx.dirHandle.name) || "Transcript Collection", documentRecords);
