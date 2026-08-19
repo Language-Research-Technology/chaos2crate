@@ -20,13 +20,17 @@ a small **Vite** project that bundles them for the browser.
 
 Requires Node and npm (for the build). The end result runs in Chrome/Edge.
 
+Build plugins live in a sibling repo, [`c2c-plugins`](https://github.com/benfoley/c2c-plugins) — clone it next to this one (`../c2c-plugins`) before `npm install` (see `package.json`'s `"c2c-plugins": "file:../c2c-plugins"` dependency, and `ARCHITECTURE.md` §4.7a).
+
 ```bash
 cd resources2crate
-npm install          # pulls ro-crate, ro-crate-excel, ro-crate-static-site, exceljs, vite
+npm install          # pulls ro-crate, ro-crate-excel, ro-crate-static-site, exceljs, vite, c2c-plugins
 
 npm run dev          # dev server at http://localhost:5173  → open in Chrome/Edge
 # or
-npm run build        # produces dist/  (a static site)
+npm run build        # produces dist/  (a static site) — every plugin, by default
+# or, to bundle only some plugins (smaller dist/):
+PLUGINS=merge,validate-crate,ro-crate-json-output npm run build
 npm run preview      # serve the built dist/ at http://localhost:5000
 ```
 

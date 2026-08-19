@@ -5,9 +5,13 @@
   "type": "module",
   "description": "Browser RO-Crate builder for a local folder — build + preview (JSON, xlsx, html) via the ro-crate libraries.",
   "scripts": {
+    "select-plugins": "node scripts/select-plugins.mjs",
+    "predev": "npm run select-plugins",
     "dev": "vite",
+    "prebuild": "npm run select-plugins",
     "build": "vite build",
     "preview": "vite preview --port 5000",
+    "pretest": "npm run select-plugins",
     "test": "node scripts/run-tests.mjs",
     "test:hooks": "node tests/test-hooks.mjs",
     "test:crate": "node tests/test-crate.mjs",
@@ -18,9 +22,8 @@
     "update:austlang": "node scripts/update-austlang-data.mjs"
   },
   "dependencies": {
-    "cheerio": "^1.0.0",
+    "c2c-plugins": "file:../c2c-plugins",
     "exceljs": "^4.4.0",
-    "mammoth": "^1.12.0",
     "ro-crate": "^3.7.2",
     "ro-crate-excel": "^1.2.1",
     "ro-crate-masp": "github:Language-Research-Technology/ro-crate-masp",

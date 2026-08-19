@@ -9,7 +9,7 @@ import fs from "node:fs";
 import { getDefaultProfile, DEFAULT_PROFILE_LABEL } from "../src/default_profile.js";
 import { loadValidator, getRootClassDefinition, toDescribeFieldSchema, validateBuiltCrate } from "../src/masp.js";
 import { buildFileMetadata, buildCrate, crateToJsonString, crateToPreviewHtml } from "../src/crate.js";
-import { resolveProfileGroups } from "../src/plugins/ro-crate-html-output/layout.js";
+import { resolveProfileGroups } from "c2c-plugins/src/ro-crate-html-output/layout.js";
 
 function typesOf(entity) {
   return [].concat(entity?.["@type"] ?? []);

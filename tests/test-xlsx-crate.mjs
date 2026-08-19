@@ -12,8 +12,7 @@ import { readFileSync, writeFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { ROCrate } from "ro-crate";
-import { HOOKS } from "../src/plugins/hooks.js";
-import { plugin as xlsxCrateInputPlugin } from "../src/plugins/xlsx-crate-input/index.js";
+import { createPlugin } from "c2c-plugins/src/xlsx-crate-input/index.js";
 import {
   PREFILL_SOURCES,
   pickNewestCrateSource,
@@ -24,7 +23,16 @@ import {
   mergeCrateEntities,
   applyCollectionMembership,
   collectWarnings,
-} from "../src/plugins/xlsx-crate-input/xlsx_crate.js";
+  configure,
+} from "c2c-plugins/src/xlsx-crate-input/xlsx_crate.js";
+import { buildDeps } from "../src/plugins/deps.js";
+
+const deps = buildDeps();
+const xlsxCrateInputPlugin = createPlugin(deps);
+// pickNewestCrateSource (below) is called directly against xlsx_crate.js
+// rather than through the plugin's hooks, so it needs its own configure()
+// call too — createPlugin(deps) only wires up index.js's own bindings.
+configure(deps);
 
 /* ---------- a fake directory handle over an in-memory file map ---------- */
 // Stands in for the File System Access API: statFile() only needs
@@ -116,7 +124,7 @@ assert.equal(await pickNewestCrateSource(null), null, "no folder yields null, no
     "ro-crate-metadata.json": { bytes: crateJsonBytes({ name: "Prefill me" }), lastModified: 1000 },
   });
   const ctx = { dirHandle: handle, log: () => {}, crateJson: null, crateSourceLabel: "" };
-  await xlsxCrateInputPlugin.hooks[HOOKS.FOLDER_PICKED](ctx);
+  await xlsxCrateInputPlugin.hooks["folder:picked"](ctx);
   assert.equal(
     ctx.crateJson["@graph"].find((e) => e["@id"] === "./").name,
     "Prefill me",
@@ -127,7 +135,7 @@ assert.equal(await pickNewestCrateSource(null), null, "no folder yields null, no
 
 {
   const ctx = { dirHandle: fakeDirHandle({}), log: () => {}, crateJson: null, crateSourceLabel: "" };
-  await xlsxCrateInputPlugin.hooks[HOOKS.FOLDER_PICKED](ctx);
+  await xlsxCrateInputPlugin.hooks["folder:picked"](ctx);
   assert.equal(ctx.crateJson, null, "a folder with no candidate source should leave ctx.crateJson untouched");
   assert.equal(ctx.crateSourceLabel, "", "and ctx.crateSourceLabel untouched");
 }
@@ -142,7 +150,7 @@ assert.equal(await pickNewestCrateSource(null), null, "no folder yields null, no
   });
   const logged = [];
   const ctx = { dirHandle: handle, log: (msg, cls) => logged.push([msg, cls]), crateJson: null, crateSourceLabel: "" };
-  await xlsxCrateInputPlugin.hooks[HOOKS.FOLDER_PICKED](ctx);
+  await xlsxCrateInputPlugin.hooks["folder:picked"](ctx);
   assert.equal(
     ctx.crateJson["@graph"].find((e) => e["@id"] === "./").name,
     "Fallback",
@@ -159,7 +167,7 @@ assert.equal(await pickNewestCrateSource(null), null, "no folder yields null, no
     "ro-crate-metadata.json": { bytes: Buffer.from("{ not json"), lastModified: 1 },
   });
   const ctx = { dirHandle: handle, log: () => {}, crateJson: null, crateSourceLabel: "" };
-  await xlsxCrateInputPlugin.hooks[HOOKS.FOLDER_PICKED](ctx);
+  await xlsxCrateInputPlugin.hooks["folder:picked"](ctx);
   assert.equal(ctx.crateJson, null, "a malformed JSON source with nothing else to fall back to should leave crateJson null");
   assert.equal(ctx.crateSourceLabel, "");
 }

@@ -10,9 +10,11 @@ import {
   processTranscriptText,
   extractDocumentText,
   toMammothInputOptions,
-} from "../src/plugins/ca-data-prep/process.js";
-import { plugin, readDocxFileBytesFromDirHandle } from "../src/plugins/ca-data-prep/index.js";
-import { HOOKS } from "../src/plugins/hooks.js";
+} from "c2c-plugins/src/ca-data-prep/process.js";
+import { createPlugin, readDocxFileBytesFromDirHandle } from "c2c-plugins/src/ca-data-prep/index.js";
+import { buildDeps } from "../src/plugins/deps.js";
+
+const plugin = createPlugin(buildDeps());
 
 const text = `Transcript: ABC
 Recording date: 2025-01-01
@@ -66,7 +68,7 @@ const fileLike = {
   arrayBuffer: async () => realDocxBytes.buffer.slice(realDocxBytes.byteOffset, realDocxBytes.byteOffset + realDocxBytes.byteLength),
 };
 const ctx = { options: { processTranscriptDocuments: true }, filesWithMeta: [fileLike], log: () => {} };
-await plugin.hooks[HOOKS.FILES_ANALYZE](ctx);
+await plugin.hooks["files:analyze"](ctx);
 assert.equal(ctx.caDataPrep.documentRecords[0].csvId, "./c2c-output/demo.csv");
 assert.equal(ctx.caDataPrep.documentRecords[0].objectId, "./c2c-output/demo");
 

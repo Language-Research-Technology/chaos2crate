@@ -18,8 +18,16 @@ import packageJson from "../package.json";
 import { createHookBus, HOOKS, announceAndEmit } from "./plugins/hooks.js";
 import { registerAllPlugins, composeOptionSchema, composeSettingsSchema } from "./plugins/index.js";
 import { runPipeline } from "./plugins/pipeline.js";
-import { resetUploadedConfigDirHandle } from "./plugins/ro-crate-html-output/index.js";
-import { readXlsxHeaders, readXlsxContextPrefixes } from "./plugins/merge/xlsx.js";
+// These two reach directly into specific c2c-plugins plugins rather than
+// going through the hook/pipeline system — resetUploadedConfigDirHandle and
+// readXlsxHeaders/readXlsxContextPrefixes are pure UI-support helpers this
+// file's forms call regardless of build options, not hook taps. Neither
+// needs createPlugin(deps) to have run first (see each file's own deps).
+// Known trade-off: unlike the plugins registered through src/plugins/index.js,
+// these two imports are NOT affected by the PLUGINS build-time selection —
+// ro-crate-html-output and merge are always bundled because of them.
+import { resetUploadedConfigDirHandle } from "c2c-plugins/src/ro-crate-html-output/index.js";
+import { readXlsxHeaders, readXlsxContextPrefixes } from "c2c-plugins/src/merge/xlsx.js";
 
 // The hook bus is created once and plugins registered once — all
 // build-specific state lives in the fresh ctx object passed to emit() on
@@ -1094,7 +1102,7 @@ async function reportOnXlsxCrate(file, name, origin) {
   }
 
   try {
-    const { readCrateFromXlsxBytes, collectWarnings } = await import("./plugins/xlsx-crate-input/xlsx_crate.js");
+    const { readCrateFromXlsxBytes, collectWarnings } = await import("c2c-plugins/src/xlsx-crate-input/xlsx_crate.js");
     const { validateBuiltCrate } = await import("./masp.js");
     const crate = await readCrateFromXlsxBytes(await file.arrayBuffer());
     const warnings = collectWarnings(crate, selectedProfileData?.validator || null);
@@ -1127,7 +1135,7 @@ async function reportOnFolderXlsxCrate() {
   const toggle = $("opt_xlsxCrate");
   if (!toggle || !toggle.checked || !dirHandle) { clearXlsxCrateReport(); return; }
 
-  const { FOLDER_XLSX_NAME } = await import("./plugins/xlsx-crate-input/xlsx_crate.js");
+  const { FOLDER_XLSX_NAME } = await import("c2c-plugins/src/xlsx-crate-input/xlsx_crate.js");
   const { readFileBytes } = await import("./fs_helpers.js");
   const bytes = await readFileBytes(dirHandle, FOLDER_XLSX_NAME);
   if (!bytes) {
@@ -1251,7 +1259,7 @@ async function openCollectionLabelsModal() {
   if (!dirHandle) return;
   let folderNames;
   try {
-    const { getSubDirectoryHandles } = await import("./plugins/docx-input/docx_crate.js");
+    const { getSubDirectoryHandles } = await import("c2c-plugins/src/docx-input/docx_crate.js");
     const subDirs = await getSubDirectoryHandles(dirHandle);
     const names = subDirs.map((h) => h.name);
     if (collectionOrderOverride) {
@@ -1286,7 +1294,7 @@ async function populateHomePageOptions() {
   if (!select || !dirHandle) return;
   const previousValue = select.value;
   try {
-    const { getSubDirectoryHandles, normalizeIdFromPath } = await import("./plugins/docx-input/docx_crate.js");
+    const { getSubDirectoryHandles, normalizeIdFromPath } = await import("c2c-plugins/src/docx-input/docx_crate.js");
     const subDirs = await getSubDirectoryHandles(dirHandle);
     const folderNames = subDirs.map((h) => h.name).sort((a, b) => a.localeCompare(b));
 

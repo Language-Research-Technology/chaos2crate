@@ -160,7 +160,7 @@ The input plugin is called directly rather than through a hook, because exactly 
 
 ```js
 export const PLUGINS = [           // additive — all register, all coexist
-  xlsxCrateInputPlugin, austlangPlugin, mergePlugin, validateCratePlugin,
+  xlsxCrateInputPlugin, austlangPlugin, caDataPrepPlugin, mergePlugin, validateCratePlugin,
   jsonOutputPlugin, xlsxOutputPlugin, htmlOutputPlugin,
 ];
 
@@ -169,6 +169,8 @@ export const INPUT_PLUGINS = {     // exclusive — one runs, keyed by inputMode
   docx: docxInputPlugin,
 };
 ```
+
+**This `src/plugins/index.js` is generated, not hand-written** (see §4.7a below) — the plugin *implementations* moved to a sibling repo, `c2c-plugins`. The shape above is still exactly what gets produced by default; only where the plugin modules themselves live, and how `PLUGINS`/`INPUT_PLUGINS` get assembled, changed.
 
 Input plugins are deliberately kept out of `PLUGINS`: they're mutually exclusive rather than additive, so they don't go through `registerAllPlugins` or contribute to the composed schemas.
 
@@ -189,27 +191,56 @@ A plugin's `optionSchema` puts it in the Build panel (per-build choices); a `set
 
 ### 4.7 Writing a new plugin
 
-```js
-// src/plugins/my-thing/index.js
-import { HOOKS } from "../hooks.js";
+Plugin implementations live in the sibling `c2c-plugins` repo now (§4.7a), not under `src/plugins/` — but the shape of a plugin is unchanged except for two things: hook names are literal strings rather than an imported `HOOKS` constant, and the plugin is exported as a `createPlugin(deps)` factory rather than a static object, so c2c-plugins carries no runtime dependency back on this repo.
 
-export const plugin = {
+```js
+// c2c-plugins/src/my-thing/index.js
+let doIt; // core resources2crate function this plugin needs, if any
+
+export function createPlugin(deps) {
+  ({ doIt } = deps);
+  return plugin;
+}
+
+const plugin = {
   name: "my-thing",
   optionSchema: { key: "enableMyThing", label: "Do the thing", default: false },
   hooks: {
-    [HOOKS.CRATE_BUILT]: async (ctx) => {
+    "crate:built": async (ctx) => {
       if (!ctx.options.enableMyThing) return;      // check your own option
-      const { doIt } = await import("./heavy.js"); // dynamic-import heavy deps
-      doIt(ctx.crate);
+      const { doItHeavily } = await import("./heavy.js"); // dynamic-import heavy deps
+      doItHeavily(ctx.crate, doIt);
       ctx.log("Did the thing.", "ok");
     },
   },
 };
 ```
 
-Then add it to `PLUGINS` in `src/plugins/index.js`, positioned where it should run relative to others sharing its hook. For the option to be reachable, a profile must name `enableMyThing` in its `buildOptions.enabledOptionKeys`.
+Then register it in c2c-plugins' own `index.js` (`REGISTRY`, keyed by the plugin's `name`), and add that same key to resources2crate's `PLUGINS` env var (or leave it unset/`all`, the default) so `scripts/select-plugins.mjs` includes it the next time `src/plugins/index.js` is regenerated — see §4.7a. Where it runs relative to others sharing its hook comes from `REGISTRY`'s own order in c2c-plugins, not from anything on the resources2crate side. For the option to be reachable, a profile must name `enableMyThing` in its `buildOptions.enabledOptionKeys`.
 
 Four conventions worth following: **guard on your own option first** (handlers run on every build); **dynamic-import anything heavy** so it stays out of the main bundle; **log through `ctx.log`** rather than `console`; and **write a user-facing doc** if the plugin asks anything of the *person preparing content or running a build* — an authoring convention (headings, filename patterns, magic strings like `SOUND FILE:`), an option whose effect isn't self-explanatory from its label, or an expected file/config shape it reads. That doc is for the plugin's users, not its maintainers — this section and the rest of this file are the latter. It belongs under `docs/` (see §11), linked from the README rather than folded into it, following the pattern `docs/docx-authoring.md` set for `docx-input` (§7.1). A plugin with no user-visible behaviour beyond a self-explanatory option toggle doesn't need one.
+
+### 4.7a The c2c-plugins repo split
+
+Every plugin under §7's catalogue — both the additive kind and the two input modes — lives in `c2c-plugins`, a sibling checkout (`../c2c-plugins` next to this repo), not under `src/plugins/`. What stayed here is the plugin *engine*: `src/plugins/hooks.js` (the hook bus and `HOOKS` constants) and `src/plugins/pipeline.js` (orchestration), plus the isomorphic core every plugin reaches into — `src/crate.js`, `src/fs_helpers.js`, `src/github.js`, `src/masp.js`.
+
+**c2c-plugins has no runtime dependency on this repo.** Two conventions make that possible, both covered in c2c-plugins' own README:
+
+- Hook names are literal strings (`"crate:built"`, `"output:write"`, …) rather than an imported `HOOKS.CRATE_BUILT` — a stable contract owned by `src/plugins/hooks.js`, just not one c2c-plugins imports to use.
+- Every plugin module exports `createPlugin(deps)` instead of a static `plugin` object. `deps` is resources2crate's core functions, built once by `src/plugins/deps.js`'s `buildDeps()` (the same full object handed to every plugin — an unused key is simply never read) and passed to each selected plugin's factory.
+
+resources2crate depends on c2c-plugins as `"c2c-plugins": "file:../c2c-plugins"` — a local, symlinked dependency; not published to npm.
+
+**Build-time plugin selection.** Not every deployment needs every plugin (`ca-data-prep` is specific to one dataset, for instance), so `src/plugins/index.js` is generated rather than hand-written: `node scripts/select-plugins.mjs` reads a `PLUGINS` env var (comma-separated plugin names; unset or `all` means everything) and writes `src/plugins/index.js` with static imports for only the selected plugins, pulled from c2c-plugins' `REGISTRY`. A runtime filter over an already-imported registry wouldn't achieve real bundle-size exclusion — Rollup can't tree-shake based on which object keys get read at runtime — so exclusion has to happen by simply never writing the `import` statement for a plugin that wasn't selected. Input-mode plugins (`generic`/`docx`) are always both included regardless of `PLUGINS`, since they're small and needed for the UI's input-mode switch.
+
+```bash
+npm run build                                            # every plugin (default)
+PLUGINS=merge,validate-crate,ro-crate-json-output npm run build   # only these
+```
+
+The generator runs automatically before `dev`/`build`/`test` (package.json's `predev`/`prebuild`/`pretest` scripts call `select-plugins`), so `src/plugins/index.js` is always freshly regenerated before use — it's still committed so the file isn't missing for anyone who reads the repo without running a script first, but treat its content as disposable; don't hand-edit it.
+
+**Known trade-off:** two of this repo's own files reach directly into a specific c2c-plugins plugin, bypassing the hook/pipeline system entirely — `main.js`'s merge-mapping-builder UI imports `readXlsxHeaders`/`readXlsxContextPrefixes` from `c2c-plugins/src/merge/xlsx.js`, and its uploaded-template-folder cache reset imports `resetUploadedConfigDirHandle` from `c2c-plugins/src/ro-crate-html-output/index.js`. Both predate the repo split (they were already direct imports, just from a local path) and are pure UI-support helpers `main.js`'s forms need regardless of build options — but because they're static imports, `merge` and `ro-crate-html-output` end up always bundled even if `PLUGINS` excludes them. Not addressed by the split; flagged here for whoever tackles it next.
 
 ---
 
@@ -277,7 +308,7 @@ Multi-valued properties take comma-separated input and produce arrays of referen
 
 **Structural properties are never rendered.** `pcdm:hasMember`, `pcdm:memberOf`, `hasPart` and `isPartOf` are dropped from the field schema even when a profile declares them. A profile is right to require that a collection have members; that requirement is satisfied by the folder scan or by supplied metadata, never by typing. Rendering them does active harm: given a class range they become entity-ref fields, so typing "magpie" mints an empty `RepositoryObject` that then appears in the preview beside the real one.
 
-**Prefilling from the folder.** A folder may already hold the crate's metadata in more than one form: the spreadsheet the collection is authored in, and the `ro-crate-metadata.json` a previous build (or a `rocxl` sync) wrote. `pickNewestCrateSource()` in `src/plugins/xlsx-crate-input/xlsx_crate.js` picks between them by `lastModified` — whichever the author touched last is the one they've been working in, so that's what the form reflects. Candidates, in tie-break order:
+**Prefilling from the folder.** A folder may already hold the crate's metadata in more than one form: the spreadsheet the collection is authored in, and the `ro-crate-metadata.json` a previous build (or a `rocxl` sync) wrote. `pickNewestCrateSource()` in c2c-plugins' `src/xlsx-crate-input/xlsx_crate.js` picks between them by `lastModified` — whichever the author touched last is the one they've been working in, so that's what the form reflects. Candidates, in tie-break order:
 
 1. `additional-ro-crate-metadata.xlsx`
 2. `ro-crate-metadata.xlsx`
