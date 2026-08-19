@@ -436,6 +436,14 @@ export const plugin = {
         const layout = resolveProfileGroups(crate, profilePropertyGroups);
         if (layout.length) {
           log(`Preview: profile layout applied (${layout.length} group(s): ${layout.map((g) => g.name).join(", ")}).`, "muted");
+        } else if (ctx.selectedProfileData) {
+          log("Preview: active profile loaded, but no property groups resolved to render the plain preview. Check that the profile's workflow.propertyGroups entries resolve against the built crate context.", "warn");
+        } else {
+          throw new Error(
+            "HTML preview requires an active profile with resolved propertyGroups. " +
+            "No profile was loaded for this build, so no preview layout could be resolved. " +
+            "Select a profile or re-run the build with a profile in effect."
+          );
         }
 
         let html;

@@ -165,4 +165,10 @@ assert.ok(
   "the preview should show the crate's name from the root dataset"
 );
 
+await assert.rejects(
+  () => crateToPreviewHtml(crate, { layouts: { default: [] } }),
+  /selected profile.*propertyGroups|opts\.layouts\.default.*required/i,
+  "empty layouts.default should report the active profile/layout cause clearly"
+);
+
 console.log(`test-crate: all tests passed (${fileEntities.length} files, ${objectIds.length} objects, ${graph.length} entities, ${xlsxBytes.length} xlsx bytes, ${html.length} html bytes)`);
