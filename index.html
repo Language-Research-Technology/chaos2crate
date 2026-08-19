@@ -258,8 +258,19 @@
   .start-log-panel { width: 100%; max-width: 640px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; }
   .start-log-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
   .start-log-status { flex: 1; min-width: 0; text-align: left; font-family: var(--mono); font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .start-log-actions { flex-shrink: 0; display: flex; align-items: center; gap: 6px; }
   .start-log-toggle { flex-shrink: 0; background: transparent; border: none; border-radius: 0; padding: 2px 4px; font-size: 11px; font-weight: 500; color: var(--muted); cursor: pointer; text-decoration: underline; }
   .start-log-toggle:hover { background: transparent; color: var(--text); }
+  /* Shared small square icon button — copy-to-clipboard on both the start
+     page's log and the Build panel's log. Same shape as .map-copy-btn
+     (merge-mapping modal) so icon buttons read as one convention app-wide. */
+  .icon-copy-btn {
+    flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
+    width: 24px; height: 24px; padding: 0; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--panel-2); color: var(--muted); font-size: 13px; line-height: 1; cursor: pointer;
+  }
+  .icon-copy-btn:hover { color: var(--text); border-color: var(--accent); background: var(--panel-2); }
+  .icon-copy-btn.copied { color: var(--ok); border-color: var(--ok); }
   .start-progress { margin-top: 8px; opacity: 1; transition: opacity 2s ease; }
   .start-progress.fading-out { opacity: 0; }
   .start-progress-track { height: 4px; border-radius: 999px; overflow: hidden; background: var(--panel-2); border: 1px solid var(--border); }
@@ -510,7 +521,10 @@
       <div id="startLogPanel" class="start-log-panel hidden">
         <div class="start-log-row">
           <span id="startLogStatus" class="start-log-status" aria-live="polite"></span>
-          <button id="startLogToggle" class="start-log-toggle" type="button" aria-expanded="false">Details</button>
+          <div class="start-log-actions">
+            <button id="startLogCopyBtn" class="icon-copy-btn" type="button" title="Copy log to clipboard" aria-label="Copy log to clipboard">&#128203;</button>
+            <button id="startLogToggle" class="start-log-toggle" type="button" aria-expanded="false">Details</button>
+          </div>
         </div>
         <div id="startProgress" class="start-progress">
           <div class="start-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Folder scan progress">
@@ -590,6 +604,8 @@
         </div>
         <div id="log" class="log"><span class="l-muted">Set your options, then click Build RO-Crate.</span></div>
         <div class="log-actions">
+          <button id="logToggleBtn" class="secondary" style="padding:5px 10px;" type="button" aria-expanded="true">Hide</button>
+          <button id="copyLogBtn" class="icon-copy-btn" type="button" title="Copy log to clipboard" aria-label="Copy log to clipboard">&#128203;</button>
           <button id="clearLogBtn" class="secondary" style="padding:5px 10px;">Clear</button>
           <button id="saveLogBtn" class="secondary" style="padding:5px 10px;" disabled>Save log</button>
         </div>

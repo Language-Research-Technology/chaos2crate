@@ -145,8 +145,10 @@ function syncLogActionButtons() {
   const hasLog = text.length > 0;
   const clearBtn = $("clearLogBtn");
   const saveBtn = $("saveLogBtn");
+  const copyBtn = $("copyLogBtn");
   if (clearBtn) clearBtn.disabled = !hasLog;
   if (saveBtn && !hasLog) saveBtn.disabled = true;
+  if (copyBtn) copyBtn.disabled = !hasLog;
 }
 
 // Reading scrollHeight (to autoscroll) and textContent (to enable/disable
@@ -180,6 +182,15 @@ function log(msg, cls = "info") {
 function clearLog() {
   logEl().textContent = "";
   resetBuildProgress();
+  // A log hidden before the panel was cleared (opening Build fresh, or an
+  // explicit Clear) would otherwise keep hiding whatever gets logged next —
+  // easy to forget it's toggled off and wonder why nothing's showing.
+  const toggleBtn = $("logToggleBtn");
+  if (toggleBtn && logEl().classList.contains("hidden")) {
+    logEl().classList.remove("hidden");
+    toggleBtn.setAttribute("aria-expanded", "true");
+    toggleBtn.textContent = "Hide";
+  }
   syncLogActionButtons();
 }
 
@@ -2456,6 +2467,29 @@ function clearLogPanel() {
   clearLog();
 }
 
+// Copies a log panel's text to the clipboard, flashing the trigger button
+// with a checkmark for ~1.2s so the click has visible confirmation — the
+// button itself gives no other feedback (no dialog, no toast). Shared by
+// the start page's log and the Build panel's log.
+async function copyLogToClipboard(el, btn) {
+  const text = el.textContent || "";
+  if (!text.trim()) return;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (e) {
+    console.warn("Could not copy log to clipboard:", e);
+    return;
+  }
+  if (!btn) return;
+  const original = btn.innerHTML;
+  btn.innerHTML = "&#10003;";
+  btn.classList.add("copied");
+  setTimeout(() => {
+    btn.innerHTML = original;
+    btn.classList.remove("copied");
+  }, 1200);
+}
+
 function isDescribeViewActive() {
   const view = $("view-crate-details");
   return !!(view && !view.classList.contains("hidden"));
@@ -3425,6 +3459,15 @@ function boot() {
   $("showHtmlBtn").addEventListener("click", () => openHtmlInNewTab(buildHtml));
   $("clearLogBtn").addEventListener("click", clearLogPanel);
   $("saveLogBtn").addEventListener("click", saveLog);
+  $("copyLogBtn").addEventListener("click", () => copyLogToClipboard($("log"), $("copyLogBtn")));
+  $("logToggleBtn").addEventListener("click", () => {
+    const logHost = $("log");
+    const btn = $("logToggleBtn");
+    const expanded = !logHost.classList.contains("hidden");
+    logHost.classList.toggle("hidden");
+    btn.setAttribute("aria-expanded", String(!expanded));
+    btn.textContent = expanded ? "Show" : "Hide";
+  });
   syncLogActionButtons();
   $("startLogToggle").addEventListener("click", () => {
     const logHost = $("startLog");
@@ -3434,6 +3477,7 @@ function boot() {
     btn.setAttribute("aria-expanded", String(!expanded));
     btn.textContent = expanded ? "Details" : "Hide";
   });
+  $("startLogCopyBtn").addEventListener("click", () => copyLogToClipboard($("startLog"), $("startLogCopyBtn")));
   $("rebuildBtn").addEventListener("click", () => {
     if (!dirHandle) return;
     void openBuild();
