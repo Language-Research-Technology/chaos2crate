@@ -349,7 +349,11 @@ export async function crateToPreviewHtml(crate, opts = {}) {
   if (template) {
     const cfg = config || {};
     if (!Array.isArray(cfg.propertyGroups) || !cfg.propertyGroups.length) {
-      throw new Error("crateToPreviewHtml: config.propertyGroups is required — no default layout fallback. Pass the selected profile's resolved property groups.");
+      throw new Error(
+        "crateToPreviewHtml: config.propertyGroups is required. " +
+        "This build did not resolve a property layout from the active profile; " +
+        "pass the selected profile's resolved property groups."
+      );
     }
     const layout = cfg.propertyGroups;
     const data = await roCrateToJSON(crate, cfg, layout);
@@ -359,7 +363,11 @@ export async function crateToPreviewHtml(crate, opts = {}) {
     html = await renderTemplate({ data, template, config: { ...cfg, propertyGroups: layout }, css, layout });
   } else {
     if (!layouts || !Array.isArray(layouts.default) || !layouts.default.length) {
-      throw new Error("crateToPreviewHtml: opts.layouts.default is required — no default layout fallback. Pass the selected profile's resolved property groups.");
+      throw new Error(
+        "crateToPreviewHtml: opts.layouts.default is required. " +
+        "The active profile did not resolve a usable property layout; " +
+        "pass the selected profile's resolved property groups (for example, resolveProfileGroups(crate, profile.workflow.propertyGroups))."
+      );
     }
     html = await renderSinglePage({ crate, layouts });
   }
