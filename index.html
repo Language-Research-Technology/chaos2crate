@@ -38,6 +38,14 @@
   .mode-card .ic { font-size: 26px; margin-bottom: 12px; } .mode-card .t { font-size: 17px; font-weight: 600; margin-bottom: 6px; } .mode-card .d { color: var(--muted); font-size: 13px; }
   .mode-card.build-card { width: 320px; cursor: default; }
   .mode-card.build-card:hover { border-color: var(--border); transform: none; }
+  /* Show/Edit sit under Build now, one line each rather than the same
+     tall icon-over-title-over-description shape Build needs for its step
+     list — icon beside a title+description column instead of stacked
+     above it. */
+  .mode-card.mode-card-compact { display: flex; align-items: center; gap: 12px; padding: 12px 16px; }
+  .mode-card-compact .ic { font-size: 20px; margin-bottom: 0; flex-shrink: 0; }
+  .mode-card-compact .t { font-size: 14px; margin-bottom: 2px; }
+  .mode-card-compact .d { font-size: 11.5px; line-height: 1.4; }
   .build-card .build-steps { margin-top: 12px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--panel-2); }
   .build-card .build-step {
     display: grid; grid-template-columns: 28px 1fr; gap: 10px; align-items: start; padding: 10px 12px;
@@ -511,15 +519,19 @@
           </div>
         </div>
 
-        <div id="cardShow" class="mode-card" role="button" tabindex="0">
+        <div id="cardShow" class="mode-card mode-card-compact" role="button" tabindex="0">
           <div class="ic">&#128196;</div>
-          <div class="t">Show</div>
-          <div class="d">Render the existing <code>ro-crate-preview.html</code> in this folder.</div>
+          <div>
+            <div class="t">Show</div>
+            <div class="d">Render the existing <code>ro-crate-preview.html</code> in this folder.</div>
+          </div>
         </div>
-        <div id="cardEdit" class="mode-card hidden" role="button" tabindex="0">
+        <div id="cardEdit" class="mode-card mode-card-compact hidden" role="button" tabindex="0">
           <div class="ic">&#9998;&#65039;</div>
-          <div class="t">Edit</div>
-          <div class="d">Edit entities and properties in the existing <code>ro-crate-metadata.json</code>.</div>
+          <div>
+            <div class="t">Edit</div>
+            <div class="d">Edit entities and properties in the existing <code>ro-crate-metadata.json</code>.</div>
+          </div>
         </div>
       </div>
 
