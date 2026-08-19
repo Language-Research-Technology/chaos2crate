@@ -2488,13 +2488,18 @@ async function copyLogToClipboard(el, btn) {
 // Wires a Details/Hide toggle button to show/hide a log body — shared shape
 // for the start page's log and the Build panel's log, both collapsed by
 // default so the log-status-row's status line is what's on screen day to
-// day, with the full line-by-line text a click away.
-function wireLogToggle(toggleId, logId) {
+// day, with the full line-by-line text a click away. extraIds are other
+// elements that should only be on screen alongside the expanded log — the
+// Build panel's Clear/Save log actions aren't useful, or discoverable-looking,
+// against a log you can't currently see.
+function wireLogToggle(toggleId, logId, extraIds = []) {
   const btn = $(toggleId);
   const logHost = $(logId);
+  const extras = extraIds.map((id) => $(id)).filter(Boolean);
   btn.addEventListener("click", () => {
     const expanded = !logHost.classList.contains("hidden");
     logHost.classList.toggle("hidden");
+    extras.forEach((el) => el.classList.toggle("hidden", expanded));
     btn.setAttribute("aria-expanded", String(!expanded));
     btn.textContent = expanded ? "Details" : "Hide";
   });
@@ -3470,7 +3475,7 @@ function boot() {
   $("clearLogBtn").addEventListener("click", clearLogPanel);
   $("saveLogBtn").addEventListener("click", saveLog);
   $("copyLogBtn").addEventListener("click", () => copyLogToClipboard($("log"), $("copyLogBtn")));
-  wireLogToggle("logToggleBtn", "log");
+  wireLogToggle("logToggleBtn", "log", ["logActions"]);
   syncLogActionButtons();
   wireLogToggle("startLogToggle", "startLog");
   $("startLogCopyBtn").addEventListener("click", () => copyLogToClipboard($("startLog"), $("startLogCopyBtn")));
