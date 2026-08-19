@@ -145,8 +145,10 @@ function syncLogActionButtons() {
   const hasLog = text.length > 0;
   const clearBtn = $("clearLogBtn");
   const saveBtn = $("saveLogBtn");
+  const copyBtn = $("copyLogBtn");
   if (clearBtn) clearBtn.disabled = !hasLog;
   if (saveBtn && !hasLog) saveBtn.disabled = true;
+  if (copyBtn) copyBtn.disabled = !hasLog;
 }
 
 // Reading scrollHeight (to autoscroll) and textContent (to enable/disable
@@ -174,12 +176,16 @@ function log(msg, cls = "info") {
   span.className = "l-" + cls;
   span.textContent = msg + "\n";
   logEl().appendChild(span);
+  const statusEl = $("buildLogStatus");
+  if (statusEl) { statusEl.textContent = msg; statusEl.className = "log-status-text l-" + cls; }
   updateBuildProgressFromLog(msg, cls);
   scheduleLogFlush();
 }
 function clearLog() {
   logEl().textContent = "";
   resetBuildProgress();
+  const statusEl = $("buildLogStatus");
+  if (statusEl) { statusEl.textContent = ""; statusEl.className = "log-status-text"; }
   syncLogActionButtons();
 }
 
@@ -2456,6 +2462,49 @@ function clearLogPanel() {
   clearLog();
 }
 
+// Copies a log panel's text to the clipboard, flashing the trigger button
+// with a checkmark for 2s so the click has visible confirmation — the
+// button itself gives no other feedback (no dialog, no toast). Shared by
+// the start page's log and the Build panel's log.
+async function copyLogToClipboard(el, btn) {
+  const text = el.textContent || "";
+  if (!text.trim()) return;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (e) {
+    console.warn("Could not copy log to clipboard:", e);
+    return;
+  }
+  if (!btn) return;
+  const original = btn.innerHTML;
+  btn.innerHTML = "&#10003;";
+  btn.classList.add("copied");
+  setTimeout(() => {
+    btn.innerHTML = original;
+    btn.classList.remove("copied");
+  }, 2000);
+}
+
+// Wires a Details/Hide toggle button to show/hide a log body — shared shape
+// for the start page's log and the Build panel's log, both collapsed by
+// default so the log-status-row's status line is what's on screen day to
+// day, with the full line-by-line text a click away. extraIds are other
+// elements that should only be on screen alongside the expanded log — the
+// Build panel's Clear/Save log actions aren't useful, or discoverable-looking,
+// against a log you can't currently see.
+function wireLogToggle(toggleId, logId, extraIds = []) {
+  const btn = $(toggleId);
+  const logHost = $(logId);
+  const extras = extraIds.map((id) => $(id)).filter(Boolean);
+  btn.addEventListener("click", () => {
+    const expanded = !logHost.classList.contains("hidden");
+    logHost.classList.toggle("hidden");
+    extras.forEach((el) => el.classList.toggle("hidden", expanded));
+    btn.setAttribute("aria-expanded", String(!expanded));
+    btn.textContent = expanded ? "Details" : "Hide";
+  });
+}
+
 function isDescribeViewActive() {
   const view = $("view-crate-details");
   return !!(view && !view.classList.contains("hidden"));
@@ -3425,15 +3474,11 @@ function boot() {
   $("showHtmlBtn").addEventListener("click", () => openHtmlInNewTab(buildHtml));
   $("clearLogBtn").addEventListener("click", clearLogPanel);
   $("saveLogBtn").addEventListener("click", saveLog);
+  $("copyLogBtn").addEventListener("click", () => copyLogToClipboard($("log"), $("copyLogBtn")));
+  wireLogToggle("logToggleBtn", "log", ["logActions"]);
   syncLogActionButtons();
-  $("startLogToggle").addEventListener("click", () => {
-    const logHost = $("startLog");
-    const btn = $("startLogToggle");
-    const expanded = !logHost.classList.contains("hidden");
-    logHost.classList.toggle("hidden");
-    btn.setAttribute("aria-expanded", String(!expanded));
-    btn.textContent = expanded ? "Details" : "Hide";
-  });
+  wireLogToggle("startLogToggle", "startLog");
+  $("startLogCopyBtn").addEventListener("click", () => copyLogToClipboard($("startLog"), $("startLogCopyBtn")));
   $("rebuildBtn").addEventListener("click", () => {
     if (!dirHandle) return;
     void openBuild();
