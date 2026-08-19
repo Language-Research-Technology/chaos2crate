@@ -2463,7 +2463,7 @@ function clearLogPanel() {
 }
 
 // Copies a log panel's text to the clipboard, flashing the trigger button
-// with a checkmark for ~1.2s so the click has visible confirmation — the
+// with a checkmark for 2s so the click has visible confirmation — the
 // button itself gives no other feedback (no dialog, no toast). Shared by
 // the start page's log and the Build panel's log.
 async function copyLogToClipboard(el, btn) {
@@ -2482,7 +2482,7 @@ async function copyLogToClipboard(el, btn) {
   setTimeout(() => {
     btn.innerHTML = original;
     btn.classList.remove("copied");
-  }, 1200);
+  }, 2000);
 }
 
 // Wires a Details/Hide toggle button to show/hide a log body — shared shape
