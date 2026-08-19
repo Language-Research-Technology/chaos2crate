@@ -28,11 +28,10 @@
   main { flex: 1; display: flex; flex-direction: column; min-height: 0; }
   .step-num { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
   /* view-mode reuses the same LH/RH shell as view-build (.two-col-grid/
-     .col-left/.col-right): Build alone on the left (centered, like it was
-     in the old single centered layout), Show/Edit and the log panel
-     stacked on the right — mirroring options-on-the-left,
+     .col-left/.col-right): Build, Show and Edit stacked and centered on
+     the left, the log panel on the right — mirroring options-on-the-left,
      progress-and-log-on-the-right on the Build screen itself. */
-  #view-mode .col-left { display: flex; align-items: center; justify-content: center; }
+  #view-mode .col-left { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; }
   #view-mode .col-right { gap: 16px; }
   .mode-card { width: 250px; background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 26px 22px; cursor: pointer; text-align: left; transition: border-color .12s, transform .12s; }
   .mode-card:hover { border-color: var(--accent); transform: translateY(-2px); }
@@ -511,9 +510,7 @@
             </button>
           </div>
         </div>
-      </div>
 
-      <div class="col-right">
         <div id="cardShow" class="mode-card" role="button" tabindex="0">
           <div class="ic">&#128196;</div>
           <div class="t">Show</div>
@@ -524,7 +521,9 @@
           <div class="t">Edit</div>
           <div class="d">Edit entities and properties in the existing <code>ro-crate-metadata.json</code>.</div>
         </div>
+      </div>
 
+      <div class="col-right">
         <div id="startLogPanel" class="log-panel-card hidden">
           <div class="log-status-row">
             <span id="startLogStatus" class="log-status-text" aria-live="polite"></span>
