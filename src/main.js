@@ -176,21 +176,16 @@ function log(msg, cls = "info") {
   span.className = "l-" + cls;
   span.textContent = msg + "\n";
   logEl().appendChild(span);
+  const statusEl = $("buildLogStatus");
+  if (statusEl) { statusEl.textContent = msg; statusEl.className = "log-status-text l-" + cls; }
   updateBuildProgressFromLog(msg, cls);
   scheduleLogFlush();
 }
 function clearLog() {
   logEl().textContent = "";
   resetBuildProgress();
-  // A log hidden before the panel was cleared (opening Build fresh, or an
-  // explicit Clear) would otherwise keep hiding whatever gets logged next —
-  // easy to forget it's toggled off and wonder why nothing's showing.
-  const toggleBtn = $("logToggleBtn");
-  if (toggleBtn && logEl().classList.contains("hidden")) {
-    logEl().classList.remove("hidden");
-    toggleBtn.setAttribute("aria-expanded", "true");
-    toggleBtn.textContent = "Hide";
-  }
+  const statusEl = $("buildLogStatus");
+  if (statusEl) { statusEl.textContent = ""; statusEl.className = "log-status-text"; }
   syncLogActionButtons();
 }
 
@@ -2490,6 +2485,21 @@ async function copyLogToClipboard(el, btn) {
   }, 1200);
 }
 
+// Wires a Details/Hide toggle button to show/hide a log body — shared shape
+// for the start page's log and the Build panel's log, both collapsed by
+// default so the log-status-row's status line is what's on screen day to
+// day, with the full line-by-line text a click away.
+function wireLogToggle(toggleId, logId) {
+  const btn = $(toggleId);
+  const logHost = $(logId);
+  btn.addEventListener("click", () => {
+    const expanded = !logHost.classList.contains("hidden");
+    logHost.classList.toggle("hidden");
+    btn.setAttribute("aria-expanded", String(!expanded));
+    btn.textContent = expanded ? "Details" : "Hide";
+  });
+}
+
 function isDescribeViewActive() {
   const view = $("view-crate-details");
   return !!(view && !view.classList.contains("hidden"));
@@ -3460,23 +3470,9 @@ function boot() {
   $("clearLogBtn").addEventListener("click", clearLogPanel);
   $("saveLogBtn").addEventListener("click", saveLog);
   $("copyLogBtn").addEventListener("click", () => copyLogToClipboard($("log"), $("copyLogBtn")));
-  $("logToggleBtn").addEventListener("click", () => {
-    const logHost = $("log");
-    const btn = $("logToggleBtn");
-    const expanded = !logHost.classList.contains("hidden");
-    logHost.classList.toggle("hidden");
-    btn.setAttribute("aria-expanded", String(!expanded));
-    btn.textContent = expanded ? "Show" : "Hide";
-  });
+  wireLogToggle("logToggleBtn", "log");
   syncLogActionButtons();
-  $("startLogToggle").addEventListener("click", () => {
-    const logHost = $("startLog");
-    const btn = $("startLogToggle");
-    const expanded = !logHost.classList.contains("hidden");
-    logHost.classList.toggle("hidden");
-    btn.setAttribute("aria-expanded", String(!expanded));
-    btn.textContent = expanded ? "Details" : "Hide";
-  });
+  wireLogToggle("startLogToggle", "startLog");
   $("startLogCopyBtn").addEventListener("click", () => copyLogToClipboard($("startLog"), $("startLogCopyBtn")));
   $("rebuildBtn").addEventListener("click", () => {
     if (!dirHandle) return;

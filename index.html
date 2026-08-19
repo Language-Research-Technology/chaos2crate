@@ -251,16 +251,17 @@
   .sub-progress.fading-out { opacity: 0; }
   .sub-progress-track { height: 5px; }
   .sub-progress-fill { background: linear-gradient(90deg, #8a6fd8, #a98cf0); }
-  /* Start-page log panel — a much more discreet cousin of .log/.build-progress
-     on the Build panel: a single status line plus a thin progress bar, docked
-     under the mode cards, with the fuller line-by-line log tucked behind a
-     Details toggle instead of always on screen. */
+  /* Log status row — a status line plus a Copy/Details toggle, shared by the
+     start page's log panel and the Build panel's log: whichever log this
+     sits above, the fuller line-by-line text is tucked behind the Details
+     toggle instead of always on screen, and the status line always shows
+     the latest line so there's something to read either way. */
   .start-log-panel { width: 100%; max-width: 640px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; }
-  .start-log-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-  .start-log-status { flex: 1; min-width: 0; text-align: left; font-family: var(--mono); font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .start-log-actions { flex-shrink: 0; display: flex; align-items: center; gap: 6px; }
-  .start-log-toggle { flex-shrink: 0; background: transparent; border: none; border-radius: 0; padding: 2px 4px; font-size: 11px; font-weight: 500; color: var(--muted); cursor: pointer; text-decoration: underline; }
-  .start-log-toggle:hover { background: transparent; color: var(--text); }
+  .log-status-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+  .log-status-text { flex: 1; min-width: 0; text-align: left; font-family: var(--mono); font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .log-status-actions { flex-shrink: 0; display: flex; align-items: center; gap: 6px; }
+  .log-status-toggle { flex-shrink: 0; background: transparent; border: none; border-radius: 0; padding: 2px 4px; font-size: 11px; font-weight: 500; color: var(--muted); cursor: pointer; text-decoration: underline; }
+  .log-status-toggle:hover { background: transparent; color: var(--text); }
   /* Shared small square icon button — copy-to-clipboard on both the start
      page's log and the Build panel's log. Same shape as .map-copy-btn
      (merge-mapping modal) so icon buttons read as one convention app-wide. */
@@ -271,7 +272,7 @@
   }
   .icon-copy-btn:hover { color: var(--text); border-color: var(--accent); background: var(--panel-2); }
   .icon-copy-btn.copied { color: var(--ok); border-color: var(--ok); }
-  .start-progress { margin-top: 8px; opacity: 1; transition: opacity 2s ease; }
+  .start-progress { opacity: 1; transition: opacity 2s ease; }
   .start-progress.fading-out { opacity: 0; }
   .start-progress-track { height: 4px; border-radius: 999px; overflow: hidden; background: var(--panel-2); border: 1px solid var(--border); }
   .start-progress-fill { height: 100%; width: 0%; border-radius: 999px; background: linear-gradient(90deg, #0b7ddd, #0d90ff); transition: width .28s ease; }
@@ -519,11 +520,11 @@
       </div>
 
       <div id="startLogPanel" class="start-log-panel hidden">
-        <div class="start-log-row">
-          <span id="startLogStatus" class="start-log-status" aria-live="polite"></span>
-          <div class="start-log-actions">
+        <div class="log-status-row">
+          <span id="startLogStatus" class="log-status-text" aria-live="polite"></span>
+          <div class="log-status-actions">
             <button id="startLogCopyBtn" class="icon-copy-btn" type="button" title="Copy log to clipboard" aria-label="Copy log to clipboard">&#128203;</button>
-            <button id="startLogToggle" class="start-log-toggle" type="button" aria-expanded="false">Details</button>
+            <button id="startLogToggle" class="log-status-toggle" type="button" aria-expanded="false">Details</button>
           </div>
         </div>
         <div id="startProgress" class="start-progress">
@@ -584,6 +585,13 @@
           <code>config.json</code> if present in the folder.</div>
       </div>
       <div class="output">
+        <div class="log-status-row">
+          <span id="buildLogStatus" class="log-status-text">Set your options, then click Build RO-Crate.</span>
+          <div class="log-status-actions">
+            <button id="copyLogBtn" class="icon-copy-btn" type="button" title="Copy log to clipboard" aria-label="Copy log to clipboard">&#128203;</button>
+            <button id="logToggleBtn" class="log-status-toggle" type="button" aria-expanded="false">Details</button>
+          </div>
+        </div>
         <div id="buildProgress" class="build-progress hidden" aria-live="polite">
           <div class="build-progress-head">
             <span id="buildProgressLabel" class="build-progress-label">Waiting to build...</span>
@@ -602,10 +610,8 @@
             </div>
           </div>
         </div>
-        <div id="log" class="log"><span class="l-muted">Set your options, then click Build RO-Crate.</span></div>
+        <div id="log" class="log hidden"><span class="l-muted">Set your options, then click Build RO-Crate.</span></div>
         <div class="log-actions">
-          <button id="logToggleBtn" class="secondary" style="padding:5px 10px;" type="button" aria-expanded="true">Hide</button>
-          <button id="copyLogBtn" class="icon-copy-btn" type="button" title="Copy log to clipboard" aria-label="Copy log to clipboard">&#128203;</button>
           <button id="clearLogBtn" class="secondary" style="padding:5px 10px;">Clear</button>
           <button id="saveLogBtn" class="secondary" style="padding:5px 10px;" disabled>Save log</button>
         </div>
