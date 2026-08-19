@@ -26,15 +26,14 @@
   .context-bar { display: flex; align-items: center; gap: 14px; padding: 12px 28px; min-height: 56px; border-bottom: 1px solid var(--border); background: var(--panel); font-size: 13px; }
   .context-bar .folder { font-family: var(--mono); } .context-bar .folder .k { color: var(--muted); } .context-bar .spacer { flex: 1; }
   main { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-  .center-step { flex: 1; display: flex; flex-direction: column; align-items: center; text-align: center; padding: 40px; gap: 22px; min-height: 0; }
-  .center-step .lead { font-size: 22px; font-weight: 600; } .center-step .sub { color: var(--muted); max-width: 480px; }
-  /* mode-cards gets pushed to vertical center of the space above the log
-     panel via auto margins, rather than justify-content:center on the whole
-     section — that way the (usually hidden) log panel below can dock to the
-     bottom of the page instead of being dragged into the centered block. */
-  .center-step .mode-cards { margin-top: auto; margin-bottom: auto; }
   .step-num { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
-  .mode-cards { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; }
+  /* view-mode reuses the same LH/RH shell as view-build (.two-col-grid/
+     .col-left/.col-right): Build alone on the left (centered, like it was
+     in the old single centered layout), Show/Edit and the log panel
+     stacked on the right — mirroring options-on-the-left,
+     progress-and-log-on-the-right on the Build screen itself. */
+  #view-mode .col-left { display: flex; align-items: center; justify-content: center; }
+  #view-mode .col-right { gap: 16px; }
   .mode-card { width: 250px; background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 26px 22px; cursor: pointer; text-align: left; transition: border-color .12s, transform .12s; }
   .mode-card:hover { border-color: var(--accent); transform: translateY(-2px); }
   .mode-card .ic { font-size: 26px; margin-bottom: 12px; } .mode-card .t { font-size: 17px; font-weight: 600; margin-bottom: 6px; } .mode-card .d { color: var(--muted); font-size: 13px; }
@@ -75,15 +74,18 @@
   .id-input-group { display: flex; align-items: stretch; border-radius: 8px; border: 1px solid var(--border); background: var(--panel-2); overflow: hidden; }
   .id-input-group .id-prefix { display: flex; align-items: center; padding: 0 0 0 10px; color: var(--muted); font-family: var(--mono); font-size: 12px; white-space: nowrap; }
   .crate-form .id-input-group input[type="text"] { flex: 1; min-width: 0; border: none; border-radius: 0; background: transparent; padding-left: 2px; }
-  .build-grid { flex: 1; display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); min-height: 0; }
-  .config { padding: 24px 28px; border-right: 1px solid var(--border); overflow-y: auto; }
-  .config input:not([type="checkbox"]):not([type="radio"]),
-  .config select,
-  .config textarea,
-  .config button {
+  /* Shared LH/RH shell — the Build view's options/output split, and the
+     start page's Build/Show+Edit split, are the same two-column shape, so
+     they use the same three classes rather than near-duplicate CSS. */
+  .two-col-grid { flex: 1; display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); min-height: 0; }
+  .col-left { padding: 24px 28px; border-right: 1px solid var(--border); overflow-y: auto; }
+  #view-build .col-left input:not([type="checkbox"]):not([type="radio"]),
+  #view-build .col-left select,
+  #view-build .col-left textarea,
+  #view-build .col-left button {
     max-width: 300px;
   }
-  .output { padding: 24px 28px; display: flex; flex-direction: column; min-height: 0; }
+  .col-right { padding: 24px 28px; display: flex; flex-direction: column; min-height: 0; }
   h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 14px; font-weight: 600; }
   .field { margin-bottom: 14px; }
   .field .hint { color: var(--muted); font-size: 12px; margin-top: 4px; }
@@ -261,11 +263,9 @@
      sits above, the fuller line-by-line text is tucked behind the Details
      toggle instead of always on screen, and the status line always shows
      the latest line so there's something to read either way. */
-  /* The card both logs sit in. .start-log-panel layers the start page's own
-     width cap and centering on top — the Build panel's copy doesn't need
-     either, since .output's grid column already bounds its width. */
+  /* The card both logs sit in — width comes from whichever .col-right
+     they're in (view-mode's or view-build's), not the card itself. */
   .log-panel-card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; }
-  .start-log-panel { width: 100%; max-width: 640px; }
   .log-status-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
   .log-status-text { flex: 1; min-width: 0; text-align: left; font-family: var(--mono); font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .log-status-actions { flex-shrink: 0; display: flex; align-items: center; gap: 6px; }
@@ -450,13 +450,13 @@
   .hidden { display: none !important; }
 
   @media (min-width: 768px) {
-    .build-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-    .config {
+    .two-col-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+    .col-left {
       grid-column: 1;
       border-right: 1px solid var(--border);
       border-left: none;
     }
-    .output { grid-column: 2; }
+    .col-right { grid-column: 2; }
     .edit-grid { grid-template-columns: minmax(0, 300px) minmax(0, 1fr); }
   }
 </style>
@@ -486,13 +486,8 @@
   </div>
 
   <main>
-    <section id="view-mode" class="center-step hidden">
-<!--
-  <div class="step-num">Step 1</div>
-  <div class="lead">What would you like to do?</div>
--->
-
-      <div class="mode-cards">
+    <section id="view-mode" class="two-col-grid hidden">
+      <div class="col-left">
         <div id="cardBuild" class="mode-card build-card">
           <div class="ic">&#128296;</div>
           <div class="t">Build</div>
@@ -516,6 +511,9 @@
             </button>
           </div>
         </div>
+      </div>
+
+      <div class="col-right">
         <div id="cardShow" class="mode-card" role="button" tabindex="0">
           <div class="ic">&#128196;</div>
           <div class="t">Show</div>
@@ -526,22 +524,22 @@
           <div class="t">Edit</div>
           <div class="d">Edit entities and properties in the existing <code>ro-crate-metadata.json</code>.</div>
         </div>
-      </div>
 
-      <div id="startLogPanel" class="log-panel-card start-log-panel hidden">
-        <div class="log-status-row">
-          <span id="startLogStatus" class="log-status-text" aria-live="polite"></span>
-          <div class="log-status-actions">
-            <button id="startLogCopyBtn" class="icon-copy-btn" type="button" title="Copy log to clipboard" aria-label="Copy log to clipboard">&#128203;</button>
-            <button id="startLogToggle" class="log-status-toggle" type="button" aria-expanded="false">Details</button>
+        <div id="startLogPanel" class="log-panel-card hidden">
+          <div class="log-status-row">
+            <span id="startLogStatus" class="log-status-text" aria-live="polite"></span>
+            <div class="log-status-actions">
+              <button id="startLogCopyBtn" class="icon-copy-btn" type="button" title="Copy log to clipboard" aria-label="Copy log to clipboard">&#128203;</button>
+              <button id="startLogToggle" class="log-status-toggle" type="button" aria-expanded="false">Details</button>
+            </div>
           </div>
-        </div>
-        <div id="startProgress" class="start-progress">
-          <div class="start-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Folder scan progress">
-            <div id="startProgressFill" class="start-progress-fill"></div>
+          <div id="startProgress" class="start-progress">
+            <div class="start-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Folder scan progress">
+              <div id="startProgressFill" class="start-progress-fill"></div>
+            </div>
           </div>
+          <div id="startLog" class="start-log hidden"></div>
         </div>
-        <div id="startLog" class="start-log hidden"></div>
       </div>
     </section>
 
@@ -583,8 +581,8 @@
       </div>
     </section>
 
-    <section id="view-build" class="build-grid hidden">
-      <div class="config">
+    <section id="view-build" class="two-col-grid hidden">
+      <div class="col-left">
         <h2>Options</h2>
         <div id="optionsTiles" class="options-tile-grid"></div>
         <h2>Run</h2>
@@ -593,7 +591,7 @@
         <div class="note">Root-dataset metadata comes from built-in defaults, or from
           <code>config.json</code> if present in the folder.</div>
       </div>
-      <div class="output">
+      <div class="col-right">
         <div id="buildLogPanel" class="log-panel-card">
           <div class="log-status-row">
             <span id="buildLogStatus" class="log-status-text">Set your options, then click Build RO-Crate.</span>
