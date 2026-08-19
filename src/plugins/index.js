@@ -15,10 +15,12 @@ import { plugin as xlsxOutputPlugin } from "./ro-crate-xlsx-output/index.js";
 import { plugin as htmlOutputPlugin } from "./ro-crate-html-output/index.js";
 import { plugin as genericInputPlugin } from "./generic-input/index.js";
 import { plugin as docxInputPlugin } from "./docx-input/index.js";
+import { plugin as caDataPrepPlugin } from "./ca-data-prep/index.js";
 
 export const PLUGINS = [
   xlsxCrateInputPlugin,
   austlangPlugin,
+  caDataPrepPlugin,
   mergePlugin,
   validateCratePlugin,
   jsonOutputPlugin,

@@ -52,7 +52,7 @@ const CORE_SETTINGS_SCHEMA = [
       { value: "generic", label: "Generic folder of files" },
       { value: "docx", label: "Structured Word documents (.docx)" },
     ],
-    hint: "Structured Word documents parses Heading 1/2/3 styles into Collections/Chapters/DocumentParts instead of grouping files generically — see corpus-tools-person-centred-collections-docx's README for the authoring conventions (heading levels, image/caption/photo/SOUND FILE markers)." },
+    hint: "Generic folder builds scan files into a repository crate; structured Word documents follow Heading 1/2/3 collection conventions instead. Optional transcript processing is available as a Build option for CAAT/AmAus-style .docx transcript files." },
   { key: "themeMode", type: "select", label: "Theme", default: "light",
     options: [
       { value: "light", label: "Light" },

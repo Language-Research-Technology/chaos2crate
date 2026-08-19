@@ -162,8 +162,13 @@ const pluginsTapping = (hook) => PLUGINS.filter((p) => p.hooks && p.hooks[hook])
 
 assert.deepEqual(
   pluginsTapping(HOOKS.CRATE_BUILT),
-  ["xlsx-crate-input", "austlang", "merge"],
-  "the spreadsheet crate's entities must land first — AUSTLANG and merge both read entities it may have added — and AUSTLANG must enrich before merge runs"
+  ["xlsx-crate-input", "austlang", "ca-data-prep", "merge"],
+  "the spreadsheet crate's entities must land first — AUSTLANG and transcript processing both enrich the crate before merge runs"
+);
+assert.equal(
+  INPUT_PLUGINS["ca-data-prep"],
+  undefined,
+  "ca-data-prep should be a hook plugin in generic mode, not a mutually exclusive input mode"
 );
 assert.deepEqual(
   pluginsTapping(HOOKS.OUTPUT_WRITE),
@@ -226,7 +231,7 @@ assert.ok(
 assert.deepEqual(
   Object.keys(INPUT_PLUGINS).sort(),
   ["docx", "generic"],
-  "input plugins should be keyed by the inputMode that selects them"
+  "generic and docx remain the only mutually exclusive input modes"
 );
 for (const [mode, plugin] of Object.entries(INPUT_PLUGINS)) {
   assert.equal(plugin.inputMode, mode, `input plugin "${plugin.name}" should be registered under its own inputMode`);
