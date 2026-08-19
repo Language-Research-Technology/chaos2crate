@@ -98,7 +98,13 @@ Not a WordPress-style actions/filters split: a handler that only reads `ctx` beh
 
 Handlers run **sequentially and awaited**, never in parallel — they mutate a shared crate, so ordering is load-bearing.
 
-### 4.2 The five hooks
+A small helper sits next to the bus: `announceAndEmit(hookBus, hookName, ctx)` calls `ctx.log` with which plugins are registered for a hook, in run order, before calling `emit` — and logs even when none are, as confirmation the hook point itself exists and fired, not just a report of what ran. Every caller below uses it instead of `emit` directly, so a build or a folder pick traces its own actual shape rather than relying on each plugin to self-report. Any `ctx` passed through it must carry a `log` function.
+
+### 4.2 The hooks
+
+Five fire from `runPipeline` during an actual build (§4.4); two fire earlier, from `main.js`, as a folder is picked and a profile is chosen — before Build ever runs. Same bus, same `ctx`-mutation contract, just a different caller.
+
+**Pipeline hooks:**
 
 | Hook | When | What's on `ctx` | Contract |
 |---|---|---|---|
@@ -109,6 +115,15 @@ Handlers run **sequentially and awaited**, never in parallel — they mutate a s
 | `output:write` | last | `dirHandle` | write files |
 
 `files:analyze` firing only in generic mode is a real asymmetry, not an oversight: the docx adapter has no flat file list to analyse. It's declared rather than implied — an input plugin with nothing to analyse exposes no `analyzeFiles`, and the pipeline skips the emission (§4.4). A plugin that taps the hook still silently does nothing in docx mode.
+
+**Prep hooks**, fired from `main.js` (§8) rather than the pipeline:
+
+| Hook | When | What's on `ctx` | Contract |
+|---|---|---|---|
+| `folder:picked` | a folder handle was just obtained | `dirHandle`, `crateJson`/`crateSourceLabel` (mutable) | offer existing crate metadata to prefill Describe from |
+| `profile:selected` | a profile finished loading | `dirHandle`, `profileId`, `profileData` | react to the choice — currently untapped |
+
+`folder:picked` decides whether the folder holds metadata worth prefilling the Describe step from, and which file — previously a direct call from `main.js` into `xlsx-crate-input`'s helpers, now that plugin's own tap (§7.2), so which sources count as "existing crate metadata" is the plugin's call rather than the app's. `profile:selected` currently has no tap; it exists so a future plugin could react to a profile choice (re-check folder content against it, adjust prefill) without `main.js` needing to know that plugin exists. It still fires, and still logs `→ profile:selected: (no plugins tap this).` (§4.1) — visible proof the extension point is live even with nothing registered against it.
 
 ### 4.3 The context object
 
@@ -123,23 +138,23 @@ Plugins are stateless. The bus is created once at module load and handlers regis
 ### 4.4 The pipeline
 
 ```js
-await hookBus.emit(CONFIG_PREPARE, ctx);
+await announceAndEmit(hookBus, CONFIG_PREPARE, ctx);
 const inputPlugin = INPUT_PLUGINS[ctx.options.inputMode] || INPUT_PLUGINS.generic;
 if (inputPlugin.analyzeFiles) {                     // only modes with a file list
   await inputPlugin.analyzeFiles(ctx);
-  await hookBus.emit(FILES_ANALYZE, ctx);
+  await announceAndEmit(hookBus, FILES_ANALYZE, ctx);
 }
 await inputPlugin.buildCrate(ctx);
-await hookBus.emit(CRATE_BUILT, ctx);
+await announceAndEmit(hookBus, CRATE_BUILT, ctx);
 ctx.entities   = graph.length;                      // core: entity stats
 ctx.typeCounts = collectTypeCounts(graph);
-await hookBus.emit(CRATE_VALIDATE, ctx);
-await hookBus.emit(OUTPUT_WRITE, ctx);
+await announceAndEmit(hookBus, CRATE_VALIDATE, ctx);
+await announceAndEmit(hookBus, OUTPUT_WRITE, ctx);
 ```
 
 The input plugin is called directly rather than through a hook, because exactly one must run and it must produce `ctx.crate` before anything else can proceed.
 
-**Input plugins expose two methods, and hold no bus.** `analyzeFiles(ctx)` is optional and prepares `ctx.filesWithMeta`; `buildCrate(ctx)` is required and produces `ctx.crate`. The pipeline emits `files:analyze` between them, and only when `analyzeFiles` exists — so a mode with no flat file list (docx) declares none and no emission happens, rather than firing a hook with nothing on `ctx` for taps to read. Every emission in the system is therefore in the block above: hook order can be read off the pipeline without opening a plugin, and since no plugin receives `hookBus`, none can emit.
+**Input plugins expose two methods, and hold no bus.** `analyzeFiles(ctx)` is optional and prepares `ctx.filesWithMeta`; `buildCrate(ctx)` is required and produces `ctx.crate`. The pipeline emits `files:analyze` between them, and only when `analyzeFiles` exists — so a mode with no flat file list (docx) declares none and no emission happens, rather than firing a hook with nothing on `ctx` for taps to read. Every *build-time* emission is therefore in the block above: a build's hook order can be read off the pipeline without opening a plugin, and since no plugin receives `hookBus`, none can emit. (The two prep hooks fire earlier still, straight from `main.js`, before Build ever runs — §4.2, §8.)
 
 ### 4.5 The two registries
 
@@ -159,7 +174,7 @@ Input plugins are deliberately kept out of `PLUGINS`: they're mutually exclusive
 
 **Ordering.** Array order in `PLUGINS` *is* hook-execution order for plugins sharing a stage. Every registration defaults to priority 10 and `Array#sort` is stable, so registering in this order reproduces the original inline sequence with no explicit priority numbers: `xlsx-crate-input` first so the entities it contributes exist for the two that read the graph after it, then AUSTLANG before merge (all three tap `crate:built`), and JSON before XLSX before HTML (all tap `output:write`).
 
-`xlsx-crate-input` is the one plugin that taps **two** stages for a single job — `config:prepare` and `crate:built` — because half its work has to happen before the crate exists. It is deliberately *not* an input plugin: the folder scan still has to run, since `generic-input` is what creates the `File` entities the spreadsheet's `isPartOf` and `image` references point at. What it does at each stage, and how it merges, is in §7.
+`xlsx-crate-input` is the one plugin that taps **three** stages for a single job — `folder:picked`, `config:prepare`, and `crate:built` — because its work spans from before a folder is even confirmed to hold anything build-worthy, through before the crate exists, to after. It is deliberately *not* an input plugin: the folder scan still has to run, since `generic-input` is what creates the `File` entities the spreadsheet's `isPartOf` and `image` references point at. What it does at each stage, and how it merges, is in §7.
 
 ### 4.6 Schema composition
 
@@ -414,10 +429,11 @@ Treats a folder of Word documents as a structured corpus. Substitutes for the wh
 
 Takes a build's metadata from an `.xlsx` that is *itself* an RO-Crate: `additional-ro-crate-metadata.xlsx` in the picked folder, or one uploaded through the option's file picker, which overrides it. Distinct from `merge`, which reads an arbitrary spreadsheet and needs a mapping config to say what the columns mean — here the workbook already carries RO-Crate structure, so `ro-crate-excel`'s `workbookToCrate()` returns a graph directly.
 
-The only plugin that taps **two** stages for one job, because the crate doesn't exist yet when the first half is needed:
+The only plugin that taps **three** stages for one job, since part of it runs before a folder is even confirmed to hold anything build-worthy, and the crate doesn't exist yet when the next part is needed:
 
 | Hook | Does |
 |---|---|
+| `folder:picked` | pick the newest of the folder's candidate metadata sources (spreadsheet or plain JSON) and hand its parsed JSON back on `ctx.crateJson` for the Describe step to prefill from — a separate read from the two below, purely for the wizard, not the build |
 | `config:prepare` | resolve the source, read it, validate it against the profile, seed `ctx.config.rootDataset` |
 | `crate:built` | merge its entities in, then apply its collection membership |
 
@@ -508,13 +524,14 @@ Two rendering details: the context must be resolved before layout resolution and
   Choose folder  ──►  Select profile  ──►  Describe  ──►  Build
        │                    │                  │            │
   FSA handle,         fetch + load        form from     pipeline runs,
-  session reset         validator          profile      then validation
+  session reset,        validator           profile      then validation
+  folder:picked        profile:selected
                             │
                        (skippable — falls back
                         to the bundled default)
 ```
 
-Choosing a profile fetches its two JSON files, loads them into a validator, resolves the root class, and derives the Describe schema — cached for the session, cleared on folder change so a profile chosen for one collection doesn't carry over.
+Choosing a folder fires `folder:picked` (§4.2) before anything else — currently only `xlsx-crate-input` taps it, offering existing crate metadata in the folder to prefill Describe from. Choosing a profile fetches its two JSON files, loads them into a validator, resolves the root class, derives the Describe schema, and fires `profile:selected` — cached for the session, cleared on folder change so a profile chosen for one collection doesn't carry over.
 
 Selecting a profile is optional; Describe and Build are not. Skipping selection loads the bundled default instead, and from that point the flow is identical — the rest of the app only ever sees "the profile in effect", never "no profile". Every step downstream can assume a validator, a field schema, and a layout exist.
 
@@ -645,13 +662,13 @@ src/
   preview_assets.js              path + url() rewriting for the blob-served preview
 
   plugins/
-    hooks.js                     hook bus + the five hook names
-    pipeline.js                  mandatory steps + hook emission order
+    hooks.js                     hook bus + the seven hook names + announceAndEmit
+    pipeline.js                  mandatory steps + build-hook emission order
     index.js                     PLUGINS / INPUT_PLUGINS registries, schema composition
 
     generic-input/index.js       input plugin — folder scan
     docx-input/index.js          input plugin — docx corpus
-    xlsx-crate-input/index.js    config:prepare + crate:built — spreadsheet as crate
+    xlsx-crate-input/index.js    folder:picked + config:prepare + crate:built — spreadsheet as crate
     xlsx-crate-input/xlsx_crate.js  reading, seeding, merging, membership, warnings
     docx-input/docx_crate.js       parsing, media extraction, entity building
     austlang/index.js            crate:built — language identification

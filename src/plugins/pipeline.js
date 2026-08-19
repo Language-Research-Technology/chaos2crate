@@ -4,7 +4,7 @@
 // sequence of hook emissions around them; every optional behavior (AUSTLANG,
 // merge, JSON/XLSX/HTML output, profile validation) lives in a plugin
 // (src/plugins/*.js) tapping one of those hooks.
-import { HOOKS } from "./hooks.js";
+import { HOOKS, announceAndEmit } from "./hooks.js";
 import { INPUT_PLUGINS } from "./index.js";
 
 function collectTypeCounts(graph) {
@@ -32,18 +32,6 @@ function collectTypeCounts(graph) {
 // selectedProfileData. Mutated in place as the pipeline runs; the caller
 // reads ctx.buildHtml/ctx.lastHtmlTemplate back out afterward (set by
 // ro-crate-html-output, if it ran).
-// Announces a hook stage before firing it — which plugins are tapping it,
-// in run order — so the build log traces the pipeline's actual shape for
-// this build instead of only whatever each plugin chooses to self-report.
-// Silent (no line) for a stage nothing taps, so an all-defaults build
-// (no AUSTLANG, no merge, no spreadsheet crate) doesn't get noise for
-// files:analyze/crate:validate having no listeners.
-async function announceAndEmit(hookBus, hookName, ctx) {
-  const names = hookBus.pluginNamesFor(hookName);
-  if (names.length) ctx.log(`→ ${hookName}: ${names.join(", ")}.`, "muted");
-  await hookBus.emit(hookName, ctx);
-}
-
 export async function runPipeline(ctx, hookBus) {
   await announceAndEmit(hookBus, HOOKS.CONFIG_PREPARE, ctx);
 

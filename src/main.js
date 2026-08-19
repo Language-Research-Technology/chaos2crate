@@ -8,14 +8,14 @@ import {
   loadCrateFromJson, GENERATED_FILENAMES, CONTROL_FILENAMES,
 } from "./crate.js";
 import {
-  writeFile, verifyPermission, fileExists, readFileText, readJsonFromFolder,
+  writeFile, verifyPermission, fileExists, readFileText,
 } from "./fs_helpers.js";
 import { listGitHubFolder } from "./github.js";
 import {
   isAbsoluteLikeUrl, normalizeRelativePath, mapAssetUrl, rewriteCssUrls,
 } from "./preview_assets.js";
 import packageJson from "../package.json";
-import { createHookBus } from "./plugins/hooks.js";
+import { createHookBus, HOOKS, announceAndEmit } from "./plugins/hooks.js";
 import { registerAllPlugins, composeOptionSchema, composeSettingsSchema } from "./plugins/index.js";
 import { runPipeline } from "./plugins/pipeline.js";
 import { resetUploadedConfigDirHandle } from "./plugins/ro-crate-html-output/index.js";
@@ -1875,6 +1875,12 @@ async function chooseProfile(profileId) {
     }
     selectedProfileData = await buildProfileData(profileJson, modeJson);
     selectedProfile = profileId;
+    // An extension point for plugins that want to react to the profile
+    // choice (e.g. re-checking folder content against it) — nothing taps it
+    // yet, so this is a no-op beyond the (silent, since untapped) trace line.
+    await announceAndEmit(hookBus, HOOKS.PROFILE_SELECTED, {
+      dirHandle, profileId, profileData: selectedProfileData, log: logStart,
+    });
     status.textContent = `Ready: ${selectedProfileData.rootClassDefinition.name} (${selectedProfileData.fieldSchema.length} field(s)).`;
     completeStartProgress(`Profile "${label}" ready: ${selectedProfileData.rootClassDefinition.name} (${selectedProfileData.fieldSchema.length} field(s)).`);
     continueBtn.disabled = false;
@@ -2140,28 +2146,15 @@ function getRootDatasetEntity(crateJson) {
 // without forcing a trip through Describe. Visiting Describe and continuing
 // still re-derives rootDatasetOverride from the form (submitCrateDetails),
 // which wins if the user changes anything or picks a different profile.
+// Which folder contents count as "existing crate metadata" to prefill from
+// is a plugin call (currently xlsx-crate-input's, weighing its spreadsheet
+// against a plain ro-crate-metadata.json) — this just fires FOLDER_PICKED
+// and reads back whatever a tap found, so it doesn't have to know that.
 async function populateCrateDetailsFromExistingCrate(handle) {
-  // The folder may hold the crate's metadata in more than one form — the
-  // spreadsheet the collection is authored in, and the JSON a previous build
-  // (or rocxl) wrote. Whichever was touched last is the one the author has
-  // been working in, so that's what the form should reflect.
-  const { pickNewestCrateSource, readCrateJsonFromSource } =
-    await import("./plugins/xlsx-crate-input/xlsx_crate.js");
-
-  let crateJson = null;
-  const source = await pickNewestCrateSource(handle);
-  if (source) {
-    try {
-      crateJson = await readCrateJsonFromSource(source);
-      existingCrateSourceLabel = `${source.name} (modified ${new Date(source.lastModified).toLocaleString()})`;
-    } catch (e) {
-      // A spreadsheet that won't parse shouldn't cost the user the JSON
-      // sitting next to it.
-      console.warn(`Could not read ${source.name} for prefill:`, e);
-      crateJson = source.kind === "json" ? null : await readJsonFromFolder(handle, JSON_FILE);
-      existingCrateSourceLabel = crateJson ? JSON_FILE : "";
-    }
-  }
+  const ctx = { dirHandle: handle, log: logStart, crateJson: null, crateSourceLabel: "" };
+  await announceAndEmit(hookBus, HOOKS.FOLDER_PICKED, ctx);
+  const crateJson = ctx.crateJson;
+  existingCrateSourceLabel = ctx.crateSourceLabel;
   if (!crateJson) return false;
 
   const extracted = getRootDatasetEntity(crateJson);

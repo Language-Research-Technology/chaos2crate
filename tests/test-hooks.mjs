@@ -6,7 +6,7 @@
 // before HTML reads the finished crate), so the promise is asserted here.
 import assert from "node:assert/strict";
 
-import { HOOKS, createHookBus } from "../src/plugins/hooks.js";
+import { HOOKS, createHookBus, announceAndEmit } from "../src/plugins/hooks.js";
 import { PLUGINS, INPUT_PLUGINS, registerAllPlugins, composeOptionSchema, composeSettingsSchema } from "../src/plugins/index.js";
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -117,6 +117,45 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
   );
 }
 
+/* ---------- pluginNamesFor() and announceAndEmit() ---------- */
+
+{
+  const bus = createHookBus();
+  bus.on(HOOKS.CRATE_BUILT, () => {}, { pluginName: "a" });
+  bus.on(HOOKS.CRATE_BUILT, () => {}, { pluginName: "b" });
+  assert.deepEqual(
+    bus.pluginNamesFor(HOOKS.CRATE_BUILT), ["a", "b"],
+    "pluginNamesFor should report registered plugin names in run order"
+  );
+  assert.deepEqual(
+    bus.pluginNamesFor(HOOKS.OUTPUT_WRITE), [],
+    "a hook nobody registered for should report no plugin names, not throw"
+  );
+}
+
+{
+  const bus = createHookBus();
+  let ran = false;
+  bus.on(HOOKS.CRATE_BUILT, () => { ran = true; }, { pluginName: "a" });
+  const logged = [];
+  const ctx = { log: (msg, cls) => logged.push([msg, cls]) };
+  await announceAndEmit(bus, HOOKS.CRATE_BUILT, ctx);
+  assert.equal(ran, true, "announceAndEmit should still run the handlers, not just log about them");
+  assert.deepEqual(logged, [["→ crate:built: a.", "muted"]], "it should log which plugins are about to run, muted");
+}
+
+{
+  const bus = createHookBus();
+  const logged = [];
+  const ctx = { log: (msg, cls) => logged.push([msg, cls]) };
+  await announceAndEmit(bus, HOOKS.OUTPUT_WRITE, ctx);
+  assert.deepEqual(
+    logged,
+    [["→ output:write: (no plugins tap this).", "muted"]],
+    "a stage nobody taps should still log — confirmation the hook point itself fired, not just what ran"
+  );
+}
+
 /* ---------- the real registry produces the documented order ---------- */
 
 const pluginsTapping = (hook) => PLUGINS.filter((p) => p.hooks && p.hooks[hook]).map((p) => p.name);
@@ -135,6 +174,16 @@ assert.deepEqual(
   pluginsTapping(HOOKS.CRATE_VALIDATE),
   ["validate-crate"],
   "validation should be the only thing tapping crate:validate — that stage reports, it doesn't mutate"
+);
+assert.deepEqual(
+  pluginsTapping(HOOKS.FOLDER_PICKED),
+  ["xlsx-crate-input"],
+  "xlsx-crate-input should be the only tap on folder:picked — it owns which folder contents count as existing crate metadata"
+);
+assert.deepEqual(
+  pluginsTapping(HOOKS.PROFILE_SELECTED),
+  [],
+  "profile:selected is a prep-hook extension point nothing taps yet — registering it shouldn't silently gain a listener"
 );
 
 assert.ok(

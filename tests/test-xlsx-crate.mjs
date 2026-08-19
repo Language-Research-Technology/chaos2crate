@@ -1,14 +1,19 @@
 // xlsx-crate-input: reading a crate out of a spreadsheet, choosing which of a
 // folder's metadata files to prefill from, and folding one crate into another.
 //
-// The plugin's hook handlers aren't exercised here — they need a real
-// FileSystemDirectoryHandle and the DOM. Everything they delegate to lives in
-// xlsx_crate.js and is plain data-in/data-out, which is what this covers.
+// Most of the plugin's hook handlers aren't exercised here — config:prepare
+// and crate:built need a real build ctx (options, config, a crate). Everything
+// they delegate to lives in xlsx_crate.js and is plain data-in/data-out, which
+// is what most of this covers. folder:picked is the exception: it only needs
+// dirHandle + log, both of which the fakeDirHandle below already provides, so
+// its handler is exercised directly further down.
 import assert from "node:assert";
 import { readFileSync, writeFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { ROCrate } from "ro-crate";
+import { HOOKS } from "../src/plugins/hooks.js";
+import { plugin as xlsxCrateInputPlugin } from "../src/plugins/xlsx-crate-input/index.js";
 import {
   PREFILL_SOURCES,
   pickNewestCrateSource,
@@ -102,6 +107,61 @@ assert.equal(await pickNewestCrateSource(null), null, "no folder yields null, no
     /not valid JSON/,
     "a malformed metadata file should say so, not fail obscurely later"
   );
+}
+
+/* ---------- the folder:picked hook tap ---------- */
+
+{
+  const handle = fakeDirHandle({
+    "ro-crate-metadata.json": { bytes: crateJsonBytes({ name: "Prefill me" }), lastModified: 1000 },
+  });
+  const ctx = { dirHandle: handle, log: () => {}, crateJson: null, crateSourceLabel: "" };
+  await xlsxCrateInputPlugin.hooks[HOOKS.FOLDER_PICKED](ctx);
+  assert.equal(
+    ctx.crateJson["@graph"].find((e) => e["@id"] === "./").name,
+    "Prefill me",
+    "folder:picked should hand back the parsed JSON of the newest candidate source"
+  );
+  assert.equal(ctx.crateSourceLabel.startsWith("ro-crate-metadata.json"), true, "the label should name the source file");
+}
+
+{
+  const ctx = { dirHandle: fakeDirHandle({}), log: () => {}, crateJson: null, crateSourceLabel: "" };
+  await xlsxCrateInputPlugin.hooks[HOOKS.FOLDER_PICKED](ctx);
+  assert.equal(ctx.crateJson, null, "a folder with no candidate source should leave ctx.crateJson untouched");
+  assert.equal(ctx.crateSourceLabel, "", "and ctx.crateSourceLabel untouched");
+}
+
+{
+  // The newest source is a spreadsheet that won't parse (garbage bytes); an
+  // older plain JSON file also exists. The handler should fall back to
+  // reading that JSON directly rather than giving up on prefill entirely.
+  const handle = fakeDirHandle({
+    "additional-ro-crate-metadata.xlsx": { bytes: Buffer.from("not a real xlsx"), lastModified: 5000 },
+    "ro-crate-metadata.json": { bytes: crateJsonBytes({ name: "Fallback" }), lastModified: 1000 },
+  });
+  const logged = [];
+  const ctx = { dirHandle: handle, log: (msg, cls) => logged.push([msg, cls]), crateJson: null, crateSourceLabel: "" };
+  await xlsxCrateInputPlugin.hooks[HOOKS.FOLDER_PICKED](ctx);
+  assert.equal(
+    ctx.crateJson["@graph"].find((e) => e["@id"] === "./").name,
+    "Fallback",
+    "a spreadsheet that fails to parse shouldn't cost the user the plain JSON sitting next to it"
+  );
+  assert.equal(ctx.crateSourceLabel, "ro-crate-metadata.json");
+  assert.ok(logged.some(([msg, cls]) => cls === "warn" && msg.includes("Could not read")), "the parse failure should still be logged");
+}
+
+{
+  // The newest (and only) source is the JSON file itself, and it's malformed
+  // — re-reading the same file wouldn't help, so no fallback is attempted.
+  const handle = fakeDirHandle({
+    "ro-crate-metadata.json": { bytes: Buffer.from("{ not json"), lastModified: 1 },
+  });
+  const ctx = { dirHandle: handle, log: () => {}, crateJson: null, crateSourceLabel: "" };
+  await xlsxCrateInputPlugin.hooks[HOOKS.FOLDER_PICKED](ctx);
+  assert.equal(ctx.crateJson, null, "a malformed JSON source with nothing else to fall back to should leave crateJson null");
+  assert.equal(ctx.crateSourceLabel, "");
 }
 
 /* ---------- root properties, seeding, merging ---------- */

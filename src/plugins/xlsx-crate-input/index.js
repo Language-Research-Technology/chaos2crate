@@ -9,7 +9,9 @@
 // metadata; it does not replace the input mode.
 import { HOOKS } from "../hooks.js";
 import { FOLDER_XLSX_NAME } from "./xlsx_crate.js";
-import { readFileBytes } from "../../fs_helpers.js";
+import { readFileBytes, readJsonFromFolder } from "../../fs_helpers.js";
+
+const DESCRIPTOR_FILENAME = "ro-crate-metadata.json";
 
 export const plugin = {
   name: "xlsx-crate-input",
@@ -23,6 +25,30 @@ export const plugin = {
     ],
   },
   hooks: {
+    // Offer prefill data for the Describe step from whichever crate-metadata
+    // source in the folder was touched most recently — the spreadsheet the
+    // collection is authored in, or the JSON a previous build (or rocxl)
+    // wrote. Moved here (from being hardcoded in main.js's folder-pick flow)
+    // so which sources count as "existing crate metadata" stays this
+    // plugin's call, not the app's.
+    [HOOKS.FOLDER_PICKED]: async (ctx) => {
+      const { pickNewestCrateSource, readCrateJsonFromSource } = await import("./xlsx_crate.js");
+      const source = await pickNewestCrateSource(ctx.dirHandle);
+      if (!source) return;
+      try {
+        ctx.crateJson = await readCrateJsonFromSource(source);
+        ctx.crateSourceLabel = `${source.name} (modified ${new Date(source.lastModified).toLocaleString()})`;
+      } catch (e) {
+        // A spreadsheet that won't parse shouldn't cost the user the JSON
+        // sitting next to it — but if the JSON itself was the one that
+        // failed, re-reading it again would just fail the same way.
+        ctx.log(`Could not read ${source.name} for prefill: ${e.message}`, "warn");
+        const fallback = source.kind !== "json" ? await readJsonFromFolder(ctx.dirHandle, DESCRIPTOR_FILENAME) : null;
+        ctx.crateJson = fallback;
+        ctx.crateSourceLabel = fallback ? DESCRIPTOR_FILENAME : "";
+      }
+    },
+
     // Seed the root dataset before the crate is built, so the values are in
     // ctx.config by the time generic-input calls buildCrate().
     [HOOKS.CONFIG_PREPARE]: async (ctx) => {
