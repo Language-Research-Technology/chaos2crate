@@ -36,10 +36,43 @@ function patchMaspValidatorCjsArtifacts() {
   };
 }
 
+function patchMammothBrowserEventCollision() {
+  return {
+    name: "patch-mammoth-browser-event-collision",
+    enforce: "pre",
+    transform(code, id) {
+      if (!/mammoth/i.test(id)) return null;
+      let out = code;
+      const changed =
+        out.replace(/var event = new CustomEvent\("CustomEvent"\);/g, 'var customEvent = new CustomEvent("CustomEvent");') !== out ||
+        out.replace(/var event = new Event\("CustomEvent"\);/g, 'var customEvent = new Event("CustomEvent");') !== out ||
+        out.replace(/dispatchEvent\(event\);/g, "dispatchEvent(customEvent);") !== out ||
+        out.replace(/return function\(name, event2\) \{/g, "return function(name, detail) {") !== out ||
+        out.replace(/return function\(name, event\) \{/g, "return function(name, detail) {") !== out ||
+        out.replace(/detail: event2,/g, "detail: detail,") !== out ||
+        out.replace(/detail: event,/g, "detail: detail,") !== out ||
+        out.replace(/domEvent\.detail = event2;/g, "domEvent.detail = detail;") !== out ||
+        out.replace(/domEvent\.detail = event;/g, "domEvent.detail = detail;") !== out;
+      if (!changed) return null;
+      out = out.replace(/var event = new CustomEvent\("CustomEvent"\);/g, 'var customEvent = new CustomEvent("CustomEvent");');
+      out = out.replace(/var event = new Event\("CustomEvent"\);/g, 'var customEvent = new Event("CustomEvent");');
+      out = out.replace(/dispatchEvent\(event\);/g, "dispatchEvent(customEvent);");
+      out = out.replace(/return function\(name, event2\) \{/g, "return function(name, detail) {");
+      out = out.replace(/return function\(name, event\) \{/g, "return function(name, detail) {");
+      out = out.replace(/detail: event2,/g, "detail: detail,");
+      out = out.replace(/detail: event,/g, "detail: detail,");
+      out = out.replace(/domEvent\.detail = event2;/g, "domEvent.detail = detail;");
+      out = out.replace(/domEvent\.detail = event;/g, "domEvent.detail = detail;");
+      return out;
+    },
+  };
+}
+
 export default defineConfig({
   base: "./",
   plugins: [
     patchMaspValidatorCjsArtifacts(),
+    patchMammothBrowserEventCollision(),
     nodePolyfills({
       globals: { Buffer: true, global: true, process: true },
       protocolImports: true,
