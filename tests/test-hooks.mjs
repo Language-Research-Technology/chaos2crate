@@ -162,8 +162,8 @@ const pluginsTapping = (hook) => PLUGINS.filter((p) => p.hooks && p.hooks[hook])
 
 assert.deepEqual(
   pluginsTapping(HOOKS.CRATE_BUILT),
-  ["xlsx-crate-input", "austlang", "ca-data-prep", "merge"],
-  "the spreadsheet crate's entities must land first — AUSTLANG and transcript processing both enrich the crate before merge runs"
+  ["xlsx-crate-input", "austlang", "ca-data-prep", "chat-export", "merge"],
+  "the spreadsheet crate's entities must land first — AUSTLANG, transcript processing, and chat export all enrich the crate before merge runs"
 );
 assert.equal(
   INPUT_PLUGINS["ca-data-prep"],
