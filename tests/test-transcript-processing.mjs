@@ -10,6 +10,8 @@ import {
   processTranscriptText,
   extractDocumentText,
   toMammothInputOptions,
+  toCsv,
+  buildSpeakerPersonEntities,
 } from "c2c-plugins/src/ca-data-prep/process.js";
 import { createPlugin, readDocxFileBytesFromDirHandle } from "c2c-plugins/src/ca-data-prep/index.js";
 import { buildDeps } from "../src/plugins/deps.js";
@@ -43,6 +45,17 @@ const speakers = parseSpeakerBlock(merged.split("\n"), []);
 assert.equal(speakers.get("A").resolvedSpeakerID, "#speaker01");
 assert.equal(speakers.get("B").resolvedSpeakerID, "#speaker02");
 
+const affilSpeakers = parseSpeakerBlock(["Speakers:", "A: Gareth Evans (Holt, ALP) #speaker01"], []);
+assert.equal(affilSpeakers.get("A").label, "Gareth Evans");
+assert.equal(affilSpeakers.get("A").affiliation, "(Holt, ALP)");
+assert.deepEqual(buildSpeakerPersonEntities(affilSpeakers), [{
+  "@id": "#speaker01",
+  "@type": "Person",
+  name: "Gareth Evans",
+  affiliation: "(Holt, ALP)",
+  identifier: "#speaker01",
+}]);
+
 const rows = parseRows(merged, []);
 assert.ok(rows.some((row) => row.speakerID === "#speaker01" && row.section === "PRE"));
 assert.ok(rows.some((row) => row.speakerID === "#speaker01" && row.section === "MAIN"));
@@ -53,6 +66,9 @@ assert.equal(processed.rows[0].speakerID, "#speaker01");
 assert.equal(processed.rows[0].section, "PRE");
 assert.ok(processed.log.includes("Character inventory"));
 assert.ok(processed.log.includes("Unresolved speakerIDs: none"));
+
+const exampleCsv = toCsv([{ speakerID: "#speaker01", text: "hello, world", section: "PRE" }]);
+assert.match(exampleCsv, /#speaker01,"hello, world",PRE\n/);
 
 const arrayBufferInput = new ArrayBuffer(8);
 const viewInput = new Uint8Array(arrayBufferInput, 2, 4);
@@ -71,6 +87,7 @@ const ctx = { options: { processTranscriptDocuments: true }, filesWithMeta: [fil
 await plugin.hooks["files:analyze"](ctx);
 assert.equal(ctx.caDataPrep.documentRecords[0].csvId, "./c2c-output/demo.csv");
 assert.equal(ctx.caDataPrep.documentRecords[0].objectId, "./c2c-output/demo");
+assert.ok(ctx.caDataPrep.documentRecords[0].csvText.includes("#speaker01,"));
 
 const fakeDir = {
   async getDirectoryHandle(name, { create = false } = {}) {
