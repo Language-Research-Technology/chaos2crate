@@ -61,7 +61,7 @@ static HTTPS host — the end-user experience is then zero-install.
 The **Build** card walks through four steps:
 
 1. **Choose folder** — pick a local corpus folder (read + write).
-2. **Select profile** — choose a MASP profile (fetched from `benfoley/masp-profiles`) that
+2. **Select profile** — choose a MASP profile (fetched from `Language-Research-Technology/masp-profiles`) that
    matches this data; it determines which fields Describe asks for and which Build options
    are shown.
 3. **Describe** — fill in the root-dataset fields the selected profile's schema asks for

@@ -316,7 +316,7 @@ This is the "I just want an RO-Crate" path: something valid to publish and somet
 
 ### 5.2 What a profile ships
 
-Profiles come from two places: the **profile repository** (`benfoley/masp-profiles`), fetched when the user picks one, and the **bundled default** (§5.1), compiled in from the `ro-crate-masp` dependency. Both have the same shape — a folder containing:
+Profiles come from two places: the **profile repository** (`Language-Research-Technology/masp-profiles`), fetched when the user picks one, and the **bundled default** (§5.1), compiled in from the `ro-crate-masp` dependency. Both have the same shape — a folder containing:
 
 ```
 <profile-name>/profile-crate/
