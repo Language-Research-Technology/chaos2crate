@@ -310,13 +310,13 @@ Concretely, building under the default produces:
 
 This is the "I just want an RO-Crate" path: something valid to publish and something you can look at, with nothing invented about your data and no network call in the build. Choosing a domain profile from the profile repository is how you opt *into* structure, vocabulary, and plugins — never how you escape a broken default.
 
-**The default's `buildOptions` are ours, not upstream's.** `buildOptions` is a chaos2crate extension; the vendored profile has no such block, and upstream has no reason to carry a key only this app reads. So `src/default_profile.js` overlays one — enabling `makeHtml` and nothing else — onto an otherwise unmodified copy of the dependency's file. Pushing it upstream would put our concern in their repo and tie us to their release cycle; forking the profile into `masp-profiles` would cost the offline guarantee that bundling exists for.
+**The default's `buildOptions` are ours, not upstream's.** `buildOptions` is a chaos2crate extension; the vendored profile has no such block, and upstream has no reason to carry a key only this app reads. So `src/default_profile.js` overlays one — enabling `makeHtml` and nothing else — onto an otherwise unmodified copy of the dependency's file. Pushing it upstream would put our concern in their repo and tie us to their release cycle; forking the profile into `c2c-masp-profiles` would cost the offline guarantee that bundling exists for.
 
 **Why bundled rather than fetched.** A fallback that can fail to load is not a fallback. The default's two JSON files are imported from the `ro-crate-masp` dependency at build time, so it works offline, survives a GitHub rate-limit, and can't 404. The profile crate is ~1.6 MB (~261 kB gzipped), so it is dynamically imported into its own chunk — the same treatment the AUSTLANG data pack gets, and it is only downloaded when a build actually runs without a chosen profile.
 
 ### 5.2 What a profile ships
 
-Profiles come from two places: the **profile repository** (`Language-Research-Technology/masp-profiles`), fetched when the user picks one, and the **bundled default** (§5.1), compiled in from the `ro-crate-masp` dependency. Both have the same shape — a folder containing:
+Profiles come from two places: the **profile repository** (`Language-Research-Technology/c2c-masp-profiles`), fetched when the user picks one, and the **bundled default** (§5.1), compiled in from the `ro-crate-masp` dependency. Both have the same shape — a folder containing:
 
 ```
 <profile-name>/profile-crate/
@@ -324,7 +324,7 @@ Profiles come from two places: the **profile repository** (`Language-Research-Te
     <mode file>               editor hints, plus chaos2crate's own configuration
 ```
 
-The mode file's name differs by source: `masp-profiles` calls it `tool-config.json`; the bundled default keeps the `ro-crate-masp` dependency's own `crate-o-mode.json` unmodified (see §5.1 on why it isn't forked just to rename it). `fetchProfile` in `src/masp.js` hardcodes the `masp-profiles` name.
+The mode file's name differs by source: `c2c-masp-profiles` calls it `tool-config.json`; the bundled default keeps the `ro-crate-masp` dependency's own `crate-o-mode.json` unmodified (see §5.1 on why it isn't forked just to rename it). `main.js`'s `MASP_PROFILES_REPO_NAME` hardcodes the `c2c-masp-profiles` name, passed into `fetchProfile` (`src/masp.js`).
 
 The first file is standard MASP, shared with `crate-o`. The second is where profile-specific behaviour lives:
 
