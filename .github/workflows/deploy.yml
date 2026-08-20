@@ -23,39 +23,51 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       # Plugins live in a separate repo (benfoley/c2c-plugins), consumed via
-      # a "file:../c2c-plugins" dependency in package.json — checked out as
-      # a sibling of this repo's own checkout so that path resolves. See
-      # ARCHITECTURE.md §4.7a.
+      # a "file:../c2c-plugins" dependency in package.json, which needs it
+      # checked out as a true sibling directory on disk. actions/checkout's
+      # `path` input can't point outside $GITHUB_WORKSPACE (it rejects a
+      # path like "../c2c-plugins" outright), so both repos are checked out
+      # as subdirectories *of* $GITHUB_WORKSPACE instead — resources2crate
+      # itself included, rather than at the workspace root — so the two end
+      # up as siblings under a shared parent, and package.json's
+      # "../c2c-plugins" still resolves correctly relative to
+      # resources2crate/package.json's own directory. See ARCHITECTURE.md
+      # §4.7a. Every later step runs from resources2crate/ accordingly.
+      - name: Checkout resources2crate
+        uses: actions/checkout@v4
+        with:
+          path: resources2crate
+
       - name: Checkout c2c-plugins
         uses: actions/checkout@v4
         with:
           repository: benfoley/c2c-plugins
-          path: ../c2c-plugins
+          path: c2c-plugins
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
+          cache-dependency-path: resources2crate/package-lock.json
 
       - name: Install c2c-plugins dependencies
-        working-directory: ../c2c-plugins
+        working-directory: c2c-plugins
         run: npm ci
 
       - name: Install dependencies
+        working-directory: resources2crate
         run: npm ci
 
       - name: Build
+        working-directory: resources2crate
         run: npm run build
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          path: resources2crate/dist
 
   deploy:
     needs: build
