@@ -24,7 +24,7 @@ import modeJson from "ro-crate-masp/profiles/schema-org/profile-crate/crate-o-mo
 export const DEFAULT_PROFILE_ID = "__default__";
 export const DEFAULT_PROFILE_LABEL = "schema.org (default)";
 
-// buildOptions is a resources2crate extension to crate-o-mode.json — upstream
+// buildOptions is a chaos2crate extension to crate-o-mode.json — upstream
 // ro-crate-masp has no reason to carry a key only this app reads, so the
 // default profile's build behaviour is declared here rather than pushed into
 // their file or forked into masp-profiles (which would cost the offline

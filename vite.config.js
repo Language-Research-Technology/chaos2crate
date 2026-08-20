@@ -1,7 +1,7 @@
 import { defineConfig } from "vite";
 import { nodePolyfills } from "vite-plugin-node-polyfills";
 
-// resources2crate is a browser app that leans on Node-oriented libraries
+// chaos2crate is a browser app that leans on Node-oriented libraries
 // (ro-crate, ro-crate-excel -> exceljs, ro-crate-static-site -> nunjucks). Vite
 // honours each package's `browser` field automatically (exceljs →
 // dist/exceljs.min.js, nunjucks → browser/nunjucks.js), and we only import
@@ -91,7 +91,7 @@ export default defineConfig({
     // anything it imports — its own deps (mammoth, cheerio, ...) *and*
     // devDependency-injected imports like vite-plugin-node-polyfills' Buffer
     // shim — walks up from c2c-plugins' real on-disk location instead of its
-    // apparent node_modules/c2c-plugins location, missing resources2crate's
+    // apparent node_modules/c2c-plugins location, missing chaos2crate's
     // own node_modules entirely.
     preserveSymlinks: true,
   },

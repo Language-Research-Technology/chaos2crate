@@ -16,7 +16,7 @@ const TEST_CONFIG = {
     "@id": "arcp://name,test-crate",
     "@type": ["Dataset", "RepositoryCollection"],
     name: "Test Crate",
-    description: "A test crate for the resources2crate test suite.",
+    description: "A test crate for the chaos2crate test suite.",
     datePublished: "2026-01-01",
   },
   metadataLicence: {

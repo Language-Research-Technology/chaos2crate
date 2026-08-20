@@ -1,4 +1,4 @@
-# resources2crate
+# chaos2crate
 
 A browser app that turns a local folder of resources into an
 [RO-Crate](https://www.researchobject.org/ro-crate/) — reading the folder and writing three
@@ -23,7 +23,7 @@ Requires Node and npm (for the build). The end result runs in Chrome/Edge.
 Build plugins live in a sibling repo, [`c2c-plugins`](https://github.com/benfoley/c2c-plugins) — clone it next to this one (`../c2c-plugins`) before `npm install` (see `package.json`'s `"c2c-plugins": "file:../c2c-plugins"` dependency, and `SPEC.md` §4.7a).
 
 ```bash
-cd resources2crate
+cd chaos2crate
 npm install          # pulls ro-crate, ro-crate-excel, ro-crate-static-site, exceljs, vite, c2c-plugins
 
 npm run dev          # dev server at http://localhost:5173  → open in Chrome/Edge

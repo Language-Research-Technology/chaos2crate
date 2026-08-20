@@ -1,4 +1,4 @@
-// resources2crate — browser UI + File System Access wiring.
+// chaos2crate — browser UI + File System Access wiring.
 // The crate assembly and output generation live in ./crate.js (library-based,
 // isomorphic). This file only handles picking a folder, reading/writing files,
 // and the stepped Build/Show UI.
@@ -2458,7 +2458,7 @@ async function openBuild() {
 function saveLog() {
   const text = $("log").textContent || "";
   if (!text.trim()) return;
-  const name = `resources2crate-${dirHandle ? dirHandle.name : "build"}.log`;
+  const name = `chaos2crate-${dirHandle ? dirHandle.name : "build"}.log`;
   const url = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
   const a = document.createElement("a");
   a.href = url; a.download = name;

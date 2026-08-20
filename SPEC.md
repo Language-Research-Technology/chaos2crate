@@ -1,4 +1,4 @@
-# resources2crate — SPEC
+# chaos2crate — SPEC
 
 **What it is:** a browser tool that turns a folder on your computer into an [RO-Crate](https://www.researchobject.org/ro-crate/).
 
@@ -6,7 +6,7 @@ Describes `main` as of `1e3799a`.
 
 ---
 
-## 1. What resources2crate does
+## 1. What chaos2crate does
 
 You point it at a local folder, pick a *profile* describing what kind of collection it is, fill in the fields that profile asks for, and it writes a standards-compliant RO-Crate back into the same folder:
 
@@ -195,7 +195,7 @@ Plugin implementations live in the sibling `c2c-plugins` repo now (§4.7a), not 
 
 ```js
 // c2c-plugins/src/my-thing/index.js
-let doIt; // core resources2crate function this plugin needs, if any
+let doIt; // core chaos2crate function this plugin needs, if any
 
 export function createPlugin(deps) {
   ({ doIt } = deps);
@@ -216,7 +216,7 @@ const plugin = {
 };
 ```
 
-Then register it in c2c-plugins' own `index.js` (`REGISTRY`, keyed by the plugin's `name`), and add that same key to resources2crate's `PLUGINS` env var (or leave it unset/`all`, the default) so `scripts/select-plugins.mjs` includes it the next time `src/plugins/index.js` is regenerated — see §4.7a. Where it runs relative to others sharing its hook comes from `REGISTRY`'s own order in c2c-plugins, not from anything on the resources2crate side. For the option to be reachable, a profile must name `enableMyThing` in its `buildOptions.enabledOptionKeys`.
+Then register it in c2c-plugins' own `index.js` (`REGISTRY`, keyed by the plugin's `name`), and add that same key to chaos2crate's `PLUGINS` env var (or leave it unset/`all`, the default) so `scripts/select-plugins.mjs` includes it the next time `src/plugins/index.js` is regenerated — see §4.7a. Where it runs relative to others sharing its hook comes from `REGISTRY`'s own order in c2c-plugins, not from anything on the chaos2crate side. For the option to be reachable, a profile must name `enableMyThing` in its `buildOptions.enabledOptionKeys`.
 
 Four conventions worth following: **guard on your own option first** (handlers run on every build); **dynamic-import anything heavy** so it stays out of the main bundle; **log through `ctx.log`** rather than `console`; and **write a user-facing doc** if the plugin asks anything of the *person preparing content or running a build* — an authoring convention (headings, filename patterns, magic strings like `SOUND FILE:`), an option whose effect isn't self-explanatory from its label, or an expected file/config shape it reads. That doc is for the plugin's users, not its maintainers — this section and the rest of this file are the latter. It belongs under `docs/` (see §11), linked from the README rather than folded into it, following the pattern `docs/docx-authoring.md` set for `docx-input` (§7.1). A plugin with no user-visible behaviour beyond a self-explanatory option toggle doesn't need one.
 
@@ -229,9 +229,9 @@ Every plugin under §7's catalogue — both the additive kind and the two input 
 **c2c-plugins has no runtime dependency on this repo.** Two conventions make that possible, both covered in c2c-plugins' own README:
 
 - Hook names are literal strings (`"crate:built"`, `"output:write"`, …) rather than an imported `HOOKS.CRATE_BUILT` — a stable contract owned by `src/plugins/hooks.js`, just not one c2c-plugins imports to use.
-- Every plugin module exports `createPlugin(deps)` instead of a static `plugin` object. `deps` is resources2crate's core functions, built once by `src/plugins/deps.js`'s `buildDeps()` (the same full object handed to every plugin — an unused key is simply never read) and passed to each selected plugin's factory.
+- Every plugin module exports `createPlugin(deps)` instead of a static `plugin` object. `deps` is chaos2crate's core functions, built once by `src/plugins/deps.js`'s `buildDeps()` (the same full object handed to every plugin — an unused key is simply never read) and passed to each selected plugin's factory.
 
-resources2crate depends on c2c-plugins as `"c2c-plugins": "file:../c2c-plugins"` — a local, symlinked dependency; not published to npm.
+chaos2crate depends on c2c-plugins as `"c2c-plugins": "file:../c2c-plugins"` — a local, symlinked dependency; not published to npm.
 
 **Build-time plugin selection.** Not every deployment needs every plugin (`ca-data-prep` is specific to one dataset, for instance), so `src/plugins/index.js` is generated rather than hand-written: `node scripts/select-plugins.mjs` reads a `PLUGINS` env var (comma-separated plugin names; unset or `all` means everything) and writes `src/plugins/index.js` with static imports for only the selected plugins, pulled from c2c-plugins' `REGISTRY`. A runtime filter over an already-imported registry wouldn't achieve real bundle-size exclusion — Rollup can't tree-shake based on which object keys get read at runtime — so exclusion has to happen by simply never writing the `import` statement for a plugin that wasn't selected. Input-mode plugins (`generic`/`docx`) are always both included regardless of `PLUGINS`, since they're small and needed for the UI's input-mode switch.
 
@@ -277,7 +277,7 @@ The full contract is §4.7/§4.7a above; this is the short version.
    }
    ```
 2. **Pick a hook** to tap — the seven stages are `folder:picked`, `profile:selected`, `config:prepare`, `files:analyze`, `crate:built`, `crate:validate`, `output:write` (§4.2–§4.4 cover what's on `ctx` at each one).
-3. **Use `deps` for anything you need from resources2crate's core** (`crate.js`/`fs_helpers.js`/`github.js` functions) instead of importing them — e.g. `({ writeFileAtPath } = deps)` at the top of the file. This is what keeps a plugin decoupled and portable (§4.7a).
+3. **Use `deps` for anything you need from chaos2crate's core** (`crate.js`/`fs_helpers.js`/`github.js` functions) instead of importing them — e.g. `({ writeFileAtPath } = deps)` at the top of the file. This is what keeps a plugin decoupled and portable (§4.7a).
 4. **Point `PLUGINS` at it** — no `package.json` changes needed for a quick local file:
    ```bash
    PLUGINS=merge,austlang,my-thing=../my-plugin/index.js npm run dev
@@ -310,7 +310,7 @@ Concretely, building under the default produces:
 
 This is the "I just want an RO-Crate" path: something valid to publish and something you can look at, with nothing invented about your data and no network call in the build. Choosing a domain profile from the profile repository is how you opt *into* structure, vocabulary, and plugins — never how you escape a broken default.
 
-**The default's `buildOptions` are ours, not upstream's.** `buildOptions` is a resources2crate extension; the vendored profile has no such block, and upstream has no reason to carry a key only this app reads. So `src/default_profile.js` overlays one — enabling `makeHtml` and nothing else — onto an otherwise unmodified copy of the dependency's file. Pushing it upstream would put our concern in their repo and tie us to their release cycle; forking the profile into `masp-profiles` would cost the offline guarantee that bundling exists for.
+**The default's `buildOptions` are ours, not upstream's.** `buildOptions` is a chaos2crate extension; the vendored profile has no such block, and upstream has no reason to carry a key only this app reads. So `src/default_profile.js` overlays one — enabling `makeHtml` and nothing else — onto an otherwise unmodified copy of the dependency's file. Pushing it upstream would put our concern in their repo and tie us to their release cycle; forking the profile into `masp-profiles` would cost the offline guarantee that bundling exists for.
 
 **Why bundled rather than fetched.** A fallback that can fail to load is not a fallback. The default's two JSON files are imported from the `ro-crate-masp` dependency at build time, so it works offline, survives a GitHub rate-limit, and can't 404. The profile crate is ~1.6 MB (~261 kB gzipped), so it is dynamically imported into its own chunk — the same treatment the AUSTLANG data pack gets, and it is only downloaded when a build actually runs without a chosen profile.
 
@@ -321,7 +321,7 @@ Profiles come from two places: the **profile repository** (`benfoley/masp-profil
 ```
 <profile-name>/profile-crate/
     ro-crate-metadata.json    the profile as an RO-Crate: classes, properties, cardinalities
-    crate-o-mode.json         editor hints, plus resources2crate's own configuration
+    crate-o-mode.json         editor hints, plus chaos2crate's own configuration
 ```
 
 The first is standard MASP, shared with `crate-o`. The second is where profile-specific behaviour lives:
@@ -382,7 +382,7 @@ This is a **read of the root entity only** — it fills form fields, nothing mor
 
 That guarantee is what lets the bundled default be described precisely: it names `makeHtml`, so it emits JSON and a preview and nothing else — no merge, no language lookups, no template fetch.
 
-**A profile with no `buildOptions` block at all offers no optional processing** — the absent block reads as an empty allow-list, not as "no opinion". That keeps an upstream profile authored for `crate-o` (which knows nothing about resources2crate's options) conservative here rather than switching everything on. The bundled default gets its block from an overlay in `src/default_profile.js` (§5.1), precisely because the vendored file has none.
+**A profile with no `buildOptions` block at all offers no optional processing** — the absent block reads as an empty allow-list, not as "no opinion". That keeps an upstream profile authored for `crate-o` (which knows nothing about chaos2crate's options) conservative here rather than switching everything on. The bundled default gets its block from an overlay in `src/default_profile.js` (§5.1), precisely because the vendored file has none.
 
 Always-on plugins are unaffected: JSON output and validation have no option key, so nothing gates them.
 

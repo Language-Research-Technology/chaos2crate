@@ -64,7 +64,7 @@ const vendoredMode = JSON.parse(
 assert.equal(
   vendoredMode.buildOptions,
   undefined,
-  "buildOptions is a resources2crate extension — the upstream profile file should not be patched in place"
+  "buildOptions is a chaos2crate extension — the upstream profile file should not be patched in place"
 );
 
 /* ---------- the Describe step asks for a handful of schema.org fields ---------- */

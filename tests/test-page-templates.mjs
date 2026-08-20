@@ -12,7 +12,7 @@ import { buildDeps } from "../src/plugins/deps.js";
 // collectPageTemplates() reaches resolveTemplateAsset() internally, which
 // reads bustCacheUrl/readFileTextFromDirectory from this module's injected
 // deps — createPlugin(deps) must run at least once before either export is
-// used, same as resources2crate's real registry does at build time.
+// used, same as chaos2crate's real registry does at build time.
 createPlugin(buildDeps());
 
 const BIRDS_CONFIG = {

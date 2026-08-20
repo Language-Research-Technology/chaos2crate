@@ -9,7 +9,7 @@
 //   npm run update:austlang
 //
 // Commit the resulting austlang-data.json in the c2c-plugins repo (a sibling
-// checkout — see resources2crate's package.json "c2c-plugins" dependency).
+// checkout — see chaos2crate's package.json "c2c-plugins" dependency).
 
 import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";

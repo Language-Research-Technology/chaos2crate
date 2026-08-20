@@ -75,7 +75,7 @@ export function getRootClassDefinition(validator) {
 // longTextInputs is the exact set of property names (matching input.name,
 // including any prefix) the profile's own crate-o-mode.json declares as
 // multiline — MASP's own editor-definition shape has no such hint, and
-// resources2crate has no business guessing from the property's name.
+// chaos2crate has no business guessing from the property's name.
 // Properties that say how the crate is put together rather than what it's
 // about. A profile legitimately declares them — a collection really must have
 // members — but they're derived from the folder scan and whatever metadata was
