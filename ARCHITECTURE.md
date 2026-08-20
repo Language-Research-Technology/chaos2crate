@@ -220,6 +220,8 @@ Then register it in c2c-plugins' own `index.js` (`REGISTRY`, keyed by the plugin
 
 Four conventions worth following: **guard on your own option first** (handlers run on every build); **dynamic-import anything heavy** so it stays out of the main bundle; **log through `ctx.log`** rather than `console`; and **write a user-facing doc** if the plugin asks anything of the *person preparing content or running a build* — an authoring convention (headings, filename patterns, magic strings like `SOUND FILE:`), an option whose effect isn't self-explanatory from its label, or an expected file/config shape it reads. That doc is for the plugin's users, not its maintainers — this section and the rest of this file are the latter. It belongs under `docs/` (see §11), linked from the README rather than folded into it, following the pattern `docs/docx-authoring.md` set for `docx-input` (§7.1). A plugin with no user-visible behaviour beyond a self-explanatory option toggle doesn't need one.
 
+Registering it in c2c-plugins' `REGISTRY` (above) is the path for a plugin that's joining that repo. It doesn't have to — §4.7a covers pulling a plugin in from somewhere else entirely: another repo built the same way (`PLUGINS=name=some-package`), or a one-off local file you're testing without touching any repo's registry at all (`PLUGINS=name=./path.js`).
+
 ### 4.7a The c2c-plugins repo split
 
 Every plugin under §7's catalogue — both the additive kind and the two input modes — lives in `c2c-plugins`, a sibling checkout (`../c2c-plugins` next to this repo), not under `src/plugins/`. What stayed here is the plugin *engine*: `src/plugins/hooks.js` (the hook bus and `HOOKS` constants) and `src/plugins/pipeline.js` (orchestration), plus the isomorphic core every plugin reaches into — `src/crate.js`, `src/fs_helpers.js`, `src/github.js`, `src/masp.js`.
@@ -254,6 +256,34 @@ PLUGINS=merge,special=other-plugins npm run build
 # a plugin file you're testing locally, not wired into package.json at all
 PLUGINS=merge,scratch=../scratch-plugin/index.js npm run build
 ```
+
+### 4.7b Quick start: writing your own plugin
+
+The full contract is §4.7/§4.7a above; this is the short version.
+
+1. **Create a file** exporting `createPlugin(deps)`, which returns a plugin object:
+   ```js
+   // e.g. ../my-plugin/index.js
+   export function createPlugin(deps) {
+     return {
+       name: "my-plugin",
+       hooks: {
+         "crate:built": (ctx) => {
+           ctx.log("my-plugin ran!", "ok");
+           // do something with ctx.crate
+         },
+       },
+     };
+   }
+   ```
+2. **Pick a hook** to tap — the seven stages are `folder:picked`, `profile:selected`, `config:prepare`, `files:analyze`, `crate:built`, `crate:validate`, `output:write` (§4.2–§4.4 cover what's on `ctx` at each one).
+3. **Use `deps` for anything you need from resources2crate's core** (`crate.js`/`fs_helpers.js`/`github.js` functions) instead of importing them — e.g. `({ writeFileAtPath } = deps)` at the top of the file. This is what keeps a plugin decoupled and portable (§4.7a).
+4. **Point `PLUGINS` at it** — no `package.json` changes needed for a quick local file:
+   ```bash
+   PLUGINS=merge,austlang,my-thing=../my-plugin/index.js npm run dev
+   ```
+5. **If it's meant to stick around**, turn it into its own small repo built like c2c-plugins (`src/<name>/index.js`), wire it into `package.json` (`"my-plugins": "file:../my-plugins"` or a `github:` URL), `npm install`, then reference it as `name=my-plugins` instead of a raw path.
+6. **Add an `optionSchema`** if it should be toggleable in the Build panel, and make sure the active profile's `buildOptions.enabledOptionKeys` names your option key — otherwise it's off by default (§5.4).
 
 **Known trade-off:** two of this repo's own files reach directly into a specific c2c-plugins plugin, bypassing the hook/pipeline system entirely — `main.js`'s merge-mapping-builder UI imports `readXlsxHeaders`/`readXlsxContextPrefixes` from `c2c-plugins/src/merge/xlsx.js`, and its uploaded-template-folder cache reset imports `resetUploadedConfigDirHandle` from `c2c-plugins/src/ro-crate-html-output/index.js`. Both predate the repo split (they were already direct imports, just from a local path) and are pure UI-support helpers `main.js`'s forms need regardless of build options — but because they're static imports, `merge` and `ro-crate-html-output` end up always bundled even if `PLUGINS` excludes them. Not addressed by the split; flagged here for whoever tackles it next.
 
