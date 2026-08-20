@@ -82,7 +82,8 @@ const SETTINGS_SCHEMA = [...CORE_SETTINGS_SCHEMA, ...composeSettingsSchema()];
 /* ---------- DOM helpers ---------- */
 const $ = (id) => document.getElementById(id);
 const logEl = () => $("log");
-const SETTINGS_STORAGE_KEY = "resources2crate.settings";
+const SETTINGS_STORAGE_KEY = "chaos2crate.settings";
+const LEGACY_SETTINGS_STORAGE_KEY = "resources2crate.settings";
 
 function normalizeThemeMode(value) {
   return value === "dark" ? "dark" : "light";
@@ -107,7 +108,17 @@ function loadSettingsState() {
   const defaults = defaultSettingsFromSchema(SETTINGS_SCHEMA);
   let saved = {};
   try {
-    saved = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) || "{}") || {};
+    const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
+    if (raw !== null) {
+      saved = JSON.parse(raw) || {};
+    } else {
+      const legacyRaw = localStorage.getItem(LEGACY_SETTINGS_STORAGE_KEY);
+      if (legacyRaw !== null) {
+        saved = JSON.parse(legacyRaw) || {};
+        localStorage.setItem(SETTINGS_STORAGE_KEY, legacyRaw);
+        localStorage.removeItem(LEGACY_SETTINGS_STORAGE_KEY);
+      }
+    }
   } catch {
     saved = {};
   }
