@@ -40,9 +40,8 @@ export const DEFAULT_PROFILE_LABEL = "schema.org (default)";
 // no language lookups. The result is a self-contained page rendered from the
 // profile's own propertyGroups, with the library's built-in template.
 const BUILD_OPTIONS = {
-  enabledOptionKeys: ["makeHtml", "generateChatFiles"],
+  enabledOptionKeys: ["makeHtml"],
   makeHtml: true,
-  generateChatFiles: false,
 };
 
 // The same { profileJson, modeJson } shape masp.js's fetchProfile returns, so
