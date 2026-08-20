@@ -240,6 +240,21 @@ PLUGINS=merge,validate-crate,ro-crate-json-output npm run build   # only these
 
 The generator runs automatically before `dev`/`build`/`test` (package.json's `predev`/`prebuild`/`pretest` scripts call `select-plugins`), so `src/plugins/index.js` is always freshly regenerated before use — it's still committed so the file isn't missing for anyone who reads the repo without running a script first, but treat its content as disposable; don't hand-edit it.
 
+**A `PLUGINS` entry doesn't have to come from c2c-plugins.** Each entry is either a bare name (c2c-plugins' `REGISTRY`, validated, ordered by `REGISTRY`'s own hook-execution order — the default and the common case), or `name=source`:
+
+- `name=some-package` — `some-package`'s own `src/<name>/index.js`, the same layout convention c2c-plugins itself follows. For a plugin repo meant to stick around, wire it into `package.json` as its own dependency first — `"other-plugins": "file:../other-plugins"` for another local checkout (same pattern as c2c-plugins itself), or `"other-plugins": "github:org/other-plugins"` for one pulled from elsewhere online — then `npm install`, then reference it this way. There's no runtime remote-loading mechanism here; "online repo" still means "installed as a real dependency before the build runs," same as c2c-plugins.
+- `name=./relative/path.js` or `name=/absolute/path.js` — an exact filesystem path (resolved against this repo's own root for a relative path), for a one-off local plugin you're testing without editing `package.json` at all.
+
+Either form just needs to export `createPlugin(deps)`, the same contract as every plugin in c2c-plugins — `deps` is the identical object `buildDeps()` produces, so an external or local plugin can read whatever core functions it needs the same way. `select-plugins.mjs` dynamically imports every custom entry at generation time (before writing anything) specifically to catch a bad path or a missing `createPlugin` export immediately, with a clear message, rather than failing obscurely inside Vite later. Ordering: c2c-plugins' `REGISTRY` names keep their documented order; custom entries are appended after, in the order given in `PLUGINS` — there's no ordering information available for a plugin outside c2c-plugins' own registry, so place custom entries accordingly if they share a hook stage with something order-sensitive.
+
+```bash
+# a plugin from another repo built like c2c-plugins
+PLUGINS=merge,special=other-plugins npm run build
+
+# a plugin file you're testing locally, not wired into package.json at all
+PLUGINS=merge,scratch=../scratch-plugin/index.js npm run build
+```
+
 **Known trade-off:** two of this repo's own files reach directly into a specific c2c-plugins plugin, bypassing the hook/pipeline system entirely — `main.js`'s merge-mapping-builder UI imports `readXlsxHeaders`/`readXlsxContextPrefixes` from `c2c-plugins/src/merge/xlsx.js`, and its uploaded-template-folder cache reset imports `resetUploadedConfigDirHandle` from `c2c-plugins/src/ro-crate-html-output/index.js`. Both predate the repo split (they were already direct imports, just from a local path) and are pure UI-support helpers `main.js`'s forms need regardless of build options — but because they're static imports, `merge` and `ro-crate-html-output` end up always bundled even if `PLUGINS` excludes them. Not addressed by the split; flagged here for whoever tackles it next.
 
 ---

@@ -21,6 +21,10 @@ const deps = buildDeps();
 // (createHookBus's priority defaults to 10 for every registration, and
 // Array#sort is stable, so registration order reproduces the original
 // processFolder sequence — see c2c-plugins/index.js's REGISTRY ordering).
+// Plugins from a custom source (name=package or name=./path.js in PLUGINS)
+// are appended after the c2c-plugins ones, in the order they were listed —
+// this script has no way to know where they should sit relative to others
+// sharing a hook stage, so place them in PLUGINS accordingly if that matters.
 export const PLUGINS = [
   create_0(deps), // xlsx-crate-input
   create_1(deps), // austlang
