@@ -93,7 +93,7 @@ since input mode is mutually exclusive rather than something multiple plugins ca
 - one `File` entity per file (`@id` = relative path, `isPartOf`); which custom fields (e.g.
   `custom:participant`, `custom:possibleDuplicate`) get blank-initialized on every file, and
   their `rdf:Property` definitions, also come from the selected profile
-  (`crate-o-mode.json`'s `fileProperties`) — nothing is added unconditionally;
+  (the profile's mode file's `fileProperties`) — nothing is added unconditionally;
 - hash `@id`s of `RepositoryObject`s rewritten to `arcp://…/<name>` on export;
 - optional AUSTLANG subject-language identification (filename-based; see options) — its own
   `rdf:Property` definitions (`custom:austlangCode` etc.) are only added when a language was
@@ -116,7 +116,7 @@ The crate object is then serialized with `crate.getJson()` (JSON), fed to `ro-cr
 | Template from rocss-templates | pick a folder from `Language-Research-Technology/rocss-templates`; downloads and uses that folder's template config |
 | Upload template files | upload a single `config.json`; template and style are resolved from values inside that config |
 
-Which of these are actually shown depends on the selected profile's `crate-o-mode.json`
+Which of these are actually shown depends on the selected profile's mode file
 (`buildOptions.enabledOptionKeys`).
 
 ### Settings
@@ -157,7 +157,7 @@ Root-dataset metadata (name, description, license, etc.) and root-level config
 (`@type`, `conformsTo`, the metadata descriptor's own license, and which per-file custom
 properties get written) come entirely from the selected MASP profile:
 `@type`/`conformsTo`/`metadataLicence`/`fileProperties` from that profile's
-`crate-o-mode.json`, everything else from the values entered on the Describe step (driven
+mode file, everything else from the values entered on the Describe step (driven
 by the profile's schema). There is no built-in fallback and no folder-level `config.json`
 override — a profile must be selected before Build is reachable, so this is always fully
 determined. There's no `src/defaults.js` anymore — the AUSTLANG plugin owns its own

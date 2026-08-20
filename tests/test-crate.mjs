@@ -30,7 +30,7 @@ const TEST_CONFIG = {
     name: "Attribution 4.0 International (CC BY 4.0)",
   },
   // fileProperties no longer come from a shared defaults.js — the selected
-  // profile declares them (see masp-profiles' language-resources crate-o-mode.json).
+  // profile declares them (see masp-profiles' language-resources tool-config.json).
   fileProperties: [
     { key: "custom:participant", definition: { "@id": "arcp://name,custom/terms#participant", "@type": "rdf:Property", name: "Participant", description: "A participant associated with the file." } },
     { key: "custom:possibleDuplicate", definition: { "@id": "arcp://name,custom/terms#possibleDuplicate", "@type": "rdf:Property", name: "Possible Duplicate", description: "Filename of a possible duplicate." } },

@@ -26,13 +26,13 @@ async function fetchGitHubJson(owner, repo, ref, filePath) {
   return res.json();
 }
 
-// Fetches one profile's ro-crate-metadata.json + crate-o-mode.json from a
+// Fetches one profile's ro-crate-metadata.json + tool-config.json from a
 // masp-profiles-shaped repo (<owner>/<repo>/<folderName>/profile-crate/...).
 export async function fetchProfile(owner, repo, ref, folderName) {
   const base = `${folderName}/profile-crate`;
   const [profileJson, modeJson] = await Promise.all([
     fetchGitHubJson(owner, repo, ref, `${base}/ro-crate-metadata.json`),
-    fetchGitHubJson(owner, repo, ref, `${base}/crate-o-mode.json`),
+    fetchGitHubJson(owner, repo, ref, `${base}/tool-config.json`),
   ]);
   return { profileJson, modeJson };
 }
@@ -59,7 +59,7 @@ export function getRootClassDefinition(validator) {
   if (!rootType) {
     throw new Error(
       `Profile's root dataset type(s) [${rootTypes.join(", ")}] don't match any of its ` +
-      `enabled classes [${[...enabled].join(", ")}] — check crate-o-mode.json's rootDataset.type.`
+      `enabled classes [${[...enabled].join(", ")}] — check the profile's mode file's rootDataset.type.`
     );
   }
   return validator.getClassDefinition(rootType);
@@ -73,7 +73,7 @@ export function getRootClassDefinition(validator) {
 // Describe form already used for creator/inLanguage. A ["Value"]-typed input
 // (PropertyValue-fixed) is structural, not user-editable, and is skipped.
 // longTextInputs is the exact set of property names (matching input.name,
-// including any prefix) the profile's own crate-o-mode.json declares as
+// including any prefix) the profile's own mode file declares as
 // multiline — MASP's own editor-definition shape has no such hint, and
 // chaos2crate has no business guessing from the property's name.
 // Properties that say how the crate is put together rather than what it's
@@ -121,7 +121,7 @@ function describeLabel(propName) {
 }
 
 // The full Describe-step field schema for a profile's root class.
-// longTextInputNames: modeJson.longTextInputs (crate-o-mode.json) — property
+// longTextInputNames: modeJson.longTextInputs (the profile's mode file) — property
 // names the profile wants rendered as a textarea instead of a single-line
 // input. Defaults to none, not a guess.
 export function toDescribeFieldSchema(classDefinition, longTextInputNames = []) {

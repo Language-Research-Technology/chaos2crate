@@ -182,7 +182,7 @@ function addFolderEntities(crate, filesWithMeta, opts = {}) {
 }
 
 // fileProperties: the selected profile's declared per-file custom fields
-// (config.fileProperties, from crate-o-mode.json — see buildCrate) — each
+// (config.fileProperties, from the profile's mode file — see buildCrate) — each
 // { key, definition } pairs the compact property key written onto every
 // File entity with the rdf:Property entity documenting it. Blank-initialized
 // for every file, except "custom:possibleDuplicate" which is only written

@@ -817,7 +817,7 @@ function collectSchemaKeys(schema, set) {
 }
 
 // Shows/hides Build-panel fields (Settings are a separate, profile-
-// independent surface) per the profile-in-effect's crate-o-mode.json
+// independent surface) per the profile-in-effect's mode file
 // buildOptions (see masp-profiles), and pre-fills whatever checkboxes/
 // selects it declares values for. Build options are hidden by DEFAULT —
 // a key (top-level or nested) is only shown if it's named in
@@ -1763,7 +1763,7 @@ function readOptions() {
 /* ---------- select-profile step ---------- */
 // The profile in effect: its id (a masp-profiles folder name, or
 // DEFAULT_PROFILE_ID for the bundled schema.org fallback) and everything
-// loaded from it: { validator, workflow (crate-o-mode.json, carries
+// loaded from it: { validator, workflow (the profile's mode file, carries
 // buildOptions), rootClassDefinition, fieldSchema }. Both reset in
 // pickFolder() on every new folder pick — a profile chosen for one folder
 // shouldn't silently carry over to the next.
@@ -2262,7 +2262,7 @@ async function walkDirectory(handle, prefix = "") {
 }
 /* ---------- Build ---------- */
 // Thin wrapper: assembles rootDataset/metadataLicence entirely from the
-// selected profile (its crate-o-mode.json rootDataset.type/conformsTo and
+// selected profile (its mode file's rootDataset.type/conformsTo and
 // metadataLicence, plus the Describe-step values) and the collection-labels
 // override, builds the shared pipeline context, and hands off to
 // runPipeline() (src/plugins/pipeline.js) — everything else (which input

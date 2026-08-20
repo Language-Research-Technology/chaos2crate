@@ -321,12 +321,14 @@ Profiles come from two places: the **profile repository** (`benfoley/masp-profil
 ```
 <profile-name>/profile-crate/
     ro-crate-metadata.json    the profile as an RO-Crate: classes, properties, cardinalities
-    crate-o-mode.json         editor hints, plus chaos2crate's own configuration
+    <mode file>               editor hints, plus chaos2crate's own configuration
 ```
 
-The first is standard MASP, shared with `crate-o`. The second is where profile-specific behaviour lives:
+The mode file's name differs by source: `masp-profiles` calls it `tool-config.json`; the bundled default keeps the `ro-crate-masp` dependency's own `crate-o-mode.json` unmodified (see §5.1 on why it isn't forked just to rename it). `fetchProfile` in `src/masp.js` hardcodes the `masp-profiles` name.
 
-| `crate-o-mode.json` key | Controls |
+The first file is standard MASP, shared with `crate-o`. The second is where profile-specific behaviour lives:
+
+| mode file key | Controls |
 |---|---|
 | `rootDataset.type` / `.conformsTo` | the root entity's `@type` and profile conformance |
 | `metadataLicence` | the metadata descriptor's own licence |
