@@ -85,4 +85,14 @@ export default defineConfig({
     target: "es2020",
     commonjsOptions: { transformMixedEsModules: true },
   },
+  resolve: {
+    // c2c-plugins is a file: dependency (a symlinked sibling checkout, not a
+    // real node_modules copy). Without this, bare-specifier resolution for
+    // anything it imports — its own deps (mammoth, cheerio, ...) *and*
+    // devDependency-injected imports like vite-plugin-node-polyfills' Buffer
+    // shim — walks up from c2c-plugins' real on-disk location instead of its
+    // apparent node_modules/c2c-plugins location, missing resources2crate's
+    // own node_modules entirely.
+    preserveSymlinks: true,
+  },
 });

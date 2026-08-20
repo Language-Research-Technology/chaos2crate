@@ -20,15 +20,31 @@ a small **Vite** project that bundles them for the browser.
 
 Requires Node and npm (for the build). The end result runs in Chrome/Edge.
 
+Build plugins live in a sibling repo, [`c2c-plugins`](https://github.com/benfoley/c2c-plugins) — clone it next to this one (`../c2c-plugins`) before `npm install` (see `package.json`'s `"c2c-plugins": "file:../c2c-plugins"` dependency, and `ARCHITECTURE.md` §4.7a).
+
 ```bash
 cd resources2crate
-npm install          # pulls ro-crate, ro-crate-excel, ro-crate-static-site, exceljs, vite
+npm install          # pulls ro-crate, ro-crate-excel, ro-crate-static-site, exceljs, vite, c2c-plugins
 
 npm run dev          # dev server at http://localhost:5173  → open in Chrome/Edge
 # or
-npm run build        # produces dist/  (a static site)
+npm run build        # produces dist/  (a static site) — every plugin, by default
+# or, to bundle only some plugins (smaller dist/):
+PLUGINS=merge,validate-crate,ro-crate-json-output npm run build
 npm run preview      # serve the built dist/ at http://localhost:5000
 ```
+
+`PLUGINS` entries can also pull a plugin from somewhere other than c2c-plugins — another repo (built the same way, added to `package.json` as its own dependency) or a one-off local file:
+
+```bash
+# a plugin from another repo built like c2c-plugins (its own src/<name>/index.js)
+PLUGINS=merge,special=other-plugins npm run build
+
+# a plugin file you're testing locally, not wired into package.json at all
+PLUGINS=merge,scratch=../scratch-plugin/index.js npm run build
+```
+
+See `scripts/select-plugins.mjs`'s header comment and `ARCHITECTURE.md` §4.7a for the full syntax.
 
 The File System Access API needs a secure context (`http://localhost` or `https://`), so a
 `file://` open won't work. To deploy, `npm run build` and host the `dist/` folder on any

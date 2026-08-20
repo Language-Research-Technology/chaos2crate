@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import ExcelJS from "exceljs";
-import { buildFileMetadata, buildCrate, crateToJsonString } from "../src/crate.js";
-import { mergeXlsxIntoCrate } from "../src/plugins/merge/xlsx.js";
+import { buildFileMetadata, buildCrate, crateToJsonString, graphEntityById } from "../src/crate.js";
+import { mergeXlsxIntoCrate } from "c2c-plugins/src/merge/xlsx.js";
 
 // main.js no longer supplies a built-in default config — rootDataset now
 // comes entirely from the selected profile + Describe form. Stand in with a
@@ -28,7 +28,7 @@ const stats = await mergeXlsxIntoCrate(crate, xlsxBytes, {
       Brisbane: { latitude: -27.4698, longitude: 153.0251 },
     },
   },
-});
+}, () => {}, graphEntityById);
 
 const graph = JSON.parse(crateToJsonString(crate))["@graph"];
 

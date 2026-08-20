@@ -16,7 +16,10 @@
 // since copying a file's bytes into ro-crate-preview_files/ never depends on
 // what they are.
 import assert from "node:assert/strict";
-import { buildCrateFromDocxFolder } from "../src/plugins/docx-input/docx_crate.js";
+import { buildCrateFromDocxFolder, configure } from "c2c-plugins/src/docx-input/docx_crate.js";
+import { writeFileAtPath } from "../src/fs_helpers.js";
+
+configure({ writeFileAtPath });
 
 /* ---------- an in-memory stand-in for FileSystemDirectoryHandle ---------- */
 // Built from a plain nested object: a Uint8Array value is a file, anything

@@ -6,7 +6,14 @@
 // The build didn't fail either: it fell through to a single page whose entity
 // links pointed at pages it never wrote.
 import assert from "node:assert/strict";
-import { multipageTemplateRefs, collectPageTemplates } from "../src/plugins/ro-crate-html-output/index.js";
+import { createPlugin, multipageTemplateRefs, collectPageTemplates } from "c2c-plugins/src/ro-crate-html-output/index.js";
+import { buildDeps } from "../src/plugins/deps.js";
+
+// collectPageTemplates() reaches resolveTemplateAsset() internally, which
+// reads bustCacheUrl/readFileTextFromDirectory from this module's injected
+// deps — createPlugin(deps) must run at least once before either export is
+// used, same as resources2crate's real registry does at build time.
+createPlugin(buildDeps());
 
 const BIRDS_CONFIG = {
   types: {

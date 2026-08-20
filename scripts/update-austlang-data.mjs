@@ -1,4 +1,4 @@
-// Regenerate src/plugins/austlang/austlang-data.json from the
+// Regenerate c2c-plugins' src/austlang/austlang-data.json from the
 // @describo/data-packs package.
 //
 // The app does AUSTLANG language identification entirely offline by scanning a
@@ -8,7 +8,8 @@
 //   npm install            # ensure @describo/data-packs (devDependency) is present
 //   npm run update:austlang
 //
-// Commit the resulting src/plugins/austlang/austlang-data.json.
+// Commit the resulting austlang-data.json in the c2c-plugins repo (a sibling
+// checkout — see resources2crate's package.json "c2c-plugins" dependency).
 
 import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -20,7 +21,7 @@ const SRC = join(
   root,
   "node_modules/@describo/data-packs/data-packs/languages/austlang-language-data-pack.json"
 );
-const OUT = join(root, "src/plugins/austlang/austlang-data.json");
+const OUT = join(root, "../c2c-plugins/src/austlang/austlang-data.json");
 
 const raw = JSON.parse(await readFile(SRC, "utf8"));
 if (!Array.isArray(raw)) throw new Error("Expected the data pack to be a JSON array");
@@ -34,4 +35,4 @@ const records = raw
 if (!records.length) throw new Error("No Austlang records found — aborting");
 
 await writeFile(OUT, JSON.stringify(records));
-console.log(`Wrote ${records.length} Austlang records to src/plugins/austlang/austlang-data.json`);
+console.log(`Wrote ${records.length} Austlang records to ../c2c-plugins/src/austlang/austlang-data.json`);

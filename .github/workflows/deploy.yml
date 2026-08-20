@@ -26,11 +26,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Plugins live in a separate repo (benfoley/c2c-plugins), consumed via
+      # a "file:../c2c-plugins" dependency in package.json — checked out as
+      # a sibling of this repo's own checkout so that path resolves. See
+      # ARCHITECTURE.md §4.7a.
+      - name: Checkout c2c-plugins
+        uses: actions/checkout@v4
+        with:
+          repository: benfoley/c2c-plugins
+          path: ../c2c-plugins
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
+
+      - name: Install c2c-plugins dependencies
+        working-directory: ../c2c-plugins
+        run: npm ci
 
       - name: Install dependencies
         run: npm ci
