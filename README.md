@@ -117,7 +117,7 @@ The crate object is then serialized with `crate.getJson()` (JSON), fed to `ro-cr
 | Upload template files | upload a single `config.json`; template and style are resolved from values inside that config |
 
 Which of these are actually shown depends on the selected profile's mode file
-(`buildOptions.enabledOptionKeys`).
+(`tools.chaos2crate.buildOptions.enabledOptionKeys`).
 
 ### Settings
 

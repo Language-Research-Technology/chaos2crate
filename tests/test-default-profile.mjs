@@ -35,20 +35,21 @@ assert.equal(
 
 /* ---------- the default enables a plain preview, and nothing else ---------- */
 
+const buildOptions = modeJson.tools?.chaos2crate?.buildOptions;
 assert.deepEqual(
-  modeJson.buildOptions.enabledOptionKeys,
+  buildOptions.enabledOptionKeys,
   ["makeHtml"],
   "the default profile should enable HTML output and no other Build option"
 );
 assert.equal(
-  modeJson.buildOptions.makeHtml,
+  buildOptions.makeHtml,
   true,
   "HTML output should be on by default, not merely available"
 );
 
 for (const networked of ["templateRepoFolder", "styledPreview"]) {
   assert.ok(
-    !modeJson.buildOptions.enabledOptionKeys.includes(networked),
+    !buildOptions.enabledOptionKeys.includes(networked),
     `"${networked}" should stay disabled — the default preview must render offline, with no template fetch`
   );
 }
@@ -62,9 +63,9 @@ const vendoredMode = JSON.parse(
   )
 );
 assert.equal(
-  vendoredMode.buildOptions,
+  vendoredMode.tools,
   undefined,
-  "buildOptions is a chaos2crate extension — the upstream profile file should not be patched in place"
+  "tools.chaos2crate.buildOptions is a chaos2crate extension — the upstream profile file should not be patched in place"
 );
 
 /* ---------- the Describe step asks for a handful of schema.org fields ---------- */
