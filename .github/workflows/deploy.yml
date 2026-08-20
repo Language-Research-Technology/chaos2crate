@@ -23,7 +23,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      # Plugins live in a separate repo (benfoley/c2c-plugins), consumed via
+      # Plugins live in a separate repo (Language-Research-Technology/c2c-plugins), consumed via
       # a "file:../c2c-plugins" dependency in package.json, which needs it
       # checked out as a true sibling directory on disk. actions/checkout's
       # `path` input can't point outside $GITHUB_WORKSPACE (it rejects a
@@ -42,7 +42,7 @@ jobs:
       - name: Checkout c2c-plugins
         uses: actions/checkout@v4
         with:
-          repository: benfoley/c2c-plugins
+          repository: Language-Research-Technology/c2c-plugins
           path: c2c-plugins
 
       - name: Setup Node

@@ -20,7 +20,7 @@ a small **Vite** project that bundles them for the browser.
 
 Requires Node and npm (for the build). The end result runs in Chrome/Edge.
 
-Build plugins live in a sibling repo, [`c2c-plugins`](https://github.com/benfoley/c2c-plugins) — clone it next to this one (`../c2c-plugins`) before `npm install` (see `package.json`'s `"c2c-plugins": "file:../c2c-plugins"` dependency, and `SPEC.md` §4.7a).
+Build plugins live in a sibling repo, [`c2c-plugins`](https://github.com/Language-Research-Technology/c2c-plugins) — clone it next to this one (`../c2c-plugins`) before `npm install` (see `package.json`'s `"c2c-plugins": "file:../c2c-plugins"` dependency, and `SPEC.md` §4.7a).
 
 ```bash
 cd chaos2crate
