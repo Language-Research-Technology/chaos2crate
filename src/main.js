@@ -42,7 +42,7 @@ const TEMPLATE_REPO_OWNER = "Language-Research-Technology";
 const TEMPLATE_REPO_NAME = "rocss-templates";
 const TEMPLATE_REPO_REF = "main";
 const MASP_PROFILES_REPO_OWNER = "Language-Research-Technology";
-const MASP_PROFILES_REPO_NAME = "masp-profiles";
+const MASP_PROFILES_REPO_NAME = "c2c-masp-profiles";
 const MASP_PROFILES_REPO_REF = "main";
 const APP_VERSION = packageJson.version || "dev";
 
