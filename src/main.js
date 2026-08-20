@@ -818,7 +818,7 @@ function collectSchemaKeys(schema, set) {
 
 // Shows/hides Build-panel fields (Settings are a separate, profile-
 // independent surface) per the profile-in-effect's mode file
-// buildOptions (see masp-profiles), and pre-fills whatever checkboxes/
+// tools.chaos2crate.buildOptions (see masp-profiles), and pre-fills whatever checkboxes/
 // selects it declares values for. Build options are hidden by DEFAULT —
 // a key (top-level or nested) is only shown if it's named in
 // buildOptions.enabledOptionKeys, so each profile opts into exactly the
@@ -2447,7 +2447,7 @@ async function openBuild() {
   $("saveLogBtn").disabled = true;
   seedBuildLogFromStart();
   log("Set your options, then click Build RO-Crate.", "muted");
-  applyBuildOptionsFromProfile(selectedProfileData ? selectedProfileData.workflow.buildOptions : null);
+  applyBuildOptionsFromProfile(selectedProfileData ? selectedProfileData.workflow.tools?.chaos2crate?.buildOptions : null);
   // applyBuildOptionsFromProfile() just reset every Build-option field's
   // visibility from scratch (including "Upload template files", shown
   // whenever a profile enables "styledPreview"), which would otherwise

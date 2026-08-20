@@ -24,11 +24,14 @@ import modeJson from "ro-crate-masp/profiles/schema-org/profile-crate/crate-o-mo
 export const DEFAULT_PROFILE_ID = "__default__";
 export const DEFAULT_PROFILE_LABEL = "schema.org (default)";
 
-// buildOptions is a chaos2crate extension to crate-o-mode.json — upstream
-// ro-crate-masp has no reason to carry a key only this app reads, so the
-// default profile's build behaviour is declared here rather than pushed into
-// their file or forked into masp-profiles (which would cost the offline
-// guarantee that bundling exists for).
+// tools.chaos2crate.buildOptions is a chaos2crate extension to
+// crate-o-mode.json — upstream ro-crate-masp has no reason to carry a key
+// only this app reads, so the default profile's build behaviour is declared
+// here rather than pushed into their file or forked into masp-profiles
+// (which would cost the offline guarantee that bundling exists for). It's
+// namespaced under "tools" (matching c2c-masp-profiles' tool-config.json)
+// so other consumers of the same mode file can carry their own config
+// alongside it without colliding.
 //
 // Enabling makeHtml is what gets the default a preview at all: an option not
 // named in enabledOptionKeys is hidden AND forced off, so without this the
@@ -50,7 +53,13 @@ export function getDefaultProfile() {
     profileJson,
     modeJson: {
       ...modeJson,
-      buildOptions: { ...(modeJson.buildOptions || {}), ...BUILD_OPTIONS },
+      tools: {
+        ...(modeJson.tools || {}),
+        chaos2crate: {
+          ...(modeJson.tools?.chaos2crate || {}),
+          buildOptions: { ...(modeJson.tools?.chaos2crate?.buildOptions || {}), ...BUILD_OPTIONS },
+        },
+      },
     },
   };
 }
