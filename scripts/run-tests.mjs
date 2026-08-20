@@ -1,6 +1,6 @@
 // Runs every test-*.mjs in the repo root and exits non-zero if any failed.
 //
-// Not a test framework (see ARCHITECTURE §9.2) — just a loop. Each test is a
+// Not a test framework (see SPEC §9.2) — just a loop. Each test is a
 // plain script that throws on a failed assertion, so "did it pass" is exactly
 // "did it exit 0". Every test runs even after one fails, so a change that
 // breaks several shows all of them in one go rather than one per re-run.

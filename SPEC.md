@@ -1,4 +1,4 @@
-# resources2crate — Architecture
+# resources2crate — SPEC
 
 **What it is:** a browser tool that turns a folder on your computer into an [RO-Crate](https://www.researchobject.org/ro-crate/).
 

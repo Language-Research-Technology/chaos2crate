@@ -1,5 +1,5 @@
 // The hook bus and the plugin registry — the contract every build depends on
-// and nothing else covers. ARCHITECTURE §4.5 promises that array order in
+// and nothing else covers. SPEC §4.5 promises that array order in
 // PLUGINS *is* hook-execution order, resting on a stable sort over a uniform
 // default priority. A silent reordering would change what every build does
 // (AUSTLANG must enrich before merge reads the graph; JSON must be written

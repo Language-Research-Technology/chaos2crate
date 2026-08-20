@@ -20,7 +20,7 @@ a small **Vite** project that bundles them for the browser.
 
 Requires Node and npm (for the build). The end result runs in Chrome/Edge.
 
-Build plugins live in a sibling repo, [`c2c-plugins`](https://github.com/benfoley/c2c-plugins) — clone it next to this one (`../c2c-plugins`) before `npm install` (see `package.json`'s `"c2c-plugins": "file:../c2c-plugins"` dependency, and `ARCHITECTURE.md` §4.7a).
+Build plugins live in a sibling repo, [`c2c-plugins`](https://github.com/benfoley/c2c-plugins) — clone it next to this one (`../c2c-plugins`) before `npm install` (see `package.json`'s `"c2c-plugins": "file:../c2c-plugins"` dependency, and `SPEC.md` §4.7a).
 
 ```bash
 cd resources2crate
@@ -44,7 +44,7 @@ PLUGINS=merge,special=other-plugins npm run build
 PLUGINS=merge,scratch=../scratch-plugin/index.js npm run build
 ```
 
-See `scripts/select-plugins.mjs`'s header comment and `ARCHITECTURE.md` §4.7a for the full syntax.
+See `scripts/select-plugins.mjs`'s header comment and `SPEC.md` §4.7a for the full syntax.
 
 The File System Access API needs a secure context (`http://localhost` or `https://`), so a
 `file://` open won't work. To deploy, `npm run build` and host the `dist/` folder on any

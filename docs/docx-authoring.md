@@ -1,7 +1,7 @@
 # Authoring `.docx` files for Structured Word Documents mode
 
 This is for whoever is *writing or preparing* the Word documents that get turned into a
-crate — not for developers of this tool (see [ARCHITECTURE.md §7.1](../ARCHITECTURE.md) for
+crate — not for developers of this tool (see [SPEC.md §7.1](../SPEC.md) for
 that). It describes the conventions the parser looks for. Nothing here is configurable per
 profile or per template — the same rules apply regardless of which MASP profile or preview
 template you're using, because parsing happens before either is involved.

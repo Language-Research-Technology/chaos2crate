@@ -32,7 +32,7 @@ jobs:
       # itself included, rather than at the workspace root — so the two end
       # up as siblings under a shared parent, and package.json's
       # "../c2c-plugins" still resolves correctly relative to
-      # resources2crate/package.json's own directory. See ARCHITECTURE.md
+      # resources2crate/package.json's own directory. See SPEC.md
       # §4.7a. Every later step runs from resources2crate/ accordingly.
       - name: Checkout resources2crate
         uses: actions/checkout@v4
