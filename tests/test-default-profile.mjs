@@ -195,4 +195,22 @@ assert.ok(
   "validation should log its start with the crate entity count so the UI can label the secondary progress bar"
 );
 
+const tickLines = seen
+  .map((entry) => entry.msg.match(/^Validating crate against profile: (\d+)\/(\d+) rule\(s\)…$/))
+  .filter(Boolean)
+  .map((m) => ({ current: Number(m[1]), total: Number(m[2]) }));
+assert.ok(
+  tickLines.length > 0,
+  "ro-crate-masp's onProgress should flow through validateBuiltCrate and the plugin into (current/total) log lines the build progress bar can parse"
+);
+tickLines.forEach((tick, i) => {
+  assert.equal(tick.current, i + 1, "tick lines should count up one class rule at a time");
+  assert.equal(tick.total, tickLines.length, "every tick should report the same total");
+});
+assert.equal(
+  tickLines[tickLines.length - 1].current,
+  tickLines[tickLines.length - 1].total,
+  "the last tick should reach 100% (current === total)"
+);
+
 console.log(`test-default-profile: all tests passed (${DEFAULT_PROFILE_LABEL}, ${fieldSchema.length} Describe fields, ${layout.length} property groups)`);

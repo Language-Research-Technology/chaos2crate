@@ -158,8 +158,8 @@ function urlTypedPropertyNames(validator) {
 // naming the specific missing field, so this also pulls in the per-property
 // detail buried in results.rules (which does name the field) and flags any
 // that concern a URL-typed property with the known-limitation note above.
-export async function validateBuiltCrate(validator, crate) {
-  const results = await validator.validateCrate(crate);
+export async function validateBuiltCrate(validator, crate, onProgress) {
+  const results = await validator.validateCrate(crate, { onProgress });
   const urlProps = urlTypedPropertyNames(validator);
 
   const errors = results.error.map((e) => ({ message: e.message, entity: e.entity }));
