@@ -603,6 +603,16 @@ function updateBuildProgressFromLog(msg, cls = "info") {
     setSubProgress(frac * 100, `Generating CHAT exports (${done}/${total})…`);
     return;
   }
+  const chatWriteMatch = text.match(/^Writing CHAT export: (\d+)\/(\d+) file\(s\)…/);
+  if (chatWriteMatch) {
+    const done = Number(chatWriteMatch[1]);
+    const total = Number(chatWriteMatch[2]);
+    const frac = total > 0 ? Math.min(1, done / total) : 0;
+    bumpBuildProgress(82 + Math.round(frac * 8), "Writing CHAT exports…");
+    startSubProgress(`Writing CHAT exports (${done}/${total})…`);
+    setSubProgress(frac * 100, `Writing CHAT exports (${done}/${total})…`);
+    return;
+  }
   if (/^Wrote \d+ CHAT file\(s\)\./.test(text) || /^Prepared CHAT export for \d+ \.docx file\(s\)\./.test(text)) {
     hideSubProgress();
     return;
