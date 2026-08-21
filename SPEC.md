@@ -189,6 +189,8 @@ const SETTINGS_SCHEMA = [...CORE_SETTINGS_SCHEMA,    ...composeSettingsSchema()]
 
 A plugin's `optionSchema` puts it in the Build panel (per-build choices); a `settingsSchema` puts it in the Settings modal (app preferences). A plugin with neither is always-on — JSON output and validation are both like this.
 
+A third, optional field composes the same way: `outputPaths`, an array of `{ path, kind }` (`kind` is `"file"` or `"dir"`) declaring every file/directory a plugin may write directly into the picked folder — `ro-crate-json-output` declares `ro-crate-metadata.json`, `ro-crate-html-output` declares both `ro-crate-preview.html` and `ro-crate-preview_html`, `chat-export` and `ca-data-prep` both declare the `c2c-output` directory they share. `composeOutputPaths()` unions and dedupes these (by `path`) across `PLUGINS` *and* `INPUT_PLUGINS` — a folder can carry `docx-input`'s `ro-crate-preview_files` output from an earlier run even when the current build uses `generic-input`. `main.js` uses the result for two things: excluding those top-level names from `walkDirectory`'s scan (the same job `GENERATED_FILENAMES`/`CONTROL_FILENAMES` do for the core outputs — see §7.1), and the Settings modal's "Delete plugin output before rebuilding" toggle, which deletes every declared path before a build runs. See c2c-plugins' README ("Declaring output paths") for the authoring convention. A plugin that only reads the folder, or only mutates `ctx.crate` in memory, declares no `outputPaths` at all — same absence-as-signal convention as `optionSchema`/`settingsSchema`.
+
 ### 4.7 Writing a new plugin
 
 Plugin implementations live in the sibling `c2c-plugins` repo now (§4.7a), not under `src/plugins/` — but the shape of a plugin is unchanged except for two things: hook names are literal strings rather than an imported `HOOKS` constant, and the plugin is exported as a `createPlugin(deps)` factory rather than a static object, so c2c-plugins carries no runtime dependency back on this repo.
@@ -471,7 +473,7 @@ A profile's `enabledOptionKeys` (§5.4) names keys from this table. Child keys a
 
 Two kinds of key are deliberately absent from it:
 
-- **`inputMode`, `overwrite`, `themeMode`, `topLevelFolderType`** — core settings. Ungated, except `inputMode`, which a profile pins and locks.
+- **`inputMode`, `deleteOutputsBeforeBuild`, `overwrite`, `themeMode`, `topLevelFolderType`** — core settings. Ungated, except `inputMode`, which a profile pins and locks. `deleteOutputsBeforeBuild` deletes every plugin-declared `outputPaths` entry (§4.6) from the folder before a build runs; `overwrite` has no effect while it's on.
 - **`ro-crate-json-output` and `validate-crate`** — no schema at all, which is how "always on, ungateable" is expressed.
 
 The table is generated from the registry, so it can be regenerated rather than audited by eye:
@@ -494,7 +496,7 @@ for (const p of PLUGINS) { walk(p.optionSchema, p.name, 'Build panel'); walk(p.s
 
 **It stands down from inventing structure when something else describes it.** `buildCrate` takes `structureFromMetadata`, set when `xlsx-crate-input` has read a spreadsheet. With it, `addFolderEntities` creates no object-per-top-level-folder and `addFileEntities` writes no `isPartOf`, leaving both to the metadata. Without it the scan's guesses compete with the described entries — surfacing as extra cards in a preview that draws one per `RepositoryObject`, and claiming every file before the described parent could be applied.
 
-Two names in `GENERATED_FILENAMES` are worth knowing about, since `walkDirectory` tests it against directory entries as well as files: `ro-crate-preview_html` (this tool's own multipage output — without it every rebuild folds the previous build's pages in as collection content) and `additional-ro-crate-metadata.xlsx` (metadata about the crate rather than content).
+Two names in `GENERATED_FILENAMES` are worth knowing about, since `walkDirectory` tests it against directory entries as well as files: `ro-crate-preview_html` (this tool's own multipage output — without it every rebuild folds the previous build's pages in as collection content) and `additional-ro-crate-metadata.xlsx` (metadata about the crate rather than content). `walkDirectory` excludes one more set the same way: every top-level name from `composeOutputPaths()` (§4.6) — a plugin-declared output (`c2c-output`, `ro-crate-preview_files`, …) gets the same protection without `GENERATED_FILENAMES` itself having to know every plugin's output names.
 
 #### `docx-input` — `inputMode: "docx"`
 
