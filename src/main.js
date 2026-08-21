@@ -2501,6 +2501,28 @@ function refreshBuildStepActions() {
 /* ---------- File System Access ---------- */
 let dirHandle = null;
 
+// Bumped by cancelRunningBuild() whenever the user picks a new folder while a
+// build is in flight. run() captures the generation it started with and
+// checks it after every await; a mismatch means the folder moved on, so the
+// stale continuation stops touching shared UI/state instead of stomping on
+// the new build's progress bar, log, and stats.
+let buildGeneration = 0;
+
+// Called from pickFolder() right after a new folder is chosen. If a build for
+// the old folder is still running, invalidate it so its continuation goes
+// inert and restore the build UI to idle (it would otherwise stay stuck on
+// "Building…" since that run's own finally block is now a no-op).
+function cancelRunningBuild() {
+  if (!BUILD_PROGRESS.active) return;
+  buildGeneration++;
+  log("Build cancelled: a different folder was selected.", "warn");
+  const runBtn = $("runBtn");
+  if (runBtn) { runBtn.disabled = false; runBtn.textContent = "Build RO-Crate"; }
+  const saveLogBtn = $("saveLogBtn");
+  if (saveLogBtn) saveLogBtn.disabled = false;
+  resetBuildProgress();
+}
+
 async function walkDirectory(handle, prefix = "") {
   const files = [];
   for await (const entry of handle.values()) {
@@ -2590,6 +2612,8 @@ let lastHtmlTemplate = null;
 
 async function run() {
   if (!dirHandle) return;
+  const myGeneration = ++buildGeneration;
+  const stale = () => myGeneration !== buildGeneration;
   const runBtn = $("runBtn");
   runBtn.disabled = true; runBtn.textContent = "Building…";
   startBuildProgress();
@@ -2599,7 +2623,9 @@ async function run() {
   $("statFiles").textContent = "—"; $("statEntities").textContent = "—"; $("statTime").textContent = "—";
   renderTypeStatus([]);
   try {
-    if (!(await verifyPermission(dirHandle, true))) {
+    const hasPermission = await verifyPermission(dirHandle, true);
+    if (stale()) return;
+    if (!hasPermission) {
       log("Permission to read/write the folder was denied.", "err");
       failBuildProgress("Permission denied.");
       return;
@@ -2608,10 +2634,13 @@ async function run() {
     const options = readOptions();
     if (options.deleteOutputsBeforeBuild) {
       await deletePluginOutputs(dirHandle, log);
+      if (stale()) return;
     }
     const files = await walkDirectory(dirHandle);
+    if (stale()) return;
     bumpBuildProgress(22, `Scanned ${files.length} file(s). Running pipeline…`);
     const result = await processFolder(dirHandle, files, options);
+    if (stale()) return;
     $("statFiles").textContent = result.files;
     $("statEntities").textContent = result.entities;
     renderTypeStatus(result.typeCounts);
@@ -2621,18 +2650,22 @@ async function run() {
     // Capture the generated preview so the build-view button can open it in a
     // new tab synchronously (no await between the click and window.open).
     buildHtml = await readFileText(dirHandle, HTML_FILE);
+    if (stale()) return;
     if (buildHtml !== null) $("showHtmlBtn").classList.remove("hidden");
     // A build always writes ro-crate-metadata.json (or it already existed), so
     // the context bar's Show and Edit buttons can now be enabled.
     $("showBtn").disabled = false;
     $("editBtn").disabled = false;
   } catch (e) {
+    if (stale()) return;
     log("Error: " + (e && e.message ? e.message : e), "err");
     failBuildProgress("Build failed.");
     console.error(e);
   } finally {
-    runBtn.disabled = false; runBtn.textContent = "Build RO-Crate";
-    $("saveLogBtn").disabled = false;
+    if (!stale()) {
+      runBtn.disabled = false; runBtn.textContent = "Build RO-Crate";
+      $("saveLogBtn").disabled = false;
+    }
   }
 }
 
@@ -2648,6 +2681,7 @@ async function pickFolder(nextView = "view-mode") {
     failStartProgress();
     return;
   }
+  cancelRunningBuild();
   resetStartPanel();
   beginStartProgress(`Selected folder "${dirHandle.name}".`);
   rootDatasetOverride = null;
