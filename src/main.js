@@ -573,8 +573,7 @@ function updateBuildProgressFromLog(msg, cls = "info") {
     return;
   }
   if (/^Identified \d+ unique language\(s\)\./.test(text)) {
-    const label = "Language analysis complete — validating profile…";
-    setBuildProgress(92, label, { indeterminate: true });
+    bumpBuildProgress(92, "Language analysis complete — validating profile…");
     hideSubProgress();
     return;
   }
@@ -637,16 +636,28 @@ function updateBuildProgressFromLog(msg, cls = "info") {
   if (validationMatch) {
     const entityCount = Number(validationMatch[1]);
     const label = Number.isFinite(entityCount)
-      ? `Language analysis complete — validating profile (${entityCount} entities)…`
-      : "Language analysis complete — validating profile…";
-    setBuildProgress(92, label, { indeterminate: true });
-    hideSubProgress();
+      ? `Validating profile (${entityCount} entities)…`
+      : "Validating profile…";
+    bumpBuildProgress(92, label);
+    startSubProgress(label);
     return;
   }
   if (/^Validating crate against profile…$/.test(text)) {
-    const label = "Language analysis complete — validating profile…";
-    setBuildProgress(92, label, { indeterminate: true });
-    hideSubProgress();
+    const label = "Validating profile…";
+    bumpBuildProgress(92, label);
+    startSubProgress(label);
+    return;
+  }
+  const validationTickMatch = text.match(/^Validating crate against profile: (\d+)\/(\d+) rule\(s\)…$/);
+  if (validationTickMatch) {
+    const done = Number(validationTickMatch[1]);
+    const total = Number(validationTickMatch[2]);
+    const frac = total > 0 ? Math.min(1, done / total) : 0;
+    const label = `Validating profile (${done}/${total} rule(s))…`;
+    // Validation covers the 92-98% span; the final 98/99 bump on
+    // pass/warn/error below closes it out.
+    bumpBuildProgress(92 + Math.round(frac * 6), label);
+    setSubProgress(frac * 100, label);
     return;
   }
   if (/^Profile validation passed — crate conforms to the selected profile\./.test(text)) {
