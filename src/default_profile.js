@@ -41,7 +41,7 @@ export const DEFAULT_PROFILE_LABEL = "schema.org (default)";
 // profile's own propertyGroups, with the library's built-in template.
 const BUILD_OPTIONS = {
   enabledOptionKeys: ["makeHtml"],
-  makeHtml: true,
+  plugins: ["makeHtml"],
 };
 
 // The same { profileJson, modeJson } shape masp.js's fetchProfile returns, so

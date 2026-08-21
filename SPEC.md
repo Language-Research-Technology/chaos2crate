@@ -377,14 +377,15 @@ This is a **read of the root entity only** — it fills form fields, nothing mor
     "buildOptions": {
       "enabledOptionKeys": ["makeHtml", "templateRepoFolder", "merge", "mergeFile", "mergeMappingBuilder"],
       "inputMode": "docx",
-      "makeHtml": true
+      "plugins": ["makeHtml"]
     }
   }
 }
 ```
 
 - `enabledOptionKeys` is an **allow-list**. Build options are hidden by default; a key — top-level or nested — appears only if the profile names it. Each profile opts in to the handful its workflow needs.
-- Any other key pre-fills that option's value and fires its change handler so dependent fields settle.
+- `plugins` turns on checkbox-style options: it's an array of option keys, not individual `key: true` entries — a profile lists `"merge"` rather than declaring `"merge": true`. An option key not in `plugins` starts unchecked even if `enabledOptionKeys` shows it.
+- Any other key pre-fills that (non-checkbox) option's value and fires its change handler so dependent fields settle — e.g. `inputMode` above, or a `select`/text option.
 - `inputMode` is pre-selected **and locked**, because the Describe field set and the parsing path both depend on it. A docx profile can't be run against a generic folder by accident.
 - Settings are **not** gated — they're machine and user preferences, orthogonal to the profile.
 - `buildOptions` lives under `tools.chaos2crate` rather than at the mode file's top level, since the same mode file is shared with `crate-o` (§5.2) — namespacing under `tools` lets each consumer carry its own config without colliding. `url` and `version` are unused by chaos2crate today; they exist for the tool itself to be identified/versioned per profile.

@@ -1054,6 +1054,11 @@ function applyBuildOptionsFromProfile(buildOptions, uiHiddenKeys = new Set()) {
   collectSchemaKeys(OPTION_SCHEMA, allKeys);
   const declared = buildOptions || {};
   const enabled = new Set(declared.enabledOptionKeys || []);
+  // Boolean option keys (which plugins are turned on) live in a "plugins"
+  // array rather than as individual `key: true` entries — see
+  // c2c-masp-profiles' tool-config.json. Non-boolean options (templateRepoFolder,
+  // configFile, etc.) stay as plain top-level keys on declared.
+  const pluginsOn = new Set(declared.plugins || []);
   currentBuildOptionUiHiddenKeys = new Set(uiHiddenKeys);
 
   for (const key of allKeys) {
@@ -1074,9 +1079,10 @@ function applyBuildOptionsFromProfile(buildOptions, uiHiddenKeys = new Set()) {
     if (!enabled.has(key)) {
       if (isTextLike) el.value = "";
       else el.checked = false;
-    } else if (key in declared) {
-      if (isTextLike) el.value = declared[key];
-      else el.checked = !!declared[key];
+    } else if (isTextLike) {
+      if (key in declared) el.value = declared[key];
+    } else {
+      el.checked = pluginsOn.has(key);
     }
     el.dispatchEvent(new Event("change"));
   }
@@ -1087,7 +1093,7 @@ function applyBuildOptionsFromProfile(buildOptions, uiHiddenKeys = new Set()) {
   const inputModeEl = $("opt_inputMode");
   if (inputModeEl) inputModeEl.disabled = false;
   for (const [key, value] of Object.entries(declared)) {
-    if (key === "enabledOptionKeys" || allKeys.has(key)) continue;
+    if (key === "enabledOptionKeys" || key === "plugins" || allKeys.has(key)) continue;
     const el = $("opt_" + key);
     if (!el) continue;
     if (el.tagName === "SELECT") el.value = value;
