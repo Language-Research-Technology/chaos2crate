@@ -1,5 +1,23 @@
+import { execSync } from "node:child_process";
 import { defineConfig } from "vite";
 import { nodePolyfills } from "vite-plugin-node-polyfills";
+
+// Build identity: an incrementing build number (total commit count on the
+// current history, so it's identical whether computed locally or in CI —
+// unlike GitHub Actions' own run_number, which counts workflow runs, not
+// commits, and isn't reproducible outside Actions) plus the short commit SHA
+// it was built from. Requires full history (deploy.yml checks out with
+// fetch-depth: 0); falls back to "dev" locally if git isn't available.
+function getBuildInfo() {
+  try {
+    const number = execSync("git rev-list --count HEAD").toString().trim();
+    const sha = execSync("git rev-parse --short HEAD").toString().trim();
+    return { number, sha };
+  } catch {
+    return { number: "dev", sha: "dev" };
+  }
+}
+const BUILD_INFO = getBuildInfo();
 
 // chaos2crate is a browser app that leans on Node-oriented libraries
 // (ro-crate, ro-crate-excel -> exceljs, ro-crate-static-site -> nunjucks). Vite
@@ -70,6 +88,10 @@ function patchMammothBrowserEventCollision() {
 
 export default defineConfig({
   base: "./",
+  define: {
+    __BUILD_NUMBER__: JSON.stringify(BUILD_INFO.number),
+    __BUILD_SHA__: JSON.stringify(BUILD_INFO.sha),
+  },
   plugins: [
     patchMaspValidatorCjsArtifacts(),
     patchMammothBrowserEventCollision(),

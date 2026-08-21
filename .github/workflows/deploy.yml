@@ -38,6 +38,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: chaos2crate
+          # Full history so vite.config.js can compute an accurate build
+          # number (git rev-list --count HEAD); the default shallow clone
+          # only has the single checked-out commit.
+          fetch-depth: 0
 
       - name: Checkout c2c-plugins
         uses: actions/checkout@v4

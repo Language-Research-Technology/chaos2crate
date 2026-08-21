@@ -50,6 +50,9 @@ const MASP_PROFILES_REPO_OWNER = "Language-Research-Technology";
 const MASP_PROFILES_REPO_NAME = "c2c-masp-profiles";
 const MASP_PROFILES_REPO_REF = "main";
 const APP_VERSION = packageJson.version || "dev";
+// __BUILD_NUMBER__/__BUILD_SHA__ are injected by vite.config.js's `define`.
+const BUILD_NUMBER = __BUILD_NUMBER__;
+const BUILD_SHA = __BUILD_SHA__;
 
 // Build-panel options all come from the plugin registry (src/plugins) — each
 // plugin owns its own optionSchema/settingsSchema fragment. collectionLabelsBuilder
@@ -3659,7 +3662,7 @@ function boot() {
   if (!("showDirectoryPicker" in window)) { $("unsupported").classList.remove("hidden"); return; }
   $("app").classList.remove("hidden");
   const versionEl = $("appVersion");
-  if (versionEl) versionEl.textContent = `v${APP_VERSION}`;
+  if (versionEl) versionEl.textContent = `v${APP_VERSION} · build ${BUILD_NUMBER} (${BUILD_SHA})`;
   buildForm();
   showView("view-mode");
   refreshModeCards();
