@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 
 import { HOOKS, createHookBus, announceAndEmit } from "../src/plugins/hooks.js";
-import { PLUGINS, INPUT_PLUGINS, registerAllPlugins, composeOptionSchema, composeSettingsSchema } from "../src/plugins/index.js";
+import { PLUGINS, INPUT_PLUGINS, registerAllPlugins, composeOptionSchema, composeSettingsSchema, composeOutputPaths } from "../src/plugins/index.js";
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -321,6 +321,44 @@ assert.ok(
   assert.deepEqual(
     Object.keys(INPUT_PLUGINS).sort(), ["docx", "generic"],
     "the stub modes should be gone again — this test must not leak into the registry"
+  );
+}
+
+/* ---------- output paths are composed from whichever plugins declare them ---------- */
+// See c2c-plugins' README, "Declaring output paths" — this is main.js's
+// PLUGIN_OUTPUT_PATHS/PLUGIN_OUTPUT_TOP_LEVEL_NAMES source of truth.
+
+{
+  const outputPaths = composeOutputPaths();
+  const byPath = new Map(outputPaths.map((e) => [e.path, e]));
+
+  assert.equal(
+    byPath.get("ro-crate-metadata.json")?.kind, "file",
+    "ro-crate-json-output should declare its single output file"
+  );
+  assert.equal(byPath.get("ro-crate-metadata.xlsx")?.kind, "file", "ro-crate-xlsx-output should declare its output file");
+  assert.equal(byPath.get("ro-crate-preview.html")?.kind, "file", "ro-crate-html-output should declare its root output file");
+  assert.equal(
+    byPath.get("ro-crate-preview_html")?.kind, "dir",
+    "ro-crate-html-output should declare its multipage output directory"
+  );
+  assert.equal(
+    byPath.get("ro-crate-preview_files")?.kind, "dir",
+    "docx-input (an input-mode plugin, not an additive one) should still contribute its output directory"
+  );
+  assert.equal(
+    byPath.get("c2c-output")?.kind, "dir",
+    "c2c-output should be declared (by chat-export and/or ca-data-prep)"
+  );
+
+  assert.equal(
+    outputPaths.filter((e) => e.path === "c2c-output").length, 1,
+    "chat-export and ca-data-prep both declare c2c-output — composeOutputPaths should dedupe by path, not list it twice"
+  );
+
+  assert.ok(
+    !byPath.has("merge") && !byPath.has("austlang") && !byPath.has("validate-crate"),
+    "a plugin that never writes to the folder should contribute no output path"
   );
 }
 

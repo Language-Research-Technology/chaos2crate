@@ -97,3 +97,30 @@ export async function writeFileAtPath(dirHandle, relativePath, contents) {
   }
   await writeFile(dir, filename, contents);
 }
+
+// Deletes whatever sits at a "/"-joined relative path under dirHandle — file
+// or non-empty directory alike (removeEntry's recursive option is ignored
+// for a file, so one code path covers both). Missing at any point along the
+// way (an intermediate directory, or the leaf itself) is treated as already
+// deleted rather than an error, since callers use this for cleanup, not for
+// asserting something exists. Returns whether anything was actually removed,
+// so a caller can log real deletions and skip logging no-ops.
+export async function removeEntryAtPath(dirHandle, relativePath) {
+  const parts = String(relativePath || "").replace(/\\/g, "/").split("/").filter(Boolean);
+  if (!parts.length) return false;
+  let dir = dirHandle;
+  for (const part of parts.slice(0, -1)) {
+    try { dir = await dir.getDirectoryHandle(part, { create: false }); }
+    catch (e) {
+      if (e && e.name === "NotFoundError") return false;
+      throw e;
+    }
+  }
+  try {
+    await dir.removeEntry(parts[parts.length - 1], { recursive: true });
+    return true;
+  } catch (e) {
+    if (e && e.name === "NotFoundError") return false;
+    throw e;
+  }
+}

@@ -175,6 +175,24 @@ export function composeOptionSchema(plugins = PLUGINS) {
 export function composeSettingsSchema(plugins = PLUGINS) {
   return plugins.map((p) => p.settingsSchema).filter(Boolean);
 }
+
+// Every file/directory a registered plugin may write directly into the
+// picked folder — additive plugins and input-mode plugins alike, since both
+// write into the same folder and a build can switch between input modes on
+// a folder that still holds a previous run's output. Deduped by path (e.g.
+// chat-export and ca-data-prep both declare "c2c-output"), first declared
+// kind wins. Consumed by main.js for two things: excluding this from the
+// next scan (alongside GENERATED_FILENAMES/CONTROL_FILENAMES) and the
+// "delete plugin output before rebuilding" setting.
+export function composeOutputPaths(plugins = PLUGINS, inputPlugins = INPUT_PLUGINS) {
+  const byPath = new Map();
+  for (const plugin of [...plugins, ...Object.values(inputPlugins)]) {
+    for (const entry of plugin.outputPaths || []) {
+      if (!byPath.has(entry.path)) byPath.set(entry.path, entry);
+    }
+  }
+  return [...byPath.values()];
+}
 `;
 
 const outPath = fileURLToPath(new URL("../src/plugins/index.js", import.meta.url));

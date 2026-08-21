@@ -8,7 +8,7 @@ import {
   loadCrateFromJson, GENERATED_FILENAMES, CONTROL_FILENAMES,
 } from "./crate.js";
 import {
-  writeFile, verifyPermission, fileExists, readFileText,
+  writeFile, verifyPermission, fileExists, readFileText, removeEntryAtPath,
 } from "./fs_helpers.js";
 import { listGitHubFolder } from "./github.js";
 import {
@@ -21,7 +21,7 @@ import {
 } from "./profile_url_override.js";
 import packageJson from "../package.json";
 import { createHookBus, HOOKS, announceAndEmit } from "./plugins/hooks.js";
-import { registerAllPlugins, composeOptionSchema, composeSettingsSchema } from "./plugins/index.js";
+import { registerAllPlugins, composeOptionSchema, composeSettingsSchema, composeOutputPaths } from "./plugins/index.js";
 import { runPipeline } from "./plugins/pipeline.js";
 // These two reach directly into specific c2c-plugins plugins rather than
 // going through the hook/pipeline system — resetUploadedConfigDirHandle and
@@ -59,6 +59,13 @@ const APP_VERSION = packageJson.version || "dev";
 const OPTION_SCHEMA = composeOptionSchema();
 const FORCED_PROFILE_HTML_OPTION_KEYS = collectOptionSubtreeKeys(OPTION_SCHEMA, ["makeHtml"]);
 
+// Every file/directory a registered plugin (additive or input-mode) may
+// write directly into the picked folder — see c2c-plugins' README, "Declaring
+// output paths". Used below to keep a previous build's own output out of the
+// next scan, and by the "delete plugin output before rebuilding" setting.
+const PLUGIN_OUTPUT_PATHS = composeOutputPaths();
+const PLUGIN_OUTPUT_TOP_LEVEL_NAMES = new Set(PLUGIN_OUTPUT_PATHS.map((p) => p.path.split("/")[0]));
+
 // Shown in the Settings modal (accessed from the button next to Menu).
 const CORE_SETTINGS_SCHEMA = [
   { key: "inputMode", type: "select", label: "Input type", default: "generic",
@@ -79,7 +86,15 @@ const CORE_SETTINGS_SCHEMA = [
       { value: "collection", label: "Collections (RepositoryCollection)" },
     ],
     hint: "When Collections is selected, child folders are emitted as RepositoryObjects; files directly inside a top-level folder are grouped into an object named Files." },
-  { key: "overwrite", label: "Overwrite existing outputs", default: true },
+  { key: "deleteOutputsBeforeBuild", label: "Delete plugin output before rebuilding", default: true,
+    hint: "Removes every file/folder a plugin may write into the chosen folder — ro-crate-metadata.json/.xlsx, " +
+      "ro-crate-preview.html and its ro-crate-preview_html/ folder, c2c-output/, and so on — before each build, " +
+      "so output left over from a previous run (e.g. a renamed or removed source file's old export) is never " +
+      "scanned as input or left stale. Runs before the folder is scanned, regardless of the Overwrite setting below." },
+  { key: "overwrite", label: "Overwrite existing outputs", default: true,
+    hint: "Has no effect while \"Delete plugin output before rebuilding\" above is on — cleanup already removes " +
+      "every output first, so each one is always missing by the time this check runs. Only matters with cleanup off, " +
+      "where it decides whether an existing output is regenerated or left as-is." },
   { key: "enableLocalTemplateUpload", label: "Enable local template upload", default: false,
     hint: "Shows or hides the Upload template files option in Build settings." },
 ];
@@ -851,6 +866,10 @@ function buildForm() {
   const templateRepoSelect = $("opt_templateRepoFolder");
   if (templateRepoSelect) templateRepoSelect.addEventListener("change", uncheckUploadWhenTemplateRepoSelected);
   refreshTemplateUploadVisibility();
+
+  const deleteOutputsToggle = $("opt_deleteOutputsBeforeBuild");
+  if (deleteOutputsToggle) deleteOutputsToggle.addEventListener("change", refreshOverwriteAvailability);
+  refreshOverwriteAvailability();
 }
 
 // Each entry in OPTION_SCHEMA is one plugin's top-level toggle — the natural
@@ -984,6 +1003,18 @@ function refreshTemplateUploadVisibility() {
       uploadOpt.dispatchEvent(new Event("change"));
     }
   }
+}
+
+// "Overwrite existing outputs" has no effect once "Delete plugin output
+// before rebuilding" is on — cleanup already removes every declared output
+// before the write-time fileExists() check any plugin makes, so that check
+// never sees an existing file to decide about. Disabled rather than hidden,
+// so its current value (and the fact it's ignored) both stay visible.
+function refreshOverwriteAvailability() {
+  const deleteOutputsToggle = $("opt_deleteOutputsBeforeBuild");
+  const overwriteToggle = $("opt_overwrite");
+  if (!deleteOutputsToggle || !overwriteToggle) return;
+  overwriteToggle.disabled = deleteOutputsToggle.checked;
 }
 
 function collectSchemaKeys(schema, set) {
@@ -2475,12 +2506,32 @@ async function walkDirectory(handle, prefix = "") {
   for await (const entry of handle.values()) {
     const nm = entry.name;
     if (nm.startsWith(".") || nm.startsWith("~$")) continue;
-    if (GENERATED_FILENAMES.has(nm) || CONTROL_FILENAMES.has(nm)) continue;
+    if (GENERATED_FILENAMES.has(nm) || CONTROL_FILENAMES.has(nm) || PLUGIN_OUTPUT_TOP_LEVEL_NAMES.has(nm)) continue;
     const rel = prefix ? prefix + "/" + nm : nm;
     if (entry.kind === "file") files.push({ fileName: nm, relativePath: rel });
     else if (entry.kind === "directory") files.push(...await walkDirectory(entry, rel));
   }
   return files;
+}
+
+// Deletes every path any registered plugin declared via outputPaths (see
+// c2c-plugins' README) from the picked folder, ahead of a build — the
+// "delete plugin output before rebuilding" setting. Independent of
+// PLUGIN_OUTPUT_TOP_LEVEL_NAMES's scan-exclusion job above: that keeps stale
+// output out of *this* build's crate even when the setting is off, while
+// this actually clears it from disk when the setting is on.
+async function deletePluginOutputs(dirHandle, log) {
+  let removedCount = 0;
+  for (const { path } of PLUGIN_OUTPUT_PATHS) {
+    if (await removeEntryAtPath(dirHandle, path)) {
+      removedCount += 1;
+      log(`Deleted previous ${path}.`, "muted");
+    }
+  }
+  log(
+    removedCount ? `Deleted ${removedCount} plugin output path(s) before build.` : "No plugin output to delete before build.",
+    "muted"
+  );
 }
 /* ---------- Build ---------- */
 // Thin wrapper: assembles rootDataset/metadataLicence entirely from the
@@ -2555,6 +2606,9 @@ async function run() {
     }
     bumpBuildProgress(8, "Scanning folder…");
     const options = readOptions();
+    if (options.deleteOutputsBeforeBuild) {
+      await deletePluginOutputs(dirHandle, log);
+    }
     const files = await walkDirectory(dirHandle);
     bumpBuildProgress(22, `Scanned ${files.length} file(s). Running pipeline…`);
     const result = await processFolder(dirHandle, files, options);
