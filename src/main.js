@@ -1061,7 +1061,19 @@ function applyBuildOptionsFromProfile(buildOptions, uiHiddenKeys = new Set()) {
   // array rather than as individual `key: true` entries — see
   // c2c-masp-profiles' tool-config.json. Non-boolean options (templateRepoFolder,
   // configFile, etc.) stay as plain top-level keys on declared.
-  const pluginsOn = new Set(declared.plugins || []);
+  //
+  // Each entry is either a plain plugin-name string (on, no per-plugin
+  // option grouping) or { name, enabled, enabledOptions } — the latter lets
+  // a profile group a plugin's own visible option keys with the plugin
+  // instead of listing them all flat in enabledOptionKeys. Either form may
+  // contribute keys to `enabled`; only the object form can declare visible
+  // keys without also switching the plugin on.
+  const pluginsOn = new Set();
+  for (const p of declared.plugins || []) {
+    if (typeof p === "string") { pluginsOn.add(p); continue; }
+    if (p.enabled) pluginsOn.add(p.name);
+    for (const key of p.enabledOptions || []) enabled.add(key);
+  }
   currentBuildOptionUiHiddenKeys = new Set(uiHiddenKeys);
 
   for (const key of allKeys) {
