@@ -83,11 +83,13 @@ const fileLike = {
   relativePath: "demo.docx",
   arrayBuffer: async () => realDocxBytes.buffer.slice(realDocxBytes.byteOffset, realDocxBytes.byteOffset + realDocxBytes.byteLength),
 };
-const ctx = { options: { processTranscriptDocuments: true }, filesWithMeta: [fileLike], log: () => {} };
+const seen = [];
+const ctx = { options: { processTranscriptDocuments: true }, filesWithMeta: [fileLike], log: (msg) => seen.push(msg) };
 await plugin.hooks["files:analyze"](ctx);
 assert.equal(ctx.caDataPrep.documentRecords[0].csvId, "./c2c-output/demo.csv");
 assert.equal(ctx.caDataPrep.documentRecords[0].objectId, "./c2c-output/demo");
 assert.ok(ctx.caDataPrep.documentRecords[0].csvText.includes("#speaker01,"));
+assert.ok(seen.some((msg) => /Processing transcript document: 1\/1 file\(s\)…/.test(msg)), "Transcript processor should emit per-file progress logs");
 
 const fakeDir = {
   async getDirectoryHandle(name, { create = false } = {}) {
