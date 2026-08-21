@@ -42,9 +42,9 @@ assert.deepEqual(
   ["makeHtml"],
   "the default profile should enable HTML output and no other Build option"
 );
-assert.equal(
-  buildOptions.makeHtml,
-  true,
+assert.deepEqual(
+  buildOptions.plugins,
+  ["makeHtml"],
   "HTML output should be on by default, not merely available"
 );
 
