@@ -335,9 +335,13 @@ function setBuildProgress(value, label, opts = {}) {
 
   if (!indeterminate && fill) fill.style.width = `${normalized}%`;
   if (labelEl && label) labelEl.textContent = label;
-  if (pctEl) pctEl.textContent = `${Math.round(normalized)}%`;
-  if (track) track.setAttribute("aria-valuenow", String(Math.round(normalized)));
-  if (track) track.setAttribute("aria-valuetext", label || `${Math.round(normalized)}%`);
+  if (pctEl) {
+    pctEl.textContent = indeterminate ? "…" : `${Math.round(normalized)}%`;
+  }
+  if (track) {
+    track.setAttribute("aria-valuenow", indeterminate ? "0" : String(Math.round(normalized)));
+    track.setAttribute("aria-valuetext", label || (indeterminate ? "Working…" : `${Math.round(normalized)}%`));
+  }
 
   BUILD_PROGRESS.value = normalized;
 }
@@ -569,8 +573,9 @@ function updateBuildProgressFromLog(msg, cls = "info") {
     return;
   }
   if (/^Identified \d+ unique language\(s\)\./.test(text)) {
+    const label = "Language analysis complete — validating profile…";
+    setBuildProgress(92, label, { indeterminate: true });
     hideSubProgress();
-    bumpBuildProgress(22, "Languages identified.");
     return;
   }
 
@@ -628,6 +633,38 @@ function updateBuildProgressFromLog(msg, cls = "info") {
     hideSubProgress();
     return;
   }
+  const validationMatch = text.match(/^Validating crate against profile \((\d+) entities\)…$/);
+  if (validationMatch) {
+    const entityCount = Number(validationMatch[1]);
+    const label = Number.isFinite(entityCount)
+      ? `Language analysis complete — validating profile (${entityCount} entities)…`
+      : "Language analysis complete — validating profile…";
+    setBuildProgress(92, label, { indeterminate: true });
+    hideSubProgress();
+    return;
+  }
+  if (/^Validating crate against profile…$/.test(text)) {
+    const label = "Language analysis complete — validating profile…";
+    setBuildProgress(92, label, { indeterminate: true });
+    hideSubProgress();
+    return;
+  }
+  if (/^Profile validation passed — crate conforms to the selected profile\./.test(text)) {
+    hideSubProgress();
+    bumpBuildProgress(99, "Profile validation passed.");
+    return;
+  }
+  if (/^Profile validation found \d+ issue\(s\):$/.test(text)) {
+    hideSubProgress();
+    bumpBuildProgress(98, "Profile validation finished with warnings.");
+    return;
+  }
+  if (/^Profile validation could not run: /.test(text)) {
+    hideSubProgress();
+    bumpBuildProgress(98, "Profile validation encountered an error.");
+    return;
+  }
+
   if (/^Preview: multipage /.test(text)) {
     bumpBuildProgress(70, "Preparing multipage preview assets…");
     return;

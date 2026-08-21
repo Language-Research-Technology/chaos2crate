@@ -10,6 +10,7 @@ import { getDefaultProfile, DEFAULT_PROFILE_LABEL } from "../src/default_profile
 import { loadValidator, getRootClassDefinition, toDescribeFieldSchema, validateBuiltCrate } from "../src/masp.js";
 import { buildFileMetadata, buildCrate, crateToJsonString, crateToPreviewHtml } from "../src/crate.js";
 import { resolveProfileGroups } from "c2c-plugins/src/ro-crate-html-output/layout.js";
+import { createPlugin } from "c2c-plugins/src/validate-crate/index.js";
 
 function typesOf(entity) {
   return [].concat(entity?.["@type"] ?? []);
@@ -180,6 +181,18 @@ const result = await validateBuiltCrate(validator, crate);
 assert.ok(
   typeof result.ok === "boolean" && Array.isArray(result.errors),
   "profile validation should return a usable result for the default profile, not throw"
+);
+
+const validatePlugin = createPlugin({ loadMasp: async () => ({ validateBuiltCrate }) });
+const seen = [];
+await validatePlugin.hooks["crate:validate"]({
+  crate,
+  selectedProfileData: { validator },
+  log: (msg, cls) => seen.push({ msg, cls }),
+});
+assert.ok(
+  seen.some((entry) => /Validating crate against profile \(\d+ entities\)/i.test(entry.msg)),
+  "validation should log its start with the crate entity count so the UI can label the secondary progress bar"
 );
 
 console.log(`test-default-profile: all tests passed (${DEFAULT_PROFILE_LABEL}, ${fieldSchema.length} Describe fields, ${layout.length} property groups)`);
