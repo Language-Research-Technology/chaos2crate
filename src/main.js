@@ -574,6 +574,36 @@ function updateBuildProgressFromLog(msg, cls = "info") {
     return;
   }
 
+  const transcriptMatch = text.match(/^Processing transcript document: (\d+)\/(\d+) file\(s\)…/);
+  if (transcriptMatch) {
+    const done = Number(transcriptMatch[1]);
+    const total = Number(transcriptMatch[2]);
+    const frac = total > 0 ? Math.min(1, done / total) : 0;
+    bumpBuildProgress(14 + Math.round(frac * 10), "Processing transcript documents…");
+    startSubProgress(`Processing transcript documents (${done}/${total})…`);
+    setSubProgress(frac * 100, `Processing transcript documents (${done}/${total})…`);
+    return;
+  }
+  if (/^Prepared transcript processing for \d+ \.docx file\(s\)\./.test(text)) {
+    hideSubProgress();
+    return;
+  }
+
+  const chatMatch = text.match(/^CHAT export: (\d+)\/(\d+) file\(s\)…/);
+  if (chatMatch) {
+    const done = Number(chatMatch[1]);
+    const total = Number(chatMatch[2]);
+    const frac = total > 0 ? Math.min(1, done / total) : 0;
+    bumpBuildProgress(74 + Math.round(frac * 8), "Generating CHAT exports…");
+    startSubProgress(`Generating CHAT exports (${done}/${total})…`);
+    setSubProgress(frac * 100, `Generating CHAT exports (${done}/${total})…`);
+    return;
+  }
+  if (/^Wrote \d+ CHAT file\(s\)\./.test(text) || /^Prepared CHAT export for \d+ \.docx file\(s\)\./.test(text)) {
+    hideSubProgress();
+    return;
+  }
+
   if (/^Merging /.test(text)) {
     hideSubProgress();
     bumpBuildProgress(30, "Merging spreadsheet metadata…");
