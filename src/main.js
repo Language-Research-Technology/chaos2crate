@@ -779,9 +779,9 @@ function showView(name) {
   $("contextBar").classList.toggle("hidden", !dirHandle);
   $("menuBtn").classList.toggle("hidden", !(name === "view-build" || name === "view-show" || name === "view-edit" || name === "view-visualisation"));
   $("settingsBtn").classList.toggle("hidden", name !== "view-build");
-  $("showBtn").classList.toggle("hidden", !(name === "view-build" || name === "view-edit"));
-  $("editBtn").classList.toggle("hidden", !(name === "view-build" || name === "view-show"));
-  $("rebuildBtn").classList.toggle("hidden", !(name === "view-show" || name === "view-edit"));
+  $("showBtn").classList.toggle("hidden", !(name === "view-build" || name === "view-edit" || name === "view-visualisation"));
+  $("editBtn").classList.toggle("hidden", !(name === "view-build" || name === "view-show" || name === "view-visualisation"));
+  $("rebuildBtn").classList.toggle("hidden", !(name === "view-show" || name === "view-edit" || name === "view-visualisation"));
   $("vizBtn").classList.toggle("hidden", !(name === "view-mode" || name === "view-build" || name === "view-show" || name === "view-edit"));
 }
 
