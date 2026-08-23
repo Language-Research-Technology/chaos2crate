@@ -20,7 +20,7 @@ import {
   matchForcedProfileIdFromQuery,
   collectOptionSubtreeKeys,
 } from "./profile_url_override.js";
-import { buildConformsToProfileMap, matchProfileIdFromConformsTo } from "./profile_detection.js";
+import { buildConformsToProfileMap, matchProfileIdFromConformsTo, withPreferredIdsFirst } from "./profile_detection.js";
 import packageJson from "../package.json";
 import { createHookBus, HOOKS, announceAndEmit } from "./plugins/hooks.js";
 import { registerAllPlugins, composeOptionSchema, composeSettingsSchema, composeOutputPaths } from "./plugins/index.js";
@@ -2088,6 +2088,14 @@ async function applyForcedProfileSelection() {
   }
 }
 
+// Profiles favoured over others when more than one declares the exact same
+// conformsTo — currently just ldac over language-resources, since both
+// genuinely implement the LDAC Collection profile and conformsTo alone can't
+// tell them apart. Without this, buildConformsToProfileMap's first-wins
+// dedup resolves the tie to whichever sorts first alphabetically
+// (language-resources), which is arbitrary rather than intentional.
+const CONFORMS_TO_TIE_BREAK_PREFERENCE = ["ldac"];
+
 // Maps every known profile's own declared rootDataset.conformsTo back to its
 // profile id, so picking a folder with an existing crate can identify which
 // profile built it (detectProfileFromExistingCrate below). Fetches every
@@ -2101,14 +2109,15 @@ async function loadConformsToProfileIdMap() {
   if (!conformsToProfileIdMapPromise) {
     conformsToProfileIdMapPromise = (async () => {
       const [defaultData, ids] = await Promise.all([loadDefaultProfileData(), loadAvailableProfileIds()]);
+      const orderedIds = withPreferredIdsFirst(ids, CONFORMS_TO_TIE_BREAK_PREFERENCE);
       const masp = await import("./masp.js");
       const fetched = await Promise.allSettled(
-        ids.map((id) => masp.fetchProfileMode(MASP_PROFILES_REPO_OWNER, MASP_PROFILES_REPO_NAME, MASP_PROFILES_REPO_REF, id))
+        orderedIds.map((id) => masp.fetchProfileMode(MASP_PROFILES_REPO_OWNER, MASP_PROFILES_REPO_NAME, MASP_PROFILES_REPO_REF, id))
       );
       const entries = [
         { id: DEFAULT_PROFILE_ID, conformsTo: defaultData.workflow.rootDataset?.conformsTo },
         ...fetched.map((result, i) => ({
-          id: ids[i],
+          id: orderedIds[i],
           conformsTo: result.status === "fulfilled" ? result.value?.rootDataset?.conformsTo : undefined,
         })),
       ];
