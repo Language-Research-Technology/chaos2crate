@@ -35,7 +35,7 @@ import { runPipeline } from "./plugins/pipeline.js";
 import { resetUploadedConfigDirHandle } from "c2c-plugins/src/ro-crate-html-output/index.js";
 import { readXlsxHeaders, readXlsxContextPrefixes } from "c2c-plugins/src/merge/xlsx.js";
 import { ANALYSIS_PLUGINS } from "./analysis-plugins/index.js";
-import { scanDataFiles, loadDocuments } from "./analysis-plugins/data-source.js";
+import { scanOutputDirectories, loadDocuments } from "./analysis-plugins/data-source.js";
 
 // The hook bus is created once and plugins registered once — all
 // build-specific state lives in the fresh ctx object passed to emit() on
@@ -2528,10 +2528,14 @@ let dirHandle = null;
 
 /* ---------- Visualisation (analysis plugins) ---------- */
 // vizDocuments is the flat, parsed text every analysis plugin searches over
-// (see src/analysis-plugins/data-source.js); vizFiles/vizSelectedPaths track
-// which files on disk fed it, so toggling a checkbox can reload it.
-let vizFiles = [];
-let vizSelectedPaths = new Set();
+// (see src/analysis-plugins/data-source.js). The picker offers generated
+// output directories (e.g. c2c-output/csv, c2c-output/logs, c2c-output/chat
+// — from PLUGIN_OUTPUT_PATHS, the same registry-derived list main.js already
+// uses to exclude/clean up plugin output) rather than individual files;
+// vizOutputDirs holds each one's already-scanned file list, vizSelectedDirs
+// tracks which are checked.
+let vizOutputDirs = [];
+let vizSelectedDirs = new Set();
 let vizDocuments = [];
 let vizActivePluginId = ANALYSIS_PLUGINS[0] ? ANALYSIS_PLUGINS[0].id : null;
 
@@ -3688,51 +3692,52 @@ async function openViz() {
   if (!confirmLeaveEditIfDirty()) return;
   if (!(await verifyPermission(dirHandle, false))) return;
   showView("view-visualisation");
-  await rescanVizFiles();
+  await rescanVizOutputDirs();
 }
 
-// Re-lists the folder's .csv/.cha/.txt files and selects all of them —
-// simpler than trying to preserve checkbox state across a rescan, and
-// "Rescan" is only ever clicked to pick up files a rebuild just produced.
-async function rescanVizFiles() {
-  const listEl = $("vizFileList");
+// Re-scans the folder's declared output directories and selects all of
+// them — simpler than trying to preserve checkbox state across a rescan,
+// and "Rescan" is only ever clicked to pick up a folder a rebuild just
+// produced (or refreshed).
+async function rescanVizOutputDirs() {
+  const listEl = $("vizDirList");
   listEl.innerHTML = "";
   listEl.appendChild(hintEl("Scanning…"));
   try {
-    vizFiles = await scanDataFiles(dirHandle);
+    vizOutputDirs = await scanOutputDirectories(dirHandle, PLUGIN_OUTPUT_PATHS);
   } catch (e) {
     listEl.innerHTML = "";
     listEl.appendChild(hintEl("Could not scan the folder: " + (e && e.message ? e.message : e)));
     return;
   }
-  vizSelectedPaths = new Set(vizFiles.map((f) => f.relativePath));
-  renderVizFileList();
+  vizSelectedDirs = new Set(vizOutputDirs.map((d) => d.path));
+  renderVizDirList();
   renderVizPluginList();
   await reloadVizDocumentsAndRun();
 }
 
-function renderVizFileList() {
-  const listEl = $("vizFileList");
+function renderVizDirList() {
+  const listEl = $("vizDirList");
   listEl.innerHTML = "";
-  if (!vizFiles.length) {
+  if (!vizOutputDirs.length) {
     const empty = document.createElement("div");
-    empty.className = "viz-file-empty";
-    empty.textContent = "No .csv, .cha or .txt files found in this folder.";
+    empty.className = "viz-dir-empty";
+    empty.textContent = "No generated output found yet — run Build with a plugin that writes CSV/CHAT/text output, then Rescan.";
     listEl.appendChild(empty);
     return;
   }
-  for (const file of vizFiles) {
+  for (const dir of vizOutputDirs) {
     const label = document.createElement("label");
     const cb = document.createElement("input");
     cb.type = "checkbox";
-    cb.checked = vizSelectedPaths.has(file.relativePath);
+    cb.checked = vizSelectedDirs.has(dir.path);
     cb.addEventListener("change", () => {
-      if (cb.checked) vizSelectedPaths.add(file.relativePath);
-      else vizSelectedPaths.delete(file.relativePath);
+      if (cb.checked) vizSelectedDirs.add(dir.path);
+      else vizSelectedDirs.delete(dir.path);
       void reloadVizDocumentsAndRun();
     });
     const span = document.createElement("span");
-    span.textContent = file.relativePath;
+    span.textContent = `${dir.path} — ${dir.files.length} file${dir.files.length === 1 ? "" : "s"}`;
     label.appendChild(cb);
     label.appendChild(span);
     listEl.appendChild(label);
@@ -3760,7 +3765,7 @@ async function reloadVizDocumentsAndRun() {
   const bodyEl = $("vizPluginBody");
   bodyEl.innerHTML = "";
   bodyEl.appendChild(hintEl("Loading data…"));
-  const selected = vizFiles.filter((f) => vizSelectedPaths.has(f.relativePath));
+  const selected = vizOutputDirs.filter((d) => vizSelectedDirs.has(d.path)).flatMap((d) => d.files);
   try {
     vizDocuments = await loadDocuments(selected, (relativePath) => readFileTextFromDirectory(dirHandle, relativePath));
   } catch (e) {
@@ -3955,6 +3960,6 @@ function boot() {
   $("modalCancel").addEventListener("click", () => $("modal").classList.add("hidden"));
   $("modalBuild").addEventListener("click", () => { $("modal").classList.add("hidden"); void openCrateDetails(); });
   $("vizBtn").addEventListener("click", openViz);
-  $("vizRescanBtn").addEventListener("click", () => { void rescanVizFiles(); });
+  $("vizRescanBtn").addEventListener("click", () => { void rescanVizOutputDirs(); });
 }
 boot();

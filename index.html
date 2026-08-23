@@ -499,9 +499,9 @@
      short — the results on the right need the room, not the sidebar. The
      !important beats the min-width:768px override above at every width. */
   .viz-grid { grid-template-columns: minmax(200px, 260px) minmax(0, 1fr) !important; }
-  .viz-file-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
-  .viz-file-list label { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; font-family: var(--mono); word-break: break-all; }
-  .viz-file-empty { color: var(--muted); font-size: 12.5px; }
+  .viz-dir-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+  .viz-dir-list label { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; font-family: var(--mono); overflow-wrap: anywhere; }
+  .viz-dir-empty { color: var(--muted); font-size: 12.5px; line-height: 1.5; }
   .viz-plugin-list { display: flex; flex-direction: column; gap: 6px; }
   .viz-plugin-item {
     display: block; width: 100%; text-align: left; background: var(--panel-2);
@@ -783,7 +783,7 @@
     <section id="view-visualisation" class="two-col-grid viz-grid hidden">
       <div class="col-left">
         <h2>Data</h2>
-        <div id="vizFileList" class="viz-file-list"></div>
+        <div id="vizDirList" class="viz-dir-list"></div>
         <button id="vizRescanBtn" class="secondary" type="button" style="width:100%;">Rescan folder</button>
         <h2 style="margin-top:22px;">Plugins</h2>
         <div id="vizPluginList" class="viz-plugin-list"></div>
