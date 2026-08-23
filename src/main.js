@@ -2154,7 +2154,12 @@ async function openProfileSelection() {
   if (!dirHandle) return;
   $("profileContinueBtn").disabled = !selectedProfile;
   const status = $("profileStatus");
-  status.textContent = "";
+  // renderProfileOptions() already highlights whichever entry matches
+  // selectedProfile (set here by a prior chooseProfile()/applyForcedProfileSelection()
+  // this session, or by detectProfileFromExistingCrate() picking up on the
+  // folder's existing crate) — this just explains that highlight instead of
+  // leaving it to speak for itself.
+  status.textContent = selectedProfile ? `Currently selected: ${profileLabel(selectedProfile)}.` : "";
   const container = $("profileOptionsBody");
   container.innerHTML = "";
   container.appendChild(hintEl("Loading profiles…"));
