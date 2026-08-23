@@ -3,6 +3,7 @@ import {
   extractConformsToIds,
   buildConformsToProfileMap,
   matchProfileIdFromConformsTo,
+  withPreferredIdsFirst,
 } from "../src/profile_detection.js";
 
 /* ---------- extractConformsToIds: normalizes every valid shape ---------- */
@@ -49,6 +50,49 @@ assert.deepEqual(
     matchProfileIdFromConformsTo(["https://example.org/unknown", { "@id": "https://w3id.org/ldac/profile" }], map),
     "ldac",
     "with multiple conformsTo values, the first one that matches a known profile should win"
+  );
+}
+
+/* ---------- withPreferredIdsFirst ---------- */
+
+assert.deepEqual(
+  withPreferredIdsFirst(["birds", "language-resources", "ldac", "structured-docs"], ["ldac"]),
+  ["ldac", "birds", "language-resources", "structured-docs"],
+  "the preferred id should move to the front, everything else keeping its relative order"
+);
+assert.deepEqual(
+  withPreferredIdsFirst(["birds", "structured-docs"], ["ldac"]),
+  ["birds", "structured-docs"],
+  "a preferred id absent from the list should be a no-op, not throw or insert it"
+);
+assert.deepEqual(
+  withPreferredIdsFirst(["a", "b", "c"], ["c", "a"]),
+  ["c", "a", "b"],
+  "multiple preferred ids should lead in the order `preferred` gives them"
+);
+
+/* ---------- the reported scenario: ldac should win over language-resources ---------- */
+// Both declare the same LDAC Collection conformsTo — without the tie-break,
+// buildConformsToProfileMap's first-registered-wins dedup resolves to
+// whichever sorts first alphabetically (language-resources), which is what
+// was actually observed and reported as surprising.
+
+{
+  const ids = ["birds", "language-resources", "ldac", "structured-docs"]; // loadAvailableProfileIds()'s alphabetical order
+  const sharedConformsTo = "https://w3id.org/ldac/profile#Collection";
+  const conformsToById = { "language-resources": sharedConformsTo, ldac: sharedConformsTo };
+
+  const withoutTieBreak = buildConformsToProfileMap(ids.map((id) => ({ id, conformsTo: conformsToById[id] })));
+  assert.equal(
+    matchProfileIdFromConformsTo(sharedConformsTo, withoutTieBreak), "language-resources",
+    "without a tie-break, alphabetical order resolves the shared conformsTo to language-resources"
+  );
+
+  const orderedIds = withPreferredIdsFirst(ids, ["ldac"]);
+  const withTieBreak = buildConformsToProfileMap(orderedIds.map((id) => ({ id, conformsTo: conformsToById[id] })));
+  assert.equal(
+    matchProfileIdFromConformsTo(sharedConformsTo, withTieBreak), "ldac",
+    "with the tie-break applied, the shared conformsTo should resolve to ldac instead"
   );
 }
 

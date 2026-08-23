@@ -39,3 +39,18 @@ export function matchProfileIdFromConformsTo(conformsToValue, conformsToProfileI
   }
   return null;
 }
+
+// Reorders ids so any in `preferred` come first (in the order `preferred`
+// gives them), the rest following in their original order — used before
+// buildConformsToProfileMap() so its first-registered-wins dedup resolves a
+// conformsTo two profiles both legitimately declare (e.g. ldac and
+// language-resources both implementing the LDAC Collection profile)
+// deterministically toward whichever is preferred, rather than whatever
+// order the caller happened to list them in (alphabetical, here).
+export function withPreferredIdsFirst(ids, preferred) {
+  const preferredSet = new Set(preferred);
+  return [
+    ...preferred.filter((id) => ids.includes(id)),
+    ...ids.filter((id) => !preferredSet.has(id)),
+  ];
+}
