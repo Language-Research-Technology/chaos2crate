@@ -346,20 +346,27 @@ assert.ok(
     byPath.get("ro-crate-preview_files")?.kind, "dir",
     "docx-input (an input-mode plugin, not an additive one) should still contribute its output directory"
   );
-  assert.equal(
-    byPath.get("c2c-output")?.kind, "dir",
-    "c2c-output should be declared (by chat-export and/or ca-data-prep)"
-  );
-
-  assert.equal(
-    outputPaths.filter((e) => e.path === "c2c-output").length, 1,
-    "chat-export and ca-data-prep both declare c2c-output — composeOutputPaths should dedupe by path, not list it twice"
-  );
+  assert.equal(byPath.get("c2c-output/csv")?.kind, "dir", "ca-data-prep should declare its CSV output directory");
+  assert.equal(byPath.get("c2c-output/logs")?.kind, "dir", "ca-data-prep should declare its log output directory");
+  assert.equal(byPath.get("c2c-output/chat")?.kind, "dir", "chat-export should declare its CHAT output directory");
 
   assert.ok(
     !byPath.has("merge") && !byPath.has("austlang") && !byPath.has("validate-crate"),
     "a plugin that never writes to the folder should contribute no output path"
   );
+}
+
+{
+  // Synthetic dedup check, independent of which real plugins happen to
+  // share a path today — two plugins declaring the same path should still
+  // collapse to one entry, first-declared kind wins.
+  const fakePlugins = [
+    { outputPaths: [{ path: "shared-output", kind: "dir" }] },
+    { outputPaths: [{ path: "shared-output", kind: "file" }] },
+  ];
+  const deduped = composeOutputPaths(fakePlugins, {});
+  assert.equal(deduped.filter((e) => e.path === "shared-output").length, 1, "composeOutputPaths should dedupe by path, not list it twice");
+  assert.equal(deduped.find((e) => e.path === "shared-output").kind, "dir", "the first-declared kind should win");
 }
 
 console.log(`test-hooks: all tests passed (${Object.keys(HOOKS).length} hooks, ${PLUGINS.length} plugins, ${Object.keys(INPUT_PLUGINS).length} input modes)`);

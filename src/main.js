@@ -9,6 +9,7 @@ import {
 } from "./crate.js";
 import {
   writeFile, verifyPermission, fileExists, readFileText, removeEntryAtPath,
+  readFileTextFromDirectory,
 } from "./fs_helpers.js";
 import { listGitHubFolder } from "./github.js";
 import {
@@ -33,6 +34,8 @@ import { runPipeline } from "./plugins/pipeline.js";
 // ro-crate-html-output and merge are always bundled because of them.
 import { resetUploadedConfigDirHandle } from "c2c-plugins/src/ro-crate-html-output/index.js";
 import { readXlsxHeaders, readXlsxContextPrefixes } from "c2c-plugins/src/merge/xlsx.js";
+import { ANALYSIS_PLUGINS } from "./analysis-plugins/index.js";
+import { scanOutputDirectories, loadDocuments } from "./analysis-plugins/data-source.js";
 
 // The hook bus is created once and plugins registered once — all
 // build-specific state lives in the fresh ctx object passed to emit() on
@@ -770,15 +773,16 @@ function renderTypeStatus(typeCounts) {
 }
 
 /* ---------- view routing ---------- */
-const VIEWS = ["view-mode", "view-select-profile", "view-crate-details", "view-build", "view-show", "view-edit"];
+const VIEWS = ["view-mode", "view-select-profile", "view-crate-details", "view-build", "view-show", "view-edit", "view-visualisation"];
 function showView(name) {
   for (const v of VIEWS) $(v).classList.toggle("hidden", v !== name);
   $("contextBar").classList.toggle("hidden", !dirHandle);
-  $("menuBtn").classList.toggle("hidden", !(name === "view-build" || name === "view-show" || name === "view-edit"));
+  $("menuBtn").classList.toggle("hidden", !(name === "view-build" || name === "view-show" || name === "view-edit" || name === "view-visualisation"));
   $("settingsBtn").classList.toggle("hidden", name !== "view-build");
-  $("showBtn").classList.toggle("hidden", !(name === "view-build" || name === "view-edit"));
-  $("editBtn").classList.toggle("hidden", !(name === "view-build" || name === "view-show"));
-  $("rebuildBtn").classList.toggle("hidden", !(name === "view-show" || name === "view-edit"));
+  $("showBtn").classList.toggle("hidden", !(name === "view-build" || name === "view-edit" || name === "view-visualisation"));
+  $("editBtn").classList.toggle("hidden", !(name === "view-build" || name === "view-show" || name === "view-visualisation"));
+  $("rebuildBtn").classList.toggle("hidden", !(name === "view-show" || name === "view-edit" || name === "view-visualisation"));
+  $("vizBtn").classList.toggle("hidden", !(name === "view-mode" || name === "view-build" || name === "view-show" || name === "view-edit"));
 }
 
 /* ---------- options form ---------- */
@@ -2522,6 +2526,19 @@ function refreshBuildStepActions() {
 /* ---------- File System Access ---------- */
 let dirHandle = null;
 
+/* ---------- Visualisation (analysis plugins) ---------- */
+// vizDocuments is the flat, parsed text every analysis plugin searches over
+// (see src/analysis-plugins/data-source.js). The picker offers generated
+// output directories (e.g. c2c-output/csv, c2c-output/logs, c2c-output/chat
+// — from PLUGIN_OUTPUT_PATHS, the same registry-derived list main.js already
+// uses to exclude/clean up plugin output) rather than individual files;
+// vizOutputDirs holds each one's already-scanned file list, vizSelectedDirs
+// tracks which are checked.
+let vizOutputDirs = [];
+let vizSelectedDirs = new Set();
+let vizDocuments = [];
+let vizActivePluginId = ANALYSIS_PLUGINS[0] ? ANALYSIS_PLUGINS[0].id : null;
+
 // Bumped by cancelRunningBuild() whenever the user picks a new folder while a
 // build is in flight. run() captures the generation it started with and
 // checks it after every await; a mismatch means the folder moved on, so the
@@ -2674,9 +2691,10 @@ async function run() {
     if (stale()) return;
     if (buildHtml !== null) $("showHtmlBtn").classList.remove("hidden");
     // A build always writes ro-crate-metadata.json (or it already existed), so
-    // the context bar's Show and Edit buttons can now be enabled.
+    // the context bar's Show, Edit and Visualise buttons can now be enabled.
     $("showBtn").disabled = false;
     $("editBtn").disabled = false;
+    $("vizBtn").disabled = false;
   } catch (e) {
     if (stale()) return;
     log("Error: " + (e && e.message ? e.message : e), "err");
@@ -2751,6 +2769,8 @@ async function pickFolder(nextView = "view-mode") {
 // an ro-crate-metadata.json or an ro-crate-preview.html. A fresh folder with
 // neither shows the Build card alone, and the context bar's Show button (in
 // build mode) stays disabled until a build produces one of those files.
+// Visualise uses the same signal — it reads a build plugin's generated
+// output, so there's nothing to show it until a build has actually run.
 async function refreshModeCards() {
   let hasJson = false, hasHtml = false;
   if (dirHandle) {
@@ -2761,6 +2781,7 @@ async function refreshModeCards() {
   }
   $("cardShow").classList.toggle("hidden", !(hasJson || hasHtml));
   $("showBtn").disabled = !(hasJson || hasHtml);
+  $("vizBtn").disabled = !(hasJson || hasHtml);
   $("cardEdit").classList.toggle("hidden", !hasJson);
   $("editBtn").disabled = !hasJson;
   refreshBuildStepActions();
@@ -3669,6 +3690,107 @@ async function saveEdit() {
   }
 }
 
+/* ---------- Visualisation ---------- */
+async function openViz() {
+  if (!dirHandle) return;
+  if (!confirmLeaveEditIfDirty()) return;
+  if (!(await verifyPermission(dirHandle, false))) return;
+  showView("view-visualisation");
+  await rescanVizOutputDirs();
+}
+
+// Re-scans the folder's declared output directories and selects all of
+// them — simpler than trying to preserve checkbox state across a rescan,
+// and "Rescan" is only ever clicked to pick up a folder a rebuild just
+// produced (or refreshed).
+async function rescanVizOutputDirs() {
+  const listEl = $("vizDirList");
+  listEl.innerHTML = "";
+  listEl.appendChild(hintEl("Scanning…"));
+  try {
+    vizOutputDirs = await scanOutputDirectories(dirHandle, PLUGIN_OUTPUT_PATHS);
+  } catch (e) {
+    listEl.innerHTML = "";
+    listEl.appendChild(hintEl("Could not scan the folder: " + (e && e.message ? e.message : e)));
+    return;
+  }
+  vizSelectedDirs = new Set(vizOutputDirs.map((d) => d.path));
+  renderVizDirList();
+  renderVizPluginList();
+  await reloadVizDocumentsAndRun();
+}
+
+function renderVizDirList() {
+  const listEl = $("vizDirList");
+  listEl.innerHTML = "";
+  if (!vizOutputDirs.length) {
+    const empty = document.createElement("div");
+    empty.className = "viz-dir-empty";
+    empty.textContent = "No generated output found yet — run Build with a plugin that writes CSV/CHAT/text output, then Rescan.";
+    listEl.appendChild(empty);
+    return;
+  }
+  for (const dir of vizOutputDirs) {
+    const label = document.createElement("label");
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = vizSelectedDirs.has(dir.path);
+    cb.addEventListener("change", () => {
+      if (cb.checked) vizSelectedDirs.add(dir.path);
+      else vizSelectedDirs.delete(dir.path);
+      void reloadVizDocumentsAndRun();
+    });
+    const span = document.createElement("span");
+    span.textContent = `${dir.path} — ${dir.files.length} file${dir.files.length === 1 ? "" : "s"}`;
+    label.appendChild(cb);
+    label.appendChild(span);
+    listEl.appendChild(label);
+  }
+}
+
+function renderVizPluginList() {
+  const listEl = $("vizPluginList");
+  listEl.innerHTML = "";
+  for (const plugin of ANALYSIS_PLUGINS) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "viz-plugin-item" + (plugin.id === vizActivePluginId ? " active" : "");
+    btn.innerHTML = `<div class="t">${escapeHtml(plugin.name)}</div><div class="d">${escapeHtml(plugin.description || "")}</div>`;
+    btn.addEventListener("click", () => {
+      vizActivePluginId = plugin.id;
+      renderVizPluginList();
+      runActiveVizPlugin();
+    });
+    listEl.appendChild(btn);
+  }
+}
+
+async function reloadVizDocumentsAndRun() {
+  const bodyEl = $("vizPluginBody");
+  bodyEl.innerHTML = "";
+  bodyEl.appendChild(hintEl("Loading data…"));
+  const selected = vizOutputDirs.filter((d) => vizSelectedDirs.has(d.path)).flatMap((d) => d.files);
+  try {
+    vizDocuments = await loadDocuments(selected, (relativePath) => readFileTextFromDirectory(dirHandle, relativePath));
+  } catch (e) {
+    bodyEl.innerHTML = "";
+    bodyEl.appendChild(hintEl("Could not read the selected files: " + (e && e.message ? e.message : e)));
+    return;
+  }
+  runActiveVizPlugin();
+}
+
+function runActiveVizPlugin() {
+  const bodyEl = $("vizPluginBody");
+  const plugin = ANALYSIS_PLUGINS.find((p) => p.id === vizActivePluginId);
+  if (!plugin) {
+    bodyEl.innerHTML = "";
+    bodyEl.appendChild(hintEl("No analysis plugins available."));
+    return;
+  }
+  plugin.render(bodyEl, { documents: vizDocuments, dirHandle });
+}
+
 /* ---------- boot ---------- */
 function boot() {
   if (!("showDirectoryPicker" in window)) { $("unsupported").classList.remove("hidden"); return; }
@@ -3841,5 +3963,7 @@ function boot() {
   });
   $("modalCancel").addEventListener("click", () => $("modal").classList.add("hidden"));
   $("modalBuild").addEventListener("click", () => { $("modal").classList.add("hidden"); void openCrateDetails(); });
+  $("vizBtn").addEventListener("click", openViz);
+  $("vizRescanBtn").addEventListener("click", () => { void rescanVizOutputDirs(); });
 }
 boot();

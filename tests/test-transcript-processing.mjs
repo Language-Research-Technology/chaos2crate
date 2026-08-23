@@ -86,7 +86,7 @@ const fileLike = {
 const seen = [];
 const ctx = { options: { processTranscriptDocuments: true }, filesWithMeta: [fileLike], log: (msg) => seen.push(msg) };
 await plugin.hooks["files:analyze"](ctx);
-assert.equal(ctx.caDataPrep.documentRecords[0].csvId, "./c2c-output/demo.csv");
+assert.equal(ctx.caDataPrep.documentRecords[0].csvId, "./c2c-output/csv/demo.csv");
 assert.equal(ctx.caDataPrep.documentRecords[0].objectId, "./c2c-output/demo");
 assert.ok(ctx.caDataPrep.documentRecords[0].csvText.includes("#speaker01,"));
 assert.ok(seen.some((msg) => /Processing transcript document: 1\/1 file\(s\)…/.test(msg)), "Transcript processor should emit per-file progress logs");
