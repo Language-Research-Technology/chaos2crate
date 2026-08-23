@@ -33,6 +33,16 @@ assert.equal(
   undefined,
   "the default profile should declare no fileProperties — nothing custom belongs on a minimal crate's files"
 );
+assert.equal(
+  typeof modeJson.rootDataset.conformsTo,
+  "string",
+  "the default profile should declare a conformsTo like any real profile — otherwise a crate built with no profile chosen has nothing for detectProfileFromExistingCrate to key off of"
+);
+assert.match(
+  modeJson.rootDataset.conformsTo,
+  /^https:\/\//,
+  "conformsTo should be a real absolute URI, not a placeholder"
+);
 
 /* ---------- the default enables a plain preview, and nothing else ---------- */
 
@@ -67,6 +77,11 @@ assert.equal(
   vendoredMode.tools,
   undefined,
   "tools.chaos2crate.buildOptions is a chaos2crate extension — the upstream profile file should not be patched in place"
+);
+assert.equal(
+  vendoredMode.rootDataset.conformsTo,
+  undefined,
+  "conformsTo is also a chaos2crate overlay (see default_profile.js) — the upstream profile file has none, and getDefaultProfile() must not patch it in place either"
 );
 
 /* ---------- the Describe step asks for a handful of schema.org fields ---------- */

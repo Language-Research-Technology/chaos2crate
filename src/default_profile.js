@@ -44,6 +44,17 @@ const BUILD_OPTIONS = {
   plugins: ["makeHtml"],
 };
 
+// A real masp-profiles entry's tool-config.json declares rootDataset.conformsTo
+// (processFolder in main.js copies it onto every built crate's root dataset),
+// but the vendored schema-org file has none — so a crate built with no profile
+// chosen ended up with no conformsTo at all, and picking that folder back up
+// had nothing to identify which profile (if any) built it (see
+// detectProfileFromExistingCrate in main.js / src/profile_detection.js).
+// This mirrors the exact self-id shape ro-crate-masp's own meta-profile uses
+// for itself (".../profiles/ro-crate-masp/profile-crate/#profile"), just
+// under "schema-org" — a real, published page, not an invented URI.
+const DEFAULT_PROFILE_CONFORMS_TO = "https://language-research-technology.github.io/ro-crate-masp/profiles/schema-org/profile-crate/#profile";
+
 // The same { profileJson, modeJson } shape masp.js's fetchProfile returns, so
 // both paths feed loadValidator identically. modeJson is copied rather than
 // mutated — an imported JSON module is a shared singleton, and patching it in
@@ -53,6 +64,7 @@ export function getDefaultProfile() {
     profileJson,
     modeJson: {
       ...modeJson,
+      rootDataset: { ...(modeJson.rootDataset || {}), conformsTo: DEFAULT_PROFILE_CONFORMS_TO },
       tools: {
         ...(modeJson.tools || {}),
         chaos2crate: {
