@@ -5,5 +5,6 @@
 // called with a DOM element to render into and `{ documents }` — the flat
 // list of parsed text loaded by src/analysis-plugins/data-source.js.
 import { concordancePlugin } from "./concordance.js";
+import { ngramsPlugin } from "./ngrams.js";
 
-export const ANALYSIS_PLUGINS = [concordancePlugin];
+export const ANALYSIS_PLUGINS = [concordancePlugin, ngramsPlugin];
