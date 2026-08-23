@@ -20,6 +20,7 @@ import {
   matchForcedProfileIdFromQuery,
   collectOptionSubtreeKeys,
 } from "./profile_url_override.js";
+import { buildConformsToProfileMap, matchProfileIdFromConformsTo } from "./profile_detection.js";
 import packageJson from "../package.json";
 import { createHookBus, HOOKS, announceAndEmit } from "./plugins/hooks.js";
 import { registerAllPlugins, composeOptionSchema, composeSettingsSchema, composeOutputPaths } from "./plugins/index.js";
@@ -2087,6 +2088,54 @@ async function applyForcedProfileSelection() {
   }
 }
 
+// Maps every known profile's own declared rootDataset.conformsTo back to its
+// profile id, so picking a folder with an existing crate can identify which
+// profile built it (detectProfileFromExistingCrate below). Fetches every
+// c2c-masp-profiles entry's mode file (via the lighter fetchProfileMode,
+// not a full fetchProfile+validator) plus the bundled default's, in
+// parallel, and caches the result for the rest of the session — the profile
+// list doesn't change while the app is open, so a second folder pick
+// shouldn't repeat the fetches.
+let conformsToProfileIdMapPromise = null;
+async function loadConformsToProfileIdMap() {
+  if (!conformsToProfileIdMapPromise) {
+    conformsToProfileIdMapPromise = (async () => {
+      const [defaultData, ids] = await Promise.all([loadDefaultProfileData(), loadAvailableProfileIds()]);
+      const masp = await import("./masp.js");
+      const fetched = await Promise.allSettled(
+        ids.map((id) => masp.fetchProfileMode(MASP_PROFILES_REPO_OWNER, MASP_PROFILES_REPO_NAME, MASP_PROFILES_REPO_REF, id))
+      );
+      const entries = [
+        { id: DEFAULT_PROFILE_ID, conformsTo: defaultData.workflow.rootDataset?.conformsTo },
+        ...fetched.map((result, i) => ({
+          id: ids[i],
+          conformsTo: result.status === "fulfilled" ? result.value?.rootDataset?.conformsTo : undefined,
+        })),
+      ];
+      return buildConformsToProfileMap(entries);
+    })().catch((e) => {
+      conformsToProfileIdMapPromise = null;
+      throw e;
+    });
+  }
+  return conformsToProfileIdMapPromise;
+}
+
+// Best-effort: a folder with no existing crate, a crate with no conformsTo,
+// or one that doesn't match any known profile all just mean "nothing to
+// detect", not an error — the existing describe-prefill behaviour (falling
+// back to the bundled default's field schema) already covers that case.
+async function detectProfileFromExistingCrate(root) {
+  if (!root || !root.conformsTo) return null;
+  try {
+    const map = await loadConformsToProfileIdMap();
+    return matchProfileIdFromConformsTo(root.conformsTo, map);
+  } catch (e) {
+    console.warn("Could not check which profile built the existing crate:", e);
+    return null;
+  }
+}
+
 // Loading the default can only fail on a genuine fault (a bad bundle, a
 // profile the validator rejects) — but callers are fire-and-forget `void`
 // calls, so an unhandled rejection would read to the user as a button that
@@ -2458,10 +2507,24 @@ async function populateCrateDetailsFromExistingCrate(handle) {
   if (idText) $("cd_id").value = idText;
 
   try {
-    // Uses the default field schema only to shape the synthesized override —
-    // loadDefaultProfileData() doesn't touch selectedProfile, so this can't
-    // make the Select-profile/Describe steps look like the user visited them.
-    const profileData = await loadDefaultProfileData();
+    // If the existing crate's conformsTo matches a known profile, select it
+    // — from here on this folder behaves exactly as if the user had chosen
+    // that profile themselves (chooseProfile()'s effect, just triggered by
+    // detection instead of a click). Otherwise fall back to the bundled
+    // default purely to shape the synthesized override below — in that case
+    // loadDefaultProfileData() deliberately doesn't touch selectedProfile,
+    // so a profile that wasn't actually detected can't make the
+    // Select-profile/Describe steps look like the user visited them.
+    const detectedProfileId = await detectProfileFromExistingCrate(root);
+    let profileData;
+    if (detectedProfileId) {
+      profileData = await loadProfileData(detectedProfileId);
+      selectedProfileData = profileData;
+      selectedProfile = detectedProfileId;
+      logStart(`Detected profile from existing crate: ${profileLabel(detectedProfileId)}.`, "ok");
+    } else {
+      profileData = await loadDefaultProfileData();
+    }
     rootDatasetOverride = collectDescribeValues(
       profileData.fieldSchema,
       idText,
@@ -2508,9 +2571,11 @@ function refreshBuildStepActions() {
   } else if (forcedProfileResolved) {
     document.documentElement.classList.remove("profile-override-present");
   }
-  // Describe waits on an explicit profile pick (selectedProfile is only set
-  // by chooseProfile(), never by ensureProfileData()'s silent default
-  // fallback) so a folder alone doesn't unlock it.
+  // Describe waits on a profile actually being identified — either the user
+  // picking one (chooseProfile()) or detectProfileFromExistingCrate()
+  // recognizing one from the folder's existing crate — never on
+  // ensureProfileData()'s silent default fallback, so a folder alone
+  // doesn't unlock it.
   profileBtn.classList.toggle("hidden", hideProfileStep);
   profileBtn.disabled = !hasFolder;
   describeBtn.disabled = !(hasFolder && hasProfile);

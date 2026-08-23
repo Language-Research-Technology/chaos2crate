@@ -37,6 +37,16 @@ export async function fetchProfile(owner, repo, ref, folderName) {
   return { profileJson, modeJson };
 }
 
+// Fetches only a profile's tool-config.json — lighter than fetchProfile()
+// for a caller that just needs mode-file data (rootDataset.conformsTo,
+// buildOptions, ...) and has no use for the profile-crate JSON or a
+// validator built from it. Used to check every known profile's declared
+// conformsTo without paying for N validators just to read one field each
+// (see loadConformsToProfileIdMap in main.js).
+export async function fetchProfileMode(owner, repo, ref, folderName) {
+  return fetchGitHubJson(owner, repo, ref, `${folderName}/profile-crate/tool-config.json`);
+}
+
 // Loads a fetched profile into a ready-to-query MaspValidator.
 // setEditorHints(modeJson) is required, not optional — without it,
 // getRootDatasetTypes() resolves to the RO-Crate metadata descriptor's own
