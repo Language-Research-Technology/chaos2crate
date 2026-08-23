@@ -2691,9 +2691,10 @@ async function run() {
     if (stale()) return;
     if (buildHtml !== null) $("showHtmlBtn").classList.remove("hidden");
     // A build always writes ro-crate-metadata.json (or it already existed), so
-    // the context bar's Show and Edit buttons can now be enabled.
+    // the context bar's Show, Edit and Visualise buttons can now be enabled.
     $("showBtn").disabled = false;
     $("editBtn").disabled = false;
+    $("vizBtn").disabled = false;
   } catch (e) {
     if (stale()) return;
     log("Error: " + (e && e.message ? e.message : e), "err");
@@ -2768,6 +2769,8 @@ async function pickFolder(nextView = "view-mode") {
 // an ro-crate-metadata.json or an ro-crate-preview.html. A fresh folder with
 // neither shows the Build card alone, and the context bar's Show button (in
 // build mode) stays disabled until a build produces one of those files.
+// Visualise uses the same signal — it reads a build plugin's generated
+// output, so there's nothing to show it until a build has actually run.
 async function refreshModeCards() {
   let hasJson = false, hasHtml = false;
   if (dirHandle) {
@@ -2778,6 +2781,7 @@ async function refreshModeCards() {
   }
   $("cardShow").classList.toggle("hidden", !(hasJson || hasHtml));
   $("showBtn").disabled = !(hasJson || hasHtml);
+  $("vizBtn").disabled = !(hasJson || hasHtml);
   $("cardEdit").classList.toggle("hidden", !hasJson);
   $("editBtn").disabled = !hasJson;
   refreshBuildStepActions();
