@@ -8,7 +8,8 @@ import {
   loadCrateFromJson, GENERATED_FILENAMES, CONTROL_FILENAMES,
 } from "./crate.js";
 import {
-  writeFile, verifyPermission, fileExists, readFileText,
+  writeFile, verifyPermission, fileExists, readFileText, removeEntryAtPath,
+  readFileTextFromDirectory,
 } from "./fs_helpers.js";
 import { listGitHubFolder } from "./github.js";
 import {
@@ -19,6 +20,7 @@ import {
   matchForcedProfileIdFromQuery,
   collectOptionSubtreeKeys,
 } from "./profile_url_override.js";
+import { buildConformsToProfileMap, matchProfileIdFromConformsTo, withPreferredIdsFirst } from "./profile_detection.js";
 import packageJson from "../package.json";
 import { createHookBus, HOOKS, announceAndEmit } from "./plugins/hooks.js";
 import { registerAllPlugins, composeOptionSchema, composeSettingsSchema, composeOutputPaths, INPUT_PLUGINS } from "./plugins/index.js";
@@ -33,6 +35,8 @@ import { runPipeline } from "./plugins/pipeline.js";
 // ro-crate-html-output and merge are always bundled because of them.
 import { resetUploadedConfigDirHandle } from "c2c-plugins/src/ro-crate-html-output/index.js";
 import { readXlsxHeaders, readXlsxContextPrefixes } from "c2c-plugins/src/merge/xlsx.js";
+import { ANALYSIS_PLUGINS } from "./analysis-plugins/index.js";
+import { scanOutputDirectories, loadDocuments } from "./analysis-plugins/data-source.js";
 
 // The hook bus is created once and plugins registered once — all
 // build-specific state lives in the fresh ctx object passed to emit() on
@@ -50,6 +54,9 @@ const MASP_PROFILES_REPO_OWNER = "Language-Research-Technology";
 const MASP_PROFILES_REPO_NAME = "c2c-masp-profiles";
 const MASP_PROFILES_REPO_REF = "main";
 const APP_VERSION = packageJson.version || "dev";
+// __BUILD_NUMBER__/__BUILD_SHA__ are injected by vite.config.js's `define`.
+const BUILD_NUMBER = __BUILD_NUMBER__;
+const BUILD_SHA = __BUILD_SHA__;
 
 // Build-panel options all come from the plugin registry (src/plugins) — each
 // plugin owns its own optionSchema/settingsSchema fragment. collectionLabelsBuilder
@@ -102,7 +109,15 @@ const CORE_SETTINGS_SCHEMA = [
       { value: "collection", label: "Collections (RepositoryCollection)" },
     ],
     hint: "When Collections is selected, child folders are emitted as RepositoryObjects; files directly inside a top-level folder are grouped into an object named Files." },
-  { key: "overwrite", label: "Overwrite existing outputs", default: true },
+  { key: "deleteOutputsBeforeBuild", label: "Delete plugin output before rebuilding", default: true,
+    hint: "Removes every file/folder a plugin may write into the chosen folder — ro-crate-metadata.json/.xlsx, " +
+      "ro-crate-preview.html and its ro-crate-preview_html/ folder, c2c-output/, and so on — before each build, " +
+      "so output left over from a previous run (e.g. a renamed or removed source file's old export) is never " +
+      "scanned as input or left stale. Runs before the folder is scanned, regardless of the Overwrite setting below." },
+  { key: "overwrite", label: "Overwrite existing outputs", default: true,
+    hint: "Has no effect while \"Delete plugin output before rebuilding\" above is on — cleanup already removes " +
+      "every output first, so each one is always missing by the time this check runs. Only matters with cleanup off, " +
+      "where it decides whether an existing output is regenerated or left as-is." },
   { key: "enableLocalTemplateUpload", label: "Enable local template upload", default: false,
     hint: "Shows or hides the Upload template files option in Build settings." },
 ];
@@ -358,9 +373,13 @@ function setBuildProgress(value, label, opts = {}) {
 
   if (!indeterminate && fill) fill.style.width = `${normalized}%`;
   if (labelEl && label) labelEl.textContent = label;
-  if (pctEl) pctEl.textContent = `${Math.round(normalized)}%`;
-  if (track) track.setAttribute("aria-valuenow", String(Math.round(normalized)));
-  if (track) track.setAttribute("aria-valuetext", label || `${Math.round(normalized)}%`);
+  if (pctEl) {
+    pctEl.textContent = indeterminate ? "…" : `${Math.round(normalized)}%`;
+  }
+  if (track) {
+    track.setAttribute("aria-valuenow", indeterminate ? "0" : String(Math.round(normalized)));
+    track.setAttribute("aria-valuetext", label || (indeterminate ? "Working…" : `${Math.round(normalized)}%`));
+  }
 
   BUILD_PROGRESS.value = normalized;
 }
@@ -592,8 +611,48 @@ function updateBuildProgressFromLog(msg, cls = "info") {
     return;
   }
   if (/^Identified \d+ unique language\(s\)\./.test(text)) {
+    bumpBuildProgress(92, "Language analysis complete — validating profile…");
     hideSubProgress();
-    bumpBuildProgress(22, "Languages identified.");
+    return;
+  }
+
+  const transcriptMatch = text.match(/^Processing transcript document: (\d+)\/(\d+) file\(s\)…/);
+  if (transcriptMatch) {
+    const done = Number(transcriptMatch[1]);
+    const total = Number(transcriptMatch[2]);
+    const frac = total > 0 ? Math.min(1, done / total) : 0;
+    bumpBuildProgress(14 + Math.round(frac * 10), "Processing transcript documents…");
+    startSubProgress(`Processing transcript documents (${done}/${total})…`);
+    setSubProgress(frac * 100, `Processing transcript documents (${done}/${total})…`);
+    return;
+  }
+  if (/^Prepared transcript processing for \d+ \.docx file\(s\)\./.test(text)) {
+    hideSubProgress();
+    return;
+  }
+
+  const chatMatch = text.match(/^CHAT export: (\d+)\/(\d+) file\(s\)…/);
+  if (chatMatch) {
+    const done = Number(chatMatch[1]);
+    const total = Number(chatMatch[2]);
+    const frac = total > 0 ? Math.min(1, done / total) : 0;
+    bumpBuildProgress(74 + Math.round(frac * 8), "Generating CHAT exports…");
+    startSubProgress(`Generating CHAT exports (${done}/${total})…`);
+    setSubProgress(frac * 100, `Generating CHAT exports (${done}/${total})…`);
+    return;
+  }
+  const chatWriteMatch = text.match(/^Writing CHAT export: (\d+)\/(\d+) file\(s\)…/);
+  if (chatWriteMatch) {
+    const done = Number(chatWriteMatch[1]);
+    const total = Number(chatWriteMatch[2]);
+    const frac = total > 0 ? Math.min(1, done / total) : 0;
+    bumpBuildProgress(82 + Math.round(frac * 8), "Writing CHAT exports…");
+    startSubProgress(`Writing CHAT exports (${done}/${total})…`);
+    setSubProgress(frac * 100, `Writing CHAT exports (${done}/${total})…`);
+    return;
+  }
+  if (/^Wrote \d+ CHAT file\(s\)\./.test(text) || /^Prepared CHAT export for \d+ \.docx file\(s\)\./.test(text)) {
+    hideSubProgress();
     return;
   }
 
@@ -621,6 +680,50 @@ function updateBuildProgressFromLog(msg, cls = "info") {
     hideSubProgress();
     return;
   }
+  const validationMatch = text.match(/^Validating crate against profile \((\d+) entities\)…$/);
+  if (validationMatch) {
+    const entityCount = Number(validationMatch[1]);
+    const label = Number.isFinite(entityCount)
+      ? `Validating profile (${entityCount} entities)…`
+      : "Validating profile…";
+    bumpBuildProgress(92, label);
+    startSubProgress(label);
+    return;
+  }
+  if (/^Validating crate against profile…$/.test(text)) {
+    const label = "Validating profile…";
+    bumpBuildProgress(92, label);
+    startSubProgress(label);
+    return;
+  }
+  const validationTickMatch = text.match(/^Validating crate against profile: (\d+)\/(\d+) rule\(s\)…$/);
+  if (validationTickMatch) {
+    const done = Number(validationTickMatch[1]);
+    const total = Number(validationTickMatch[2]);
+    const frac = total > 0 ? Math.min(1, done / total) : 0;
+    const label = `Validating profile (${done}/${total} rule(s))…`;
+    // Validation covers the 92-98% span; the final 98/99 bump on
+    // pass/warn/error below closes it out.
+    bumpBuildProgress(92 + Math.round(frac * 6), label);
+    setSubProgress(frac * 100, label);
+    return;
+  }
+  if (/^Profile validation passed — crate conforms to the selected profile\./.test(text)) {
+    hideSubProgress();
+    bumpBuildProgress(99, "Profile validation passed.");
+    return;
+  }
+  if (/^Profile validation found \d+ issue\(s\):$/.test(text)) {
+    hideSubProgress();
+    bumpBuildProgress(98, "Profile validation finished with warnings.");
+    return;
+  }
+  if (/^Profile validation could not run: /.test(text)) {
+    hideSubProgress();
+    bumpBuildProgress(98, "Profile validation encountered an error.");
+    return;
+  }
+
   if (/^Preview: multipage /.test(text)) {
     bumpBuildProgress(70, "Preparing multipage preview assets…");
     return;
@@ -687,15 +790,16 @@ function renderTypeStatus(typeCounts) {
 }
 
 /* ---------- view routing ---------- */
-const VIEWS = ["view-mode", "view-select-profile", "view-crate-details", "view-build", "view-show", "view-edit"];
+const VIEWS = ["view-mode", "view-select-profile", "view-crate-details", "view-build", "view-show", "view-edit", "view-visualisation"];
 function showView(name) {
   for (const v of VIEWS) $(v).classList.toggle("hidden", v !== name);
   $("contextBar").classList.toggle("hidden", !dirHandle);
-  $("menuBtn").classList.toggle("hidden", !(name === "view-build" || name === "view-show" || name === "view-edit"));
+  $("menuBtn").classList.toggle("hidden", !(name === "view-build" || name === "view-show" || name === "view-edit" || name === "view-visualisation"));
   $("settingsBtn").classList.toggle("hidden", name !== "view-build");
-  $("showBtn").classList.toggle("hidden", !(name === "view-build" || name === "view-edit"));
-  $("editBtn").classList.toggle("hidden", !(name === "view-build" || name === "view-show"));
-  $("rebuildBtn").classList.toggle("hidden", !(name === "view-show" || name === "view-edit"));
+  $("showBtn").classList.toggle("hidden", !(name === "view-build" || name === "view-edit" || name === "view-visualisation"));
+  $("editBtn").classList.toggle("hidden", !(name === "view-build" || name === "view-show" || name === "view-visualisation"));
+  $("rebuildBtn").classList.toggle("hidden", !(name === "view-show" || name === "view-edit" || name === "view-visualisation"));
+  $("vizBtn").classList.toggle("hidden", !(name === "view-mode" || name === "view-build" || name === "view-show" || name === "view-edit"));
 }
 
 /* ---------- options form ---------- */
@@ -786,6 +890,10 @@ function buildForm() {
   const templateRepoSelect = $("opt_templateRepoFolder");
   if (templateRepoSelect) templateRepoSelect.addEventListener("change", uncheckUploadWhenTemplateRepoSelected);
   refreshTemplateUploadVisibility();
+
+  const deleteOutputsToggle = $("opt_deleteOutputsBeforeBuild");
+  if (deleteOutputsToggle) deleteOutputsToggle.addEventListener("change", refreshOverwriteAvailability);
+  refreshOverwriteAvailability();
 }
 
 // Each entry in OPTION_SCHEMA is one plugin's top-level toggle — the natural
@@ -951,6 +1059,18 @@ function refreshTemplateUploadVisibility() {
   }
 }
 
+// "Overwrite existing outputs" has no effect once "Delete plugin output
+// before rebuilding" is on — cleanup already removes every declared output
+// before the write-time fileExists() check any plugin makes, so that check
+// never sees an existing file to decide about. Disabled rather than hidden,
+// so its current value (and the fact it's ignored) both stay visible.
+function refreshOverwriteAvailability() {
+  const deleteOutputsToggle = $("opt_deleteOutputsBeforeBuild");
+  const overwriteToggle = $("opt_overwrite");
+  if (!deleteOutputsToggle || !overwriteToggle) return;
+  overwriteToggle.disabled = deleteOutputsToggle.checked;
+}
+
 function collectSchemaKeys(schema, set) {
   for (const opt of schema) {
     set.add(opt.key);
@@ -988,6 +1108,23 @@ function applyBuildOptionsFromProfile(buildOptions, uiHiddenKeys = new Set()) {
   collectSchemaKeys(OPTION_SCHEMA, allKeys);
   const declared = buildOptions || {};
   const enabled = new Set(declared.enabledOptionKeys || []);
+  // Boolean option keys (which plugins are turned on) live in a "plugins"
+  // array rather than as individual `key: true` entries — see
+  // c2c-masp-profiles' tool-config.json. Non-boolean options (templateRepoFolder,
+  // configFile, etc.) stay as plain top-level keys on declared.
+  //
+  // Each entry is either a plain plugin-name string (on, no per-plugin
+  // option grouping) or { name, enabled, enabledOptions } — the latter lets
+  // a profile group a plugin's own visible option keys with the plugin
+  // instead of listing them all flat in enabledOptionKeys. Either form may
+  // contribute keys to `enabled`; only the object form can declare visible
+  // keys without also switching the plugin on.
+  const pluginsOn = new Set();
+  for (const p of declared.plugins || []) {
+    if (typeof p === "string") { pluginsOn.add(p); continue; }
+    if (p.enabled) pluginsOn.add(p.name);
+    for (const key of p.enabledOptions || []) enabled.add(key);
+  }
   currentBuildOptionUiHiddenKeys = new Set(uiHiddenKeys);
 
   for (const key of allKeys) {
@@ -1008,9 +1145,10 @@ function applyBuildOptionsFromProfile(buildOptions, uiHiddenKeys = new Set()) {
     if (!enabled.has(key)) {
       if (isTextLike) el.value = "";
       else el.checked = false;
-    } else if (key in declared) {
-      if (isTextLike) el.value = declared[key];
-      else el.checked = !!declared[key];
+    } else if (isTextLike) {
+      if (key in declared) el.value = declared[key];
+    } else {
+      el.checked = pluginsOn.has(key);
     }
     el.dispatchEvent(new Event("change"));
   }
@@ -1021,7 +1159,7 @@ function applyBuildOptionsFromProfile(buildOptions, uiHiddenKeys = new Set()) {
   const inputModeEl = $("opt_inputMode");
   if (inputModeEl) inputModeEl.disabled = false;
   for (const [key, value] of Object.entries(declared)) {
-    if (key === "enabledOptionKeys" || allKeys.has(key)) continue;
+    if (key === "enabledOptionKeys" || key === "plugins" || allKeys.has(key)) continue;
     const el = $("opt_" + key);
     if (!el) continue;
     if (el.tagName === "SELECT") el.value = value;
@@ -1996,6 +2134,63 @@ async function applyForcedProfileSelection() {
   }
 }
 
+// Profiles favoured over others when more than one declares the exact same
+// conformsTo — currently just ldac over language-resources, since both
+// genuinely implement the LDAC Collection profile and conformsTo alone can't
+// tell them apart. Without this, buildConformsToProfileMap's first-wins
+// dedup resolves the tie to whichever sorts first alphabetically
+// (language-resources), which is arbitrary rather than intentional.
+const CONFORMS_TO_TIE_BREAK_PREFERENCE = ["ldac"];
+
+// Maps every known profile's own declared rootDataset.conformsTo back to its
+// profile id, so picking a folder with an existing crate can identify which
+// profile built it (detectProfileFromExistingCrate below). Fetches every
+// c2c-masp-profiles entry's mode file (via the lighter fetchProfileMode,
+// not a full fetchProfile+validator) plus the bundled default's, in
+// parallel, and caches the result for the rest of the session — the profile
+// list doesn't change while the app is open, so a second folder pick
+// shouldn't repeat the fetches.
+let conformsToProfileIdMapPromise = null;
+async function loadConformsToProfileIdMap() {
+  if (!conformsToProfileIdMapPromise) {
+    conformsToProfileIdMapPromise = (async () => {
+      const [defaultData, ids] = await Promise.all([loadDefaultProfileData(), loadAvailableProfileIds()]);
+      const orderedIds = withPreferredIdsFirst(ids, CONFORMS_TO_TIE_BREAK_PREFERENCE);
+      const masp = await import("./masp.js");
+      const fetched = await Promise.allSettled(
+        orderedIds.map((id) => masp.fetchProfileMode(MASP_PROFILES_REPO_OWNER, MASP_PROFILES_REPO_NAME, MASP_PROFILES_REPO_REF, id))
+      );
+      const entries = [
+        { id: DEFAULT_PROFILE_ID, conformsTo: defaultData.workflow.rootDataset?.conformsTo },
+        ...fetched.map((result, i) => ({
+          id: orderedIds[i],
+          conformsTo: result.status === "fulfilled" ? result.value?.rootDataset?.conformsTo : undefined,
+        })),
+      ];
+      return buildConformsToProfileMap(entries);
+    })().catch((e) => {
+      conformsToProfileIdMapPromise = null;
+      throw e;
+    });
+  }
+  return conformsToProfileIdMapPromise;
+}
+
+// Best-effort: a folder with no existing crate, a crate with no conformsTo,
+// or one that doesn't match any known profile all just mean "nothing to
+// detect", not an error — the existing describe-prefill behaviour (falling
+// back to the bundled default's field schema) already covers that case.
+async function detectProfileFromExistingCrate(root) {
+  if (!root || !root.conformsTo) return null;
+  try {
+    const map = await loadConformsToProfileIdMap();
+    return matchProfileIdFromConformsTo(root.conformsTo, map);
+  } catch (e) {
+    console.warn("Could not check which profile built the existing crate:", e);
+    return null;
+  }
+}
+
 // Loading the default can only fail on a genuine fault (a bad bundle, a
 // profile the validator rejects) — but callers are fire-and-forget `void`
 // calls, so an unhandled rejection would read to the user as a button that
@@ -2014,7 +2209,12 @@ async function openProfileSelection() {
   if (!dirHandle) return;
   $("profileContinueBtn").disabled = !selectedProfile;
   const status = $("profileStatus");
-  status.textContent = "";
+  // renderProfileOptions() already highlights whichever entry matches
+  // selectedProfile (set here by a prior chooseProfile()/applyForcedProfileSelection()
+  // this session, or by detectProfileFromExistingCrate() picking up on the
+  // folder's existing crate) — this just explains that highlight instead of
+  // leaving it to speak for itself.
+  status.textContent = selectedProfile ? `Currently selected: ${profileLabel(selectedProfile)}.` : "";
   const container = $("profileOptionsBody");
   container.innerHTML = "";
   container.appendChild(hintEl("Loading profiles…"));
@@ -2367,10 +2567,24 @@ async function populateCrateDetailsFromExistingCrate(handle) {
   if (idText) $("cd_id").value = idText;
 
   try {
-    // Uses the default field schema only to shape the synthesized override —
-    // loadDefaultProfileData() doesn't touch selectedProfile, so this can't
-    // make the Select-profile/Describe steps look like the user visited them.
-    const profileData = await loadDefaultProfileData();
+    // If the existing crate's conformsTo matches a known profile, select it
+    // — from here on this folder behaves exactly as if the user had chosen
+    // that profile themselves (chooseProfile()'s effect, just triggered by
+    // detection instead of a click). Otherwise fall back to the bundled
+    // default purely to shape the synthesized override below — in that case
+    // loadDefaultProfileData() deliberately doesn't touch selectedProfile,
+    // so a profile that wasn't actually detected can't make the
+    // Select-profile/Describe steps look like the user visited them.
+    const detectedProfileId = await detectProfileFromExistingCrate(root);
+    let profileData;
+    if (detectedProfileId) {
+      profileData = await loadProfileData(detectedProfileId);
+      selectedProfileData = profileData;
+      selectedProfile = detectedProfileId;
+      logStart(`Detected profile from existing crate: ${profileLabel(detectedProfileId)}.`, "ok");
+    } else {
+      profileData = await loadDefaultProfileData();
+    }
     rootDatasetOverride = collectDescribeValues(
       profileData.fieldSchema,
       idText,
@@ -2417,9 +2631,11 @@ function refreshBuildStepActions() {
   } else if (forcedProfileResolved) {
     document.documentElement.classList.remove("profile-override-present");
   }
-  // Describe waits on an explicit profile pick (selectedProfile is only set
-  // by chooseProfile(), never by ensureProfileData()'s silent default
-  // fallback) so a folder alone doesn't unlock it.
+  // Describe waits on a profile actually being identified — either the user
+  // picking one (chooseProfile()) or detectProfileFromExistingCrate()
+  // recognizing one from the folder's existing crate — never on
+  // ensureProfileData()'s silent default fallback, so a folder alone
+  // doesn't unlock it.
   profileBtn.classList.toggle("hidden", hideProfileStep);
   profileBtn.disabled = !hasFolder;
   describeBtn.disabled = !(hasFolder && hasProfile);
@@ -2435,17 +2651,72 @@ function refreshBuildStepActions() {
 /* ---------- File System Access ---------- */
 let dirHandle = null;
 
+/* ---------- Visualisation (analysis plugins) ---------- */
+// vizDocuments is the flat, parsed text every analysis plugin searches over
+// (see src/analysis-plugins/data-source.js). The picker offers generated
+// output directories (e.g. c2c-output/csv, c2c-output/logs, c2c-output/chat
+// — from PLUGIN_OUTPUT_PATHS, the same registry-derived list main.js already
+// uses to exclude/clean up plugin output) rather than individual files;
+// vizOutputDirs holds each one's already-scanned file list, vizSelectedDirs
+// tracks which are checked.
+let vizOutputDirs = [];
+let vizSelectedDirs = new Set();
+let vizDocuments = [];
+let vizActivePluginId = ANALYSIS_PLUGINS[0] ? ANALYSIS_PLUGINS[0].id : null;
+
+// Bumped by cancelRunningBuild() whenever the user picks a new folder while a
+// build is in flight. run() captures the generation it started with and
+// checks it after every await; a mismatch means the folder moved on, so the
+// stale continuation stops touching shared UI/state instead of stomping on
+// the new build's progress bar, log, and stats.
+let buildGeneration = 0;
+
+// Called from pickFolder() right after a new folder is chosen. If a build for
+// the old folder is still running, invalidate it so its continuation goes
+// inert and restore the build UI to idle (it would otherwise stay stuck on
+// "Building…" since that run's own finally block is now a no-op).
+function cancelRunningBuild() {
+  if (!BUILD_PROGRESS.active) return;
+  buildGeneration++;
+  log("Build cancelled: a different folder was selected.", "warn");
+  const runBtn = $("runBtn");
+  if (runBtn) { runBtn.disabled = false; runBtn.textContent = "Build RO-Crate"; }
+  const saveLogBtn = $("saveLogBtn");
+  if (saveLogBtn) saveLogBtn.disabled = false;
+  resetBuildProgress();
+}
+
 async function walkDirectory(handle, prefix = "") {
   const files = [];
   for await (const entry of handle.values()) {
     const nm = entry.name;
     if (nm.startsWith(".") || nm.startsWith("~$")) continue;
-    if (GENERATED_FILENAMES.has(nm) || CONTROL_FILENAMES.has(nm)) continue;
+    if (GENERATED_FILENAMES.has(nm) || CONTROL_FILENAMES.has(nm) || PLUGIN_OUTPUT_TOP_LEVEL_NAMES.has(nm)) continue;
     const rel = prefix ? prefix + "/" + nm : nm;
     if (entry.kind === "file") files.push({ fileName: nm, relativePath: rel });
     else if (entry.kind === "directory") files.push(...await walkDirectory(entry, rel));
   }
   return files;
+}
+
+// Deletes every path any registered plugin declared via outputPaths (see
+// c2c-plugins' README) from the picked folder, ahead of a build — the
+// "delete plugin output before rebuilding" setting. Independent of
+// PLUGIN_OUTPUT_TOP_LEVEL_NAMES's scan-exclusion job above: that keeps stale
+// output out of *this* build's crate even when the setting is off, while
+// this actually clears it from disk when the setting is on.
+async function deletePluginOutputs(dirHandle, log) {
+  let removedCount = 0;
+  for (const { path } of PLUGIN_OUTPUT_PATHS) {
+    if (await removeEntryAtPath(dirHandle, path)) {
+      removedCount += 1;
+      log(`Deleted previous ${path}.`, "muted");
+    }
+  }
+  log(
+    removedCount ? `Deleted ${removedCount} plugin output path(s) before build.` : "No plugin output to delete before build.",
+    "muted"
+  );
 }
 /* ---------- Build ---------- */
 // Thin wrapper: assembles rootDataset/metadataLicence entirely from the
@@ -2504,6 +2775,8 @@ let lastHtmlTemplate = null;
 
 async function run() {
   if (!dirHandle) return;
+  const myGeneration = ++buildGeneration;
+  const stale = () => myGeneration !== buildGeneration;
   const runBtn = $("runBtn");
   runBtn.disabled = true; runBtn.textContent = "Building…";
   startBuildProgress();
@@ -2513,16 +2786,24 @@ async function run() {
   $("statFiles").textContent = "—"; $("statEntities").textContent = "—"; $("statTime").textContent = "—";
   renderTypeStatus([]);
   try {
-    if (!(await verifyPermission(dirHandle, true))) {
+    const hasPermission = await verifyPermission(dirHandle, true);
+    if (stale()) return;
+    if (!hasPermission) {
       log("Permission to read/write the folder was denied.", "err");
       failBuildProgress("Permission denied.");
       return;
     }
     bumpBuildProgress(8, "Scanning folder…");
     const options = readOptions();
+    if (options.deleteOutputsBeforeBuild) {
+      await deletePluginOutputs(dirHandle, log);
+      if (stale()) return;
+    }
     const files = await walkDirectory(dirHandle);
+    if (stale()) return;
     bumpBuildProgress(22, `Scanned ${files.length} file(s). Running pipeline…`);
     const result = await processFolder(dirHandle, files, options);
+    if (stale()) return;
     $("statFiles").textContent = result.files;
     $("statEntities").textContent = result.entities;
     renderTypeStatus(result.typeCounts);
@@ -2534,16 +2815,20 @@ async function run() {
     buildHtml = await readFileText(dirHandle, HTML_FILE);
     if (buildHtml !== null) { $("showHtmlBtn").classList.remove("hidden"); $("showHtmlHint").classList.remove("hidden"); }
     // A build always writes ro-crate-metadata.json (or it already existed), so
-    // the context bar's Show and Edit buttons can now be enabled.
+    // the context bar's Show, Edit and Visualise buttons can now be enabled.
     $("showBtn").disabled = false;
     $("editBtn").disabled = false;
+    $("vizBtn").disabled = false;
   } catch (e) {
+    if (stale()) return;
     log("Error: " + (e && e.message ? e.message : e), "err");
     failBuildProgress("Build failed.");
     console.error(e);
   } finally {
-    runBtn.disabled = false; runBtn.textContent = "Build RO-Crate";
-    $("saveLogBtn").disabled = false;
+    if (!stale()) {
+      runBtn.disabled = false; runBtn.textContent = "Build RO-Crate";
+      $("saveLogBtn").disabled = false;
+    }
   }
 }
 
@@ -2559,6 +2844,7 @@ async function pickFolder(nextView = "view-mode") {
     failStartProgress();
     return;
   }
+  cancelRunningBuild();
   resetStartPanel();
   beginStartProgress(`Selected folder "${dirHandle.name}".`);
   rootDatasetOverride = null;
@@ -2607,6 +2893,8 @@ async function pickFolder(nextView = "view-mode") {
 // an ro-crate-metadata.json or an ro-crate-preview.html. A fresh folder with
 // neither shows the Build card alone, and the context bar's Show button (in
 // build mode) stays disabled until a build produces one of those files.
+// Visualise uses the same signal — it reads a build plugin's generated
+// output, so there's nothing to show it until a build has actually run.
 async function refreshModeCards() {
   let hasJson = false, hasHtml = false;
   if (dirHandle) {
@@ -2617,6 +2905,7 @@ async function refreshModeCards() {
   }
   $("cardShow").classList.toggle("hidden", !(hasJson || hasHtml));
   $("showBtn").disabled = !(hasJson || hasHtml);
+  $("vizBtn").disabled = !(hasJson || hasHtml);
   $("cardEdit").classList.toggle("hidden", !hasJson);
   $("editBtn").disabled = !hasJson;
   refreshBuildStepActions();
@@ -3529,12 +3818,113 @@ async function saveEdit() {
   }
 }
 
+/* ---------- Visualisation ---------- */
+async function openViz() {
+  if (!dirHandle) return;
+  if (!confirmLeaveEditIfDirty()) return;
+  if (!(await verifyPermission(dirHandle, false))) return;
+  showView("view-visualisation");
+  await rescanVizOutputDirs();
+}
+
+// Re-scans the folder's declared output directories and selects all of
+// them — simpler than trying to preserve checkbox state across a rescan,
+// and "Rescan" is only ever clicked to pick up a folder a rebuild just
+// produced (or refreshed).
+async function rescanVizOutputDirs() {
+  const listEl = $("vizDirList");
+  listEl.innerHTML = "";
+  listEl.appendChild(hintEl("Scanning…"));
+  try {
+    vizOutputDirs = await scanOutputDirectories(dirHandle, PLUGIN_OUTPUT_PATHS);
+  } catch (e) {
+    listEl.innerHTML = "";
+    listEl.appendChild(hintEl("Could not scan the folder: " + (e && e.message ? e.message : e)));
+    return;
+  }
+  vizSelectedDirs = new Set(vizOutputDirs.map((d) => d.path));
+  renderVizDirList();
+  renderVizPluginList();
+  await reloadVizDocumentsAndRun();
+}
+
+function renderVizDirList() {
+  const listEl = $("vizDirList");
+  listEl.innerHTML = "";
+  if (!vizOutputDirs.length) {
+    const empty = document.createElement("div");
+    empty.className = "viz-dir-empty";
+    empty.textContent = "No generated output found yet — run Build with a plugin that writes CSV/CHAT/text output, then Rescan.";
+    listEl.appendChild(empty);
+    return;
+  }
+  for (const dir of vizOutputDirs) {
+    const label = document.createElement("label");
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = vizSelectedDirs.has(dir.path);
+    cb.addEventListener("change", () => {
+      if (cb.checked) vizSelectedDirs.add(dir.path);
+      else vizSelectedDirs.delete(dir.path);
+      void reloadVizDocumentsAndRun();
+    });
+    const span = document.createElement("span");
+    span.textContent = `${dir.path} — ${dir.files.length} file${dir.files.length === 1 ? "" : "s"}`;
+    label.appendChild(cb);
+    label.appendChild(span);
+    listEl.appendChild(label);
+  }
+}
+
+function renderVizPluginList() {
+  const listEl = $("vizPluginList");
+  listEl.innerHTML = "";
+  for (const plugin of ANALYSIS_PLUGINS) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "viz-plugin-item" + (plugin.id === vizActivePluginId ? " active" : "");
+    btn.innerHTML = `<div class="t">${escapeHtml(plugin.name)}</div><div class="d">${escapeHtml(plugin.description || "")}</div>`;
+    btn.addEventListener("click", () => {
+      vizActivePluginId = plugin.id;
+      renderVizPluginList();
+      runActiveVizPlugin();
+    });
+    listEl.appendChild(btn);
+  }
+}
+
+async function reloadVizDocumentsAndRun() {
+  const bodyEl = $("vizPluginBody");
+  bodyEl.innerHTML = "";
+  bodyEl.appendChild(hintEl("Loading data…"));
+  const selected = vizOutputDirs.filter((d) => vizSelectedDirs.has(d.path)).flatMap((d) => d.files);
+  try {
+    vizDocuments = await loadDocuments(selected, (relativePath) => readFileTextFromDirectory(dirHandle, relativePath));
+  } catch (e) {
+    bodyEl.innerHTML = "";
+    bodyEl.appendChild(hintEl("Could not read the selected files: " + (e && e.message ? e.message : e)));
+    return;
+  }
+  runActiveVizPlugin();
+}
+
+function runActiveVizPlugin() {
+  const bodyEl = $("vizPluginBody");
+  const plugin = ANALYSIS_PLUGINS.find((p) => p.id === vizActivePluginId);
+  if (!plugin) {
+    bodyEl.innerHTML = "";
+    bodyEl.appendChild(hintEl("No analysis plugins available."));
+    return;
+  }
+  plugin.render(bodyEl, { documents: vizDocuments, dirHandle });
+}
+
 /* ---------- boot ---------- */
 function boot() {
   if (!("showDirectoryPicker" in window)) { $("unsupported").classList.remove("hidden"); return; }
   $("app").classList.remove("hidden");
   const versionEl = $("appVersion");
-  if (versionEl) versionEl.textContent = `v${APP_VERSION}`;
+  if (versionEl) versionEl.textContent = `v${APP_VERSION} · build ${BUILD_NUMBER} (${BUILD_SHA})`;
   buildForm();
   showView("view-mode");
   refreshModeCards();
@@ -3701,5 +4091,7 @@ function boot() {
   });
   $("modalCancel").addEventListener("click", () => $("modal").classList.add("hidden"));
   $("modalBuild").addEventListener("click", () => { $("modal").classList.add("hidden"); void openCrateDetails(); });
+  $("vizBtn").addEventListener("click", openViz);
+  $("vizRescanBtn").addEventListener("click", () => { void rescanVizOutputDirs(); });
 }
 boot();

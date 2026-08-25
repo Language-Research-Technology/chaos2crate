@@ -1,0 +1,59 @@
+name: Release on version bump
+
+# Watches package.json's version on pushes to main. Creates a git tag +
+# GitHub Release only when the major.minor part changes — patch-only bumps
+# are skipped so every release still lands on main and deploys as normal via
+# deploy.yml, but doesn't get its own release marker. The next major/minor
+# release's auto-generated notes cover everything merged since the last
+# release tag, so patch-bump commits still show up there.
+
+on:
+  push:
+    branches: [main]
+    paths: [package.json]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history + tags, needed to find the latest release tag.
+          fetch-depth: 0
+
+      - name: Determine whether to release
+        id: check
+        run: |
+          CURRENT_VERSION=$(jq -r .version package.json)
+          CURRENT_MAJOR_MINOR=$(echo "$CURRENT_VERSION" | cut -d. -f1,2)
+
+          LATEST_TAG=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)
+          if [ -z "$LATEST_TAG" ]; then
+            echo "No existing release tag — this will be the first release."
+            SHOULD_RELEASE=true
+          else
+            LATEST_MAJOR_MINOR=$(echo "${LATEST_TAG#v}" | cut -d. -f1,2)
+            if [ "$CURRENT_MAJOR_MINOR" = "$LATEST_MAJOR_MINOR" ]; then
+              echo "Patch-only bump (latest tag $LATEST_TAG -> v$CURRENT_VERSION) — skipping release."
+              SHOULD_RELEASE=false
+            elif git rev-parse "v$CURRENT_VERSION" >/dev/null 2>&1; then
+              echo "Tag v$CURRENT_VERSION already exists — skipping release."
+              SHOULD_RELEASE=false
+            else
+              echo "Major/minor bump (latest tag $LATEST_TAG -> v$CURRENT_VERSION) — releasing."
+              SHOULD_RELEASE=true
+            fi
+          fi
+
+          echo "version=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
+          echo "should_release=$SHOULD_RELEASE" >> "$GITHUB_OUTPUT"
+
+      - name: Create release
+        if: steps.check.outputs.should_release == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "v${{ steps.check.outputs.version }}" --generate-notes

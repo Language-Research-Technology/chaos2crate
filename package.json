@@ -1,7 +1,10 @@
 {
   "name": "chaos2crate",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
+  "contributors": [
+    "Ben Foley <b.foley@uq.edu.au>"
+  ],  
   "type": "module",
   "description": "Browser RO-Crate builder for a local folder — build + preview (JSON, xlsx, html) via the ro-crate libraries.",
   "scripts": {
@@ -27,7 +30,7 @@
     "ro-crate": "^3.7.2",
     "ro-crate-excel": "^1.2.1",
     "ro-crate-masp": "github:Language-Research-Technology/ro-crate-masp",
-    "ro-crate-static-site": "github:crate-works/ro-crate-static-site#main"
+    "ro-crate-static-site": "^0.0.9"
   },
   "devDependencies": {
     "@describo/data-packs": "^0.13.1",

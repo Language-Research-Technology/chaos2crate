@@ -12,6 +12,7 @@ import {
   toMammothInputOptions,
   toCsv,
   buildSpeakerPersonEntities,
+  buildRoCrateMetadata,
 } from "c2c-plugins/src/ca-data-prep/process.js";
 import { createPlugin, readDocxFileBytesFromDirHandle } from "c2c-plugins/src/ca-data-prep/index.js";
 import { buildDeps } from "../src/plugins/deps.js";
@@ -83,11 +84,13 @@ const fileLike = {
   relativePath: "demo.docx",
   arrayBuffer: async () => realDocxBytes.buffer.slice(realDocxBytes.byteOffset, realDocxBytes.byteOffset + realDocxBytes.byteLength),
 };
-const ctx = { options: { processTranscriptDocuments: true }, filesWithMeta: [fileLike], log: () => {} };
+const seen = [];
+const ctx = { options: { processTranscriptDocuments: true }, filesWithMeta: [fileLike], log: (msg) => seen.push(msg) };
 await plugin.hooks["files:analyze"](ctx);
 assert.equal(ctx.caDataPrep.documentRecords[0].csvId, "./c2c-output/csv/demo.csv");
 assert.equal(ctx.caDataPrep.documentRecords[0].objectId, "./c2c-output/demo");
 assert.ok(ctx.caDataPrep.documentRecords[0].csvText.includes("#speaker01,"));
+assert.ok(seen.some((msg) => /Processing transcript document: 1\/1 file\(s\)…/.test(msg)), "Transcript processor should emit per-file progress logs");
 
 const fakeDir = {
   async getDirectoryHandle(name, { create = false } = {}) {
@@ -112,5 +115,65 @@ assert.deepEqual(new Uint8Array(bytes), new Uint8Array([1, 2, 3, 4]));
 assert.ok((await extractDocumentText(realDocxBytes)).length > 0, "Buffer input should parse via Mammoth");
 assert.ok((await extractDocumentText(realDocxBytes.buffer.slice(realDocxBytes.byteOffset, realDocxBytes.byteOffset + realDocxBytes.byteLength))).length > 0, "ArrayBuffer input should parse via Mammoth");
 assert.ok((await extractDocumentText(new File([realDocxBytes], "sample.docx", { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }))).length > 0, "File input should parse via Mammoth");
+
+/* ---------- buildRoCrateMetadata: conformsTo must match a real profile ---------- */
+// It used to hardcode "https://w3id.org/ldac/profile" (no #Collection) even
+// though it always builds a RepositoryCollection root — silently mismatching
+// every real profile's own declared conformsTo (which all end in
+// "#Collection"), so a crate built here could never be identified as
+// conforming to any of them.
+
+{
+  const rootOf = (crate) => crate.toJSON()["@graph"].find((e) => e["@id"] === "./");
+
+  const defaultCrate = buildRoCrateMetadata("Test Collection", []);
+  assert.equal(
+    rootOf(defaultCrate).conformsTo["@id"], "https://w3id.org/ldac/profile#Collection",
+    "with no conformsTo given, it should default to the LDAC Collection profile's own id, not the old mismatched value"
+  );
+
+  const customCrate = buildRoCrateMetadata("Test Collection", [], "https://example.org/some-other-profile");
+  assert.equal(
+    rootOf(customCrate).conformsTo["@id"], "https://example.org/some-other-profile",
+    "an explicit conformsTo should be used verbatim"
+  );
+}
+
+/* ---------- crate:built should use the SELECTED profile's conformsTo ---------- */
+// Not a hardcoded one — ctx.config.rootDataset.conformsTo is what
+// processFolder already assembled from selectedProfileData before this hook
+// replaces ctx.crate, so threading it through is what makes a crate built
+// here still reflect whichever profile the user actually picked.
+{
+  const rootOf = (crate) => crate.toJSON()["@graph"].find((e) => e["@id"] === "./");
+  const noopWritePlugin = () => createPlugin({ writeFileAtPath: async () => {} });
+
+  const withProfile = noopWritePlugin();
+  const ctxWithProfile = {
+    options: { processTranscriptDocuments: true },
+    caDataPrep: ctx.caDataPrep,
+    dirHandle: { name: "demo-corpus" },
+    config: { rootDataset: { conformsTo: { "@id": "https://example.org/selected-profile" } } },
+    log: () => {},
+  };
+  await withProfile.hooks["crate:built"](ctxWithProfile);
+  assert.equal(
+    rootOf(ctxWithProfile.crate).conformsTo["@id"], "https://example.org/selected-profile",
+    "crate:built should use the selected profile's own conformsTo from ctx.config, not a hardcoded value"
+  );
+
+  const withoutConfig = noopWritePlugin();
+  const ctxWithoutConfig = {
+    options: { processTranscriptDocuments: true },
+    caDataPrep: ctx.caDataPrep,
+    dirHandle: { name: "demo-corpus" },
+    log: () => {},
+  };
+  await withoutConfig.hooks["crate:built"](ctxWithoutConfig);
+  assert.equal(
+    rootOf(ctxWithoutConfig.crate).conformsTo["@id"], "https://w3id.org/ldac/profile#Collection",
+    "without ctx.config, crate:built should fall back to buildRoCrateMetadata's own correct default"
+  );
+}
 
 console.log("test-transcript-processing: all tests passed");

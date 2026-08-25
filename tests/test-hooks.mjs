@@ -347,4 +347,49 @@ assert.ok(
   );
 }
 
+/* ---------- output paths are composed from whichever plugins declare them ---------- */
+// See c2c-plugins' README, "Declaring output paths" — this is main.js's
+// PLUGIN_OUTPUT_PATHS/PLUGIN_OUTPUT_TOP_LEVEL_NAMES source of truth.
+
+{
+  const outputPaths = composeOutputPaths();
+  const byPath = new Map(outputPaths.map((e) => [e.path, e]));
+
+  assert.equal(
+    byPath.get("ro-crate-metadata.json")?.kind, "file",
+    "ro-crate-json-output should declare its single output file"
+  );
+  assert.equal(byPath.get("ro-crate-metadata.xlsx")?.kind, "file", "ro-crate-xlsx-output should declare its output file");
+  assert.equal(byPath.get("ro-crate-preview.html")?.kind, "file", "ro-crate-html-output should declare its root output file");
+  assert.equal(
+    byPath.get("ro-crate-preview_html")?.kind, "dir",
+    "ro-crate-html-output should declare its multipage output directory"
+  );
+  assert.equal(
+    byPath.get("ro-crate-preview_files")?.kind, "dir",
+    "docx-input (an input-mode plugin, not an additive one) should still contribute its output directory"
+  );
+  assert.equal(byPath.get("c2c-output/csv")?.kind, "dir", "ca-data-prep should declare its CSV output directory");
+  assert.equal(byPath.get("c2c-output/logs")?.kind, "dir", "ca-data-prep should declare its log output directory");
+  assert.equal(byPath.get("c2c-output/chat")?.kind, "dir", "chat-export should declare its CHAT output directory");
+
+  assert.ok(
+    !byPath.has("merge") && !byPath.has("austlang") && !byPath.has("validate-crate"),
+    "a plugin that never writes to the folder should contribute no output path"
+  );
+}
+
+{
+  // Synthetic dedup check, independent of which real plugins happen to
+  // share a path today — two plugins declaring the same path should still
+  // collapse to one entry, first-declared kind wins.
+  const fakePlugins = [
+    { outputPaths: [{ path: "shared-output", kind: "dir" }] },
+    { outputPaths: [{ path: "shared-output", kind: "file" }] },
+  ];
+  const deduped = composeOutputPaths(fakePlugins, {});
+  assert.equal(deduped.filter((e) => e.path === "shared-output").length, 1, "composeOutputPaths should dedupe by path, not list it twice");
+  assert.equal(deduped.find((e) => e.path === "shared-output").kind, "dir", "the first-declared kind should win");
+}
+
 console.log(`test-hooks: all tests passed (${Object.keys(HOOKS).length} hooks, ${PLUGINS.length} plugins, ${Object.keys(INPUT_PLUGINS).length} input modes)`);

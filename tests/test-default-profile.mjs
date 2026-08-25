@@ -10,6 +10,7 @@ import { getDefaultProfile, DEFAULT_PROFILE_LABEL } from "../src/default_profile
 import { loadValidator, getRootClassDefinition, toDescribeFieldSchema, validateBuiltCrate } from "../src/masp.js";
 import { buildFileMetadata, buildCrate, crateToJsonString, crateToPreviewHtml } from "../src/crate.js";
 import { resolveProfileGroups } from "c2c-plugins/src/ro-crate-html-output/layout.js";
+import { createPlugin } from "c2c-plugins/src/validate-crate/index.js";
 
 function typesOf(entity) {
   return [].concat(entity?.["@type"] ?? []);
@@ -32,6 +33,16 @@ assert.equal(
   undefined,
   "the default profile should declare no fileProperties — nothing custom belongs on a minimal crate's files"
 );
+assert.equal(
+  typeof modeJson.rootDataset.conformsTo,
+  "string",
+  "the default profile should declare a conformsTo like any real profile — otherwise a crate built with no profile chosen has nothing for detectProfileFromExistingCrate to key off of"
+);
+assert.match(
+  modeJson.rootDataset.conformsTo,
+  /^https:\/\//,
+  "conformsTo should be a real absolute URI, not a placeholder"
+);
 
 /* ---------- the default enables a plain preview, and nothing else ---------- */
 
@@ -41,9 +52,9 @@ assert.deepEqual(
   ["makeHtml", "generateChatFiles"],
   "the default profile should enable HTML output and expose the chat export option, while leaving it off by default"
 );
-assert.equal(
-  buildOptions.makeHtml,
-  true,
+assert.deepEqual(
+  buildOptions.plugins,
+  ["makeHtml"],
   "HTML output should be on by default, not merely available"
 );
 assert.equal(
@@ -71,6 +82,11 @@ assert.equal(
   vendoredMode.tools,
   undefined,
   "tools.chaos2crate.buildOptions is a chaos2crate extension — the upstream profile file should not be patched in place"
+);
+assert.equal(
+  vendoredMode.rootDataset.conformsTo,
+  undefined,
+  "conformsTo is also a chaos2crate overlay (see default_profile.js) — the upstream profile file has none, and getDefaultProfile() must not patch it in place either"
 );
 
 /* ---------- the Describe step asks for a handful of schema.org fields ---------- */
@@ -185,6 +201,36 @@ const result = await validateBuiltCrate(validator, crate);
 assert.ok(
   typeof result.ok === "boolean" && Array.isArray(result.errors),
   "profile validation should return a usable result for the default profile, not throw"
+);
+
+const validatePlugin = createPlugin({ loadMasp: async () => ({ validateBuiltCrate }) });
+const seen = [];
+await validatePlugin.hooks["crate:validate"]({
+  crate,
+  selectedProfileData: { validator },
+  log: (msg, cls) => seen.push({ msg, cls }),
+});
+assert.ok(
+  seen.some((entry) => /Validating crate against profile \(\d+ entities\)/i.test(entry.msg)),
+  "validation should log its start with the crate entity count so the UI can label the secondary progress bar"
+);
+
+const tickLines = seen
+  .map((entry) => entry.msg.match(/^Validating crate against profile: (\d+)\/(\d+) rule\(s\)…$/))
+  .filter(Boolean)
+  .map((m) => ({ current: Number(m[1]), total: Number(m[2]) }));
+assert.ok(
+  tickLines.length > 0,
+  "ro-crate-masp's onProgress should flow through validateBuiltCrate and the plugin into (current/total) log lines the build progress bar can parse"
+);
+tickLines.forEach((tick, i) => {
+  assert.equal(tick.current, i + 1, "tick lines should count up one class rule at a time");
+  assert.equal(tick.total, tickLines.length, "every tick should report the same total");
+});
+assert.equal(
+  tickLines[tickLines.length - 1].current,
+  tickLines[tickLines.length - 1].total,
+  "the last tick should reach 100% (current === total)"
 );
 
 console.log(`test-default-profile: all tests passed (${DEFAULT_PROFILE_LABEL}, ${fieldSchema.length} Describe fields, ${layout.length} property groups)`);

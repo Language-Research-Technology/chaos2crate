@@ -37,6 +37,16 @@ export async function fetchProfile(owner, repo, ref, folderName) {
   return { profileJson, modeJson };
 }
 
+// Fetches only a profile's tool-config.json — lighter than fetchProfile()
+// for a caller that just needs mode-file data (rootDataset.conformsTo,
+// buildOptions, ...) and has no use for the profile-crate JSON or a
+// validator built from it. Used to check every known profile's declared
+// conformsTo without paying for N validators just to read one field each
+// (see loadConformsToProfileIdMap in main.js).
+export async function fetchProfileMode(owner, repo, ref, folderName) {
+  return fetchGitHubJson(owner, repo, ref, `${folderName}/profile-crate/tool-config.json`);
+}
+
 // Loads a fetched profile into a ready-to-query MaspValidator.
 // setEditorHints(modeJson) is required, not optional — without it,
 // getRootDatasetTypes() resolves to the RO-Crate metadata descriptor's own
@@ -158,8 +168,8 @@ function urlTypedPropertyNames(validator) {
 // naming the specific missing field, so this also pulls in the per-property
 // detail buried in results.rules (which does name the field) and flags any
 // that concern a URL-typed property with the known-limitation note above.
-export async function validateBuiltCrate(validator, crate) {
-  const results = await validator.validateCrate(crate);
+export async function validateBuiltCrate(validator, crate, onProgress) {
+  const results = await validator.validateCrate(crate, { onProgress });
   const urlProps = urlTypedPropertyNames(validator);
 
   const errors = results.error.map((e) => ({ message: e.message, entity: e.entity }));
