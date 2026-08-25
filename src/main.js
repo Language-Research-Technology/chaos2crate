@@ -21,7 +21,7 @@ import {
 } from "./profile_url_override.js";
 import packageJson from "../package.json";
 import { createHookBus, HOOKS, announceAndEmit } from "./plugins/hooks.js";
-import { registerAllPlugins, composeOptionSchema, composeSettingsSchema, INPUT_PLUGINS } from "./plugins/index.js";
+import { registerAllPlugins, composeOptionSchema, composeSettingsSchema, composeOutputPaths, INPUT_PLUGINS } from "./plugins/index.js";
 import { runPipeline } from "./plugins/pipeline.js";
 // These two reach directly into specific c2c-plugins plugins rather than
 // going through the hook/pipeline system — resetUploadedConfigDirHandle and
@@ -58,6 +58,13 @@ const APP_VERSION = packageJson.version || "dev";
 // HTML, not the crate itself — see applyCollectionLabelOverrides there.
 const OPTION_SCHEMA = composeOptionSchema();
 const FORCED_PROFILE_HTML_OPTION_KEYS = collectOptionSubtreeKeys(OPTION_SCHEMA, ["makeHtml"]);
+
+// Every file/directory a registered plugin may write directly into the
+// picked folder — see c2c-plugins' README, "Declaring output paths". Used
+// below to keep a previous build's own output out of the next scan, and by
+// the "delete plugin output before rebuilding" setting.
+const PLUGIN_OUTPUT_PATHS = composeOutputPaths();
+const PLUGIN_OUTPUT_TOP_LEVEL_NAMES = new Set(PLUGIN_OUTPUT_PATHS.map((p) => p.path.split("/")[0]));
 
 // Input type dropdown options/hint/default are all derived from whichever
 // input-mode plugins this build actually selected (src/plugins/index.js's

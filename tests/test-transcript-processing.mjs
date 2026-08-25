@@ -85,7 +85,7 @@ const fileLike = {
 };
 const ctx = { options: { processTranscriptDocuments: true }, filesWithMeta: [fileLike], log: () => {} };
 await plugin.hooks["files:analyze"](ctx);
-assert.equal(ctx.caDataPrep.documentRecords[0].csvId, "./c2c-output/demo.csv");
+assert.equal(ctx.caDataPrep.documentRecords[0].csvId, "./c2c-output/csv/demo.csv");
 assert.equal(ctx.caDataPrep.documentRecords[0].objectId, "./c2c-output/demo");
 assert.ok(ctx.caDataPrep.documentRecords[0].csvText.includes("#speaker01,"));
 
