@@ -3,3 +3,7 @@ dist/
 *.log
 .DS_Store
 .claude
+# select-plugins.mjs's own memory of the last explicit PLUGINS/INPUT_PLUGINS
+# selection (see that script's header comment) — a personal working-copy
+# preference, not something to share/commit.
+.plugins-selection.json

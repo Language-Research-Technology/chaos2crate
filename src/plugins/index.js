@@ -3,6 +3,7 @@
 // pretest/predev/prebuild npm hooks; run `node scripts/select-plugins.mjs`
 // directly to regenerate without also running dev/build/test.
 // Selected plugins (PLUGINS=all): xlsx-crate-input, austlang, ca-data-prep, chat-export, merge, validate-crate, ro-crate-json-output, ro-crate-xlsx-output, ro-crate-html-output
+// Selected input modes (INPUT_PLUGINS=generic,docx): generic, docx
 import { buildDeps } from "./deps.js";
 import { createPlugin as create_0 } from "c2c-plugins/src/xlsx-crate-input/index.js";
 import { createPlugin as create_1 } from "c2c-plugins/src/austlang/index.js";

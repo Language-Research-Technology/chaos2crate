@@ -7,7 +7,14 @@
 import assert from "node:assert/strict";
 
 import { HOOKS, createHookBus, announceAndEmit } from "../src/plugins/hooks.js";
-import { PLUGINS, INPUT_PLUGINS, registerAllPlugins, composeOptionSchema, composeSettingsSchema, composeOutputPaths } from "../src/plugins/index.js";
+import {
+  PLUGINS,
+  INPUT_PLUGINS,
+  registerAllPlugins,
+  composeOptionSchema,
+  composeSettingsSchema,
+  composeOutputPaths,
+} from "../src/plugins/index.js";
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -272,6 +279,22 @@ assert.ok(
 assert.ok(
   PLUGINS.filter((p) => !p.optionSchema && !p.settingsSchema).map((p) => p.name).includes("ro-crate-json-output"),
   "JSON output should declare no schema at all — that absence is how an always-on plugin is expressed"
+);
+
+const outputPaths = composeOutputPaths();
+assert.ok(outputPaths.length > 0, "the registry should aggregate every plugin output path into one list");
+assert.deepEqual(
+  outputPaths[0],
+  { path: "c2c-output/csv", kind: "dir" },
+  "the first output path should follow the selected plugin registry order, with ca-data-prep's transcript output before later file outputs"
+);
+assert.ok(
+  outputPaths.some((p) => p.path === "ro-crate-metadata.xlsx"),
+  "the spreadsheet output plugin should still contribute to the combined registry even when it is not first"
+);
+assert.ok(
+  outputPaths.some((p) => p.path === "c2c-output/csv"),
+  "plugin output directories from ca-data-prep should be included in the combined registry"
 );
 
 /* ---------- the pipeline owns every emission, including files:analyze ---------- */

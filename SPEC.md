@@ -139,7 +139,7 @@ Plugins are stateless. The bus is created once at module load and handlers regis
 
 ```js
 await announceAndEmit(hookBus, CONFIG_PREPARE, ctx);
-const inputPlugin = INPUT_PLUGINS[ctx.options.inputMode] || INPUT_PLUGINS.generic;
+const inputPlugin = INPUT_PLUGINS[ctx.options.inputMode] || Object.values(INPUT_PLUGINS)[0];
 if (inputPlugin.analyzeFiles) {                     // only modes with a file list
   await inputPlugin.analyzeFiles(ctx);
   await announceAndEmit(hookBus, FILES_ANALYZE, ctx);
@@ -235,7 +235,13 @@ Every plugin under §7's catalogue — both the additive kind and the two input 
 
 chaos2crate depends on c2c-plugins as `"c2c-plugins": "file:../c2c-plugins"` — a local, symlinked dependency; not published to npm.
 
-**Build-time plugin selection.** Not every deployment needs every plugin (`ca-data-prep` is specific to one dataset, for instance), so `src/plugins/index.js` is generated rather than hand-written: `node scripts/select-plugins.mjs` reads a `PLUGINS` env var (comma-separated plugin names; unset or `all` means everything) and writes `src/plugins/index.js` with static imports for only the selected plugins, pulled from c2c-plugins' `REGISTRY`. A runtime filter over an already-imported registry wouldn't achieve real bundle-size exclusion — Rollup can't tree-shake based on which object keys get read at runtime — so exclusion has to happen by simply never writing the `import` statement for a plugin that wasn't selected. Input-mode plugins (`generic`/`docx`) are always both included regardless of `PLUGINS`, since they're small and needed for the UI's input-mode switch.
+**Build-time plugin selection.** Not every deployment needs every plugin (`ca-data-prep` is specific to one dataset, for instance), so `src/plugins/index.js` is generated rather than hand-written: `node scripts/select-plugins.mjs` reads a `PLUGINS` env var (comma-separated plugin names; unset or `all` means everything) and writes `src/plugins/index.js` with static imports for only the selected plugins, pulled from c2c-plugins' `REGISTRY`. A runtime filter over an already-imported registry wouldn't achieve real bundle-size exclusion — Rollup can't tree-shake based on which object keys get read at runtime — so exclusion has to happen by simply never writing the `import` statement for a plugin that wasn't selected.
+
+Input-mode plugins go through a **separate** `INPUT_PLUGINS` env var, same syntax as `PLUGINS` (below), defaulting to c2c-plugins' own `"generic,docx"` when unset — so an ordinary build still gets both, unchanged, but a deployment that only ever uses one input mode (or an entirely external one — see below) doesn't have to bundle `generic-input`/`docx-input` at all:
+
+```bash
+INPUT_PLUGINS=chordpro=some-package PLUGINS=ro-crate-json-output npm run build   # external-only input mode
+```
 
 ```bash
 npm run build                                            # every plugin (default)
@@ -258,6 +264,18 @@ PLUGINS=merge,special=other-plugins npm run build
 # a plugin file you're testing locally, not wired into package.json at all
 PLUGINS=merge,scratch=../scratch-plugin/index.js npm run build
 ```
+
+**`INPUT_PLUGINS` follows the exact same three forms**, but each entry's left-hand side is a mode key (the property `ctx.options.inputMode` is dispatched against, §4.4), not an arbitrary label — a bare `mode` is resolved against c2c-plugins' own `INPUT_REGISTRY` (`c2c-plugins/src/<mode>-input/index.js`, that repo's own input-mode folder naming convention), and `mode=package`/`mode=./path.js` work exactly like `PLUGINS`' third form, with `<mode>-input` (not bare `<mode>`) as the expected subpath for the `mode=package` short form:
+
+```bash
+# only an external chordpro input mode — no generic/docx bundled at all
+INPUT_PLUGINS=chordpro=c2c-chordpro-plugin npm run build
+
+# c2c-chordpro-plugin's own src/chordpro-input/index.js, resolved explicitly
+INPUT_PLUGINS=chordpro=c2c-chordpro-plugin/src/chordpro-input/index.js npm run build
+```
+
+An external input-mode plugin most likely also needs an **additive** output-writing companion plugin (via `PLUGINS`, same as any other output plugin) to actually produce the mode's own output — an input-mode plugin's `buildCrate(ctx)` only produces `ctx.crate` (§4.4); see [`c2c-chordpro-plugin`](https://github.com/ptsefton/c2c-chordpro-plugin)'s own `songbook_html.js` for a worked example (`PLUGINS=ro-crate-json-output,songbook=c2c-chordpro-plugin/src/chordpro-input/songbook_html.js`).
 
 ### 4.7b Quick start: writing your own plugin
 

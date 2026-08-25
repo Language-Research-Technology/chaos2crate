@@ -397,6 +397,25 @@
     background: var(--panel-2); color: var(--muted); font-size: 13px; line-height: 1; cursor: pointer;
   }
   .mapping-row .map-copy-btn:hover { color: var(--text); border-color: var(--accent); }
+  /* #pluginActionModal's own generic dismiss icon — a plugin's own
+     run(runtime) supplies everything else inside the modal body; this is
+     the one piece of chrome the host always provides, regardless of what a
+     given plugin action puts in there. */
+  #pluginActionModal .modal { position: relative; }
+  /* display:contents makes this wrapper invisible to layout — a plugin's
+     own render(body, ...) children (e.g. an intro paragraph, a scrollable
+     .mapping-body list, an .actions footer) become direct flex items of
+     .modal.mapping-modal itself, the same as every other mapping-modal's
+     own hardcoded markup here — which is what makes .mapping-body's own
+     min-height:0/overflow-y:auto actually shrink-and-scroll instead of the
+     whole modal (and its own footer buttons) overflowing off-screen. */
+  #pluginActionModalBody { display: contents; }
+  .plugin-modal-close {
+    position: absolute; top: 14px; right: 14px; width: 28px; height: 28px; padding: 0;
+    border-radius: 999px; border: 1px solid var(--border); background: var(--panel-2);
+    color: var(--muted); font-size: 16px; line-height: 1; cursor: pointer;
+  }
+  .plugin-modal-close:hover { color: var(--text); border-color: var(--accent); }
   .collection-labels-head, .collection-labels-row { grid-template-columns: 18px minmax(0,1fr) 24px minmax(0,1fr); }
   .drag-handle { cursor: grab; color: var(--muted); user-select: none; text-align: center; font-size: 14px; }
   .drag-handle:active { cursor: grabbing; }
@@ -680,6 +699,9 @@
         <h2>Run</h2>
         <div class="run-row"><button id="runBtn">Build RO-Crate</button></div>
         <div class="run-row"><button id="showHtmlBtn" class="success hidden">Open the HTML &nearr;</button></div>
+        <div id="showHtmlHint" class="hint hidden">Opens a live in-memory copy in a new tab — Save As
+          can behave unreliably on it. To save/print/bookmark normally, open the file directly from
+          your folder instead; the real one is already there on disk.</div>
         <div class="note">Root-dataset metadata comes from built-in defaults, or from
           <code>config.json</code> if present in the folder.</div>
       </div>
@@ -748,6 +770,10 @@
         <div class="sub">The generated <code>ro-crate-preview.html</code> uses in-page links
           (<code>:target</code>) to expand and collapse tables, which don't work inside an embedded
           frame. It opens in its own browser tab instead.</div>
+        <div class="sub">That tab shows a live in-memory copy (the File System Access API never
+          exposes a real <code>file://</code> path), so browser features like Save As can behave
+          unreliably on it. For those, open the file directly from your folder instead — the real
+          one is already there on disk.</div>
         <button id="openPreviewBtn" class="big">Open ro-crate-preview.html &nearr;</button>
       </div>
       <div id="showPane" class="show-pane hidden"></div>
@@ -876,6 +902,18 @@
       <button id="collectionLabelsCancel" class="secondary" type="button">Cancel</button>
       <button id="collectionLabelsApply" type="button">Apply</button>
     </div>
+  </div>
+</div>
+
+<!-- Generic modal shell any plugin's own optionSchema "action" tile can open
+     via deps.openModal (src/plugins/deps.js) — the host supplies only the
+     overlay, title, and dismiss icon; a plugin's own run(runtime) builds
+     everything inside #pluginActionModalBody itself. -->
+<div id="pluginActionModal" class="modal-overlay hidden">
+  <div class="modal">
+    <button id="pluginActionModalDismiss" class="plugin-modal-close" type="button" aria-label="Close">&times;</button>
+    <h3 id="pluginActionModalTitle"></h3>
+    <div id="pluginActionModalBody"></div>
   </div>
 </div>
 

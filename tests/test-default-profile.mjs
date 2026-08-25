@@ -49,13 +49,18 @@ assert.match(
 const buildOptions = modeJson.tools?.chaos2crate?.buildOptions;
 assert.deepEqual(
   buildOptions.enabledOptionKeys,
-  ["makeHtml"],
-  "the default profile should enable HTML output and no other Build option"
+  ["makeHtml", "generateChatFiles"],
+  "the default profile should enable HTML output and expose the chat export option, while leaving it off by default"
 );
 assert.deepEqual(
   buildOptions.plugins,
   ["makeHtml"],
   "HTML output should be on by default, not merely available"
+);
+assert.equal(
+  buildOptions.generateChatFiles,
+  false,
+  "chat export should be available in the default profile but remain disabled until the user turns it on"
 );
 
 for (const networked of ["templateRepoFolder", "styledPreview"]) {
