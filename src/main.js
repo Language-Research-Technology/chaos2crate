@@ -2833,10 +2833,12 @@ async function run() {
     buildHtml = await readFileText(dirHandle, HTML_FILE);
     if (buildHtml !== null) { $("showHtmlBtn").classList.remove("hidden"); $("showHtmlHint").classList.remove("hidden"); }
     // A build always writes ro-crate-metadata.json (or it already existed), so
-    // the context bar's Show, Edit and Visualise buttons can now be enabled.
+    // the context bar's Show and Edit buttons can now be enabled. Visualise
+    // depends on whether a build plugin actually produced data an analysis
+    // plugin can read (see hasVizData()) — not guaranteed by this build.
     $("showBtn").disabled = false;
     $("editBtn").disabled = false;
-    $("vizBtn").disabled = false;
+    $("vizBtn").disabled = !(await hasVizData());
   } catch (e) {
     if (stale()) return;
     log("Error: " + (e && e.message ? e.message : e), "err");
@@ -2911,8 +2913,6 @@ async function pickFolder(nextView = "view-mode") {
 // an ro-crate-metadata.json or an ro-crate-preview.html. A fresh folder with
 // neither shows the Build card alone, and the context bar's Show button (in
 // build mode) stays disabled until a build produces one of those files.
-// Visualise uses the same signal — it reads a build plugin's generated
-// output, so there's nothing to show it until a build has actually run.
 async function refreshModeCards() {
   let hasJson = false, hasHtml = false;
   if (dirHandle) {
@@ -2923,10 +2923,26 @@ async function refreshModeCards() {
   }
   $("cardShow").classList.toggle("hidden", !(hasJson || hasHtml));
   $("showBtn").disabled = !(hasJson || hasHtml);
-  $("vizBtn").disabled = !(hasJson || hasHtml);
+  $("vizBtn").disabled = !(await hasVizData());
   $("cardEdit").classList.toggle("hidden", !hasJson);
   $("editBtn").disabled = !hasJson;
   refreshBuildStepActions();
+}
+
+// Visualise reads a build plugin's generated output (ca-data-prep's CSV,
+// chat-export's CHAT files, etc.) — not the crate JSON/HTML itself — so
+// "is there anything to visualise" is exactly scanOutputDirectories()
+// finding at least one declared output directory that actually exists and
+// contains a file an analysis plugin can read. Same check
+// rescanVizOutputDirs() already runs on-demand when the Visualise page
+// itself opens; this just uses it to gate the button too.
+async function hasVizData() {
+  if (!dirHandle) return false;
+  try {
+    return (await scanOutputDirectories(dirHandle, PLUGIN_OUTPUT_PATHS)).length > 0;
+  } catch {
+    return false;
+  }
 }
 async function openBuild() {
   // No profile chosen (including via the Show/Edit "Rebuild" shortcut, which

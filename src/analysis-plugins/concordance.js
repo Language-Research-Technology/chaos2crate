@@ -3,6 +3,8 @@
 // as simply as possible: find every match of a search term across the loaded
 // documents, then show it with a few words of context on either side.
 
+import { buildCsvText, downloadCsv } from "./csv.js";
+
 const MAX_RENDERED_ROWS = 2000;
 
 function escapeHtml(value) {
@@ -18,9 +20,12 @@ function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function csvField(value) {
-  const s = String(value ?? "");
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+// For the "Save CSV" filename — a plain, filesystem-safe slug of the search
+// query, not a full escape (this never needs to round-trip back into a
+// regex or CSV field the way csvField's escaping does).
+function slugify(value) {
+  const s = String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return s.slice(0, 40) || "query";
 }
 
 function buildMatcher(query, { regex, wholeWord, caseSensitive }) {
@@ -81,6 +86,7 @@ export const concordancePlugin = {
             <button id="kwicSortLeft" class="secondary" type="button">Sort by left context</button>
             <button id="kwicSortRight" class="secondary" type="button">Sort by right context</button>
             <button id="kwicCopyBtn" class="icon-copy-btn" type="button" title="Copy results as CSV" aria-label="Copy results as CSV">&#128203;</button>
+            <button id="kwicSaveCsvBtn" class="icon-copy-btn" type="button" title="Save results as CSV file" aria-label="Save results as CSV file">&#128190;</button>
           </div>
         </div>
         <div class="kwic-table-scroll">
@@ -93,12 +99,21 @@ export const concordancePlugin = {
     `;
 
     let currentResults = [];
+    let currentQuery = "";
     const queryInput = container.querySelector("#kwicQuery");
     const statusEl = container.querySelector("#kwicStatus");
     const resultsWrap = container.querySelector("#kwicResultsWrap");
     const bodyEl = container.querySelector("#kwicBody");
     const countEl = container.querySelector("#kwicCount");
     const copyBtn = container.querySelector("#kwicCopyBtn");
+    const saveCsvBtn = container.querySelector("#kwicSaveCsvBtn");
+
+    function resultsCsvText() {
+      return buildCsvText(
+        ["source", "speaker", "left", "keyword", "right"],
+        currentResults.map((r) => [r.source, r.speaker, r.left, r.keyword, r.right]),
+      );
+    }
 
     function renderRows(results) {
       bodyEl.innerHTML = "";
@@ -145,6 +160,7 @@ export const concordancePlugin = {
         resultsWrap.classList.add("hidden");
         return;
       }
+      currentQuery = query;
       statusEl.textContent = "";
       resultsWrap.classList.remove("hidden");
       renderRows(currentResults);
@@ -162,15 +178,17 @@ export const concordancePlugin = {
     });
     copyBtn.addEventListener("click", async () => {
       if (!currentResults.length) return;
-      const lines = ["source,speaker,left,keyword,right"];
-      for (const r of currentResults) lines.push([r.source, r.speaker, r.left, r.keyword, r.right].map(csvField).join(","));
       try {
-        await navigator.clipboard.writeText(lines.join("\n"));
+        await navigator.clipboard.writeText(resultsCsvText());
         copyBtn.classList.add("copied");
         setTimeout(() => copyBtn.classList.remove("copied"), 1500);
       } catch (e) {
         console.warn("Could not copy concordance results to clipboard:", e);
       }
+    });
+    saveCsvBtn.addEventListener("click", () => {
+      if (!currentResults.length) return;
+      downloadCsv(`concordance-${slugify(currentQuery)}.csv`, resultsCsvText());
     });
 
     statusEl.textContent = documents.length
