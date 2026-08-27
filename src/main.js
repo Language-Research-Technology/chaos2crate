@@ -616,6 +616,24 @@ function updateBuildProgressFromLog(msg, cls = "info") {
     return;
   }
 
+  if (/^Identifying file formats for /.test(text)) {
+    bumpBuildProgress(20, "Identifying file formats…");
+    startSubProgress("Identifying file formats…");
+    return;
+  }
+  const formatMatch = text.match(/^Format identification: (\d+)\/(\d+) file\(s\)…/);
+  if (formatMatch) {
+    const done = Number(formatMatch[1]);
+    const total = Number(formatMatch[2]);
+    const frac = total > 0 ? Math.min(1, done / total) : 0;
+    setSubProgress(frac * 100, `Identifying file formats (${done}/${total})…`);
+    return;
+  }
+  if (/^Identified \d+ file format\(s\)\./.test(text)) {
+    hideSubProgress();
+    return;
+  }
+
   const transcriptMatch = text.match(/^Processing transcript document: (\d+)\/(\d+) file\(s\)…/);
   if (transcriptMatch) {
     const done = Number(transcriptMatch[1]);
