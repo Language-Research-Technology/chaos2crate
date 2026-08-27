@@ -9,6 +9,8 @@
 // to log2(O/E), the same number as MI — so it isn't reproduced as a
 // separate column.
 
+import { buildCsvText, downloadCsv } from "./csv.js";
+
 const MAX_RENDERED_ROWS = 2000;
 
 // A short, standard list of English function words — enough to filter the
@@ -34,11 +36,6 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
-}
-
-function csvField(value) {
-  const s = String(value ?? "");
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
 // Words only — letters/digits with an optional internal apostrophe for
@@ -128,6 +125,7 @@ export const ngramsPlugin = {
             <button id="ngramSortMi" class="secondary hidden" type="button">Sort by MI</button>
             <button id="ngramSortT" class="secondary hidden" type="button">Sort by t-score</button>
             <button id="ngramCopyBtn" class="icon-copy-btn" type="button" title="Copy results as CSV" aria-label="Copy results as CSV">&#128203;</button>
+            <button id="ngramSaveCsvBtn" class="icon-copy-btn" type="button" title="Save results as CSV file" aria-label="Save results as CSV file">&#128190;</button>
           </div>
         </div>
         <div class="ngram-table-scroll">
@@ -150,6 +148,13 @@ export const ngramsPlugin = {
     const sortMiBtn = container.querySelector("#ngramSortMi");
     const sortTBtn = container.querySelector("#ngramSortT");
     const copyBtn = container.querySelector("#ngramCopyBtn");
+    const saveCsvBtn = container.querySelector("#ngramSaveCsvBtn");
+
+    function resultsCsvText() {
+      return currentN === 2
+        ? buildCsvText(["ngram", "count", "mi", "t_score"], currentRows.map((r) => [r.ngram, r.count, fmtScore(r.mi), fmtScore(r.tScore)]))
+        : buildCsvText(["ngram", "count"], currentRows.map((r) => [r.ngram, r.count]));
+    }
 
     function renderRows() {
       const filter = filterInput.value.trim().toLowerCase();
@@ -211,19 +216,17 @@ export const ngramsPlugin = {
     });
     copyBtn.addEventListener("click", async () => {
       if (!currentRows.length) return;
-      const lines = [currentN === 2 ? "ngram,count,mi,t_score" : "ngram,count"];
-      for (const r of currentRows) {
-        lines.push(currentN === 2
-          ? [r.ngram, r.count, fmtScore(r.mi), fmtScore(r.tScore)].map(csvField).join(",")
-          : [r.ngram, r.count].map(csvField).join(","));
-      }
       try {
-        await navigator.clipboard.writeText(lines.join("\n"));
+        await navigator.clipboard.writeText(resultsCsvText());
         copyBtn.classList.add("copied");
         setTimeout(() => copyBtn.classList.remove("copied"), 1500);
       } catch (e) {
         console.warn("Could not copy n-gram results to clipboard:", e);
       }
+    });
+    saveCsvBtn.addEventListener("click", () => {
+      if (!currentRows.length) return;
+      downloadCsv(`ngrams-n${currentN}.csv`, resultsCsvText());
     });
 
     statusEl.textContent = documents.length
