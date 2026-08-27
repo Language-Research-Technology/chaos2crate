@@ -62,11 +62,15 @@ assert.ok(rows.some((row) => row.speakerID === "#speaker01" && row.section === "
 assert.ok(rows.some((row) => row.speakerID === "#speaker01" && row.section === "MAIN"));
 assert.ok(rows.some((row) => row.speakerID === "#speaker01" && row.section === "POST"));
 
-const processed = processTranscriptText(text, { headerRows: 0, footerRows: 0 });
+const processed = await processTranscriptText(text, { headerRows: 0, footerRows: 0 });
 assert.equal(processed.rows[0].speakerID, "#speaker01");
 assert.equal(processed.rows[0].section, "PRE");
 assert.ok(processed.log.includes("Character inventory"));
 assert.ok(processed.log.includes("Unresolved speakerIDs: none"));
+// The inventory's third column is the character's Unicode name, not the
+// character symbol again — "#" (present via "#speaker01") should read as
+// "NUMBER SIGN", not a repeated "#".
+assert.match(processed.log, /"#"\s+U\+0023\s+NUMBER SIGN/);
 
 const exampleCsv = toCsv([{ speakerID: "#speaker01", text: "hello, world", section: "PRE" }]);
 assert.match(exampleCsv, /#speaker01,"hello, world",PRE\n/);
