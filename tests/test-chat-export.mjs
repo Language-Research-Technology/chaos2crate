@@ -22,7 +22,7 @@ B: yes
 POSTLIMINARIES
 A: thanks`;
 
-const result = plugin.generateChatText?.(text, { corpusId: "demo-corpus", languageIso: "eng" });
+const result = await plugin.generateChatText?.(text, { corpusId: "demo-corpus", languageIso: "eng" });
 assert.ok(result.includes("@Participants: A Participant, B Participant"));
 assert.ok(result.includes("@ID: eng|demo-corpus|A"));
 assert.ok(result.includes("Holt, ALP"));
