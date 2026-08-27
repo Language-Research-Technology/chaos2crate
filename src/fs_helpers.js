@@ -70,13 +70,12 @@ export async function readFileBytes(handle, filename) {
   }
 }
 
-// Like readFileTextFromDirectory but for binary files, and range-capable:
-// pass { start, end } to slice the File before reading it (File#slice), so
-// callers sniffing a format from a handful of header/footer bytes never
-// have to pull an entire large media file into memory just to look at it.
-// Returns an ArrayBuffer, or null when the file/an intermediate directory
-// isn't there.
-export async function readFileBytesFromDirectory(handle, relativePath, { start, end } = {}) {
+// Like readFileTextFromDirectory's directory walk, but returns the
+// FileSystemFileHandle itself rather than reading it — for a caller that
+// needs the handle, not the content (e.g. handing it to an API that does
+// its own reading, like the file-format-identify plugin's siegfried WASM
+// call). Returns null when the file/an intermediate directory isn't there.
+export async function getFileHandleAtPath(handle, relativePath) {
   if (!handle) return null;
   const parts = String(relativePath || "").replace(/\\/g, "/").split("/").filter(Boolean);
   if (!parts.length) return null;
@@ -89,10 +88,7 @@ export async function readFileBytesFromDirectory(handle, relativePath, { start, 
     }
   }
   try {
-    const fh = await dir.getFileHandle(parts[parts.length - 1], { create: false });
-    const file = await fh.getFile();
-    const slice = start !== undefined || end !== undefined ? file.slice(start, end) : file;
-    return await slice.arrayBuffer();
+    return await dir.getFileHandle(parts[parts.length - 1], { create: false });
   } catch (e) {
     if (e && e.name === "NotFoundError") return null;
     throw e;
