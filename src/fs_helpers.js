@@ -70,6 +70,35 @@ export async function readFileBytes(handle, filename) {
   }
 }
 
+// Like readFileTextFromDirectory but for binary files, and range-capable:
+// pass { start, end } to slice the File before reading it (File#slice), so
+// callers sniffing a format from a handful of header/footer bytes never
+// have to pull an entire large media file into memory just to look at it.
+// Returns an ArrayBuffer, or null when the file/an intermediate directory
+// isn't there.
+export async function readFileBytesFromDirectory(handle, relativePath, { start, end } = {}) {
+  if (!handle) return null;
+  const parts = String(relativePath || "").replace(/\\/g, "/").split("/").filter(Boolean);
+  if (!parts.length) return null;
+  let dir = handle;
+  for (let i = 0; i < parts.length - 1; i++) {
+    try { dir = await dir.getDirectoryHandle(parts[i], { create: false }); }
+    catch (e) {
+      if (e && e.name === "NotFoundError") return null;
+      throw e;
+    }
+  }
+  try {
+    const fh = await dir.getFileHandle(parts[parts.length - 1], { create: false });
+    const file = await fh.getFile();
+    const slice = start !== undefined || end !== undefined ? file.slice(start, end) : file;
+    return await slice.arrayBuffer();
+  } catch (e) {
+    if (e && e.name === "NotFoundError") return null;
+    throw e;
+  }
+}
+
 export async function readJsonFromFolder(handle, filename) {
   const text = await readFileText(handle, filename);
   if (text === null) return null;

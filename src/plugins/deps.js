@@ -10,7 +10,7 @@ import {
 } from "../crate.js";
 import {
   writeFileAtPath, readJsonFromFolder, writeFile, fileExists,
-  readFileBytes, readFileTextFromDirectory, verifyPermission, statFile,
+  readFileBytes, readFileBytesFromDirectory, readFileTextFromDirectory, verifyPermission, statFile,
 } from "../fs_helpers.js";
 import { bustCacheUrl, buildGitHubTreeUrl, fetchGitHubTextFile, listGitHubFolder } from "../github.js";
 
@@ -67,7 +67,7 @@ export function buildDeps() {
     crateToPreviewHtml, crateToMultiPageHtml, crateToXlsxBytes, crateToJsonString,
     graphEntityById,
     writeFileAtPath, readJsonFromFolder, writeFile, fileExists,
-    readFileBytes, readFileTextFromDirectory, verifyPermission, statFile,
+    readFileBytes, readFileBytesFromDirectory, readFileTextFromDirectory, verifyPermission, statFile,
     bustCacheUrl, buildGitHubTreeUrl, fetchGitHubTextFile, listGitHubFolder,
     openModal,
     // masp.js is a heavy validator library — kept dynamically imported from
