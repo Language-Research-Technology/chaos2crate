@@ -7,9 +7,10 @@ entity type, using [`roctable`](https://github.com/ptsefton/roctable) —
 Peter Sefton's WIP library for converting between RO-Crate and tabular
 formats. A user picks which entity types they want as tables, which
 properties on each, whether a reference property should be expanded into
-extra columns or kept as a plain reference, and (eventually) whether a
-property pointing at a text file should have that file's contents pulled
-into the row. Output lands back in the picked folder alongside the crate's
+extra columns or kept as a plain reference, and whether a property pointing
+at a text file should have that file's contents pulled into the row (via an
+injected file reader — see §"load_text" below, not roctable's own Node `fs`
+default). Output lands back in the picked folder alongside the crate's
 other build outputs.
 
 This supersedes the earlier sketch at `docs/roctable-export-spec.md` (which
@@ -193,28 +194,28 @@ built the same "no host markup" way, reading `ctx.crate`'s discovered types
 — which means Phase 2 needs a small `main.js`-side change alongside the
 plugin, the same trade-off `merge`'s mapping builder already accepted.
 
+## `load_text` — how it works in the browser build
+
+`roctable/lib/extract.js`'s `loadText()` no longer calls `fs` directly:
+`extractTables(crate, config, { fileReader })` takes an optional
+`fileReader: { readFile(relPath) }` (ptsefton/roctable#1). `bin/roctable.js`
+(the CLI) doesn't pass one, so `extractTables` falls back to
+`lib/io.js`'s `nodeFileReader(crateDir)` — the original `fs`-based
+behaviour, now just the default rather than the only option.
+
+This plugin passes its own `browserFileReader(dirHandle)`
+(`src/crate2tables/index.js`), wrapping chaos2crate's
+`readFileTextFromDirectory` (`fs_helpers.js`) — which already returns `null`
+for "not found", exactly what `loadText` expects from a reader. Because
+`readFile` may be an async File System Access call, `extractTables` (and
+`loadText`) are `async`; this plugin already awaits it.
+
+Net effect: a config with `"load_text": true` on a property works the same
+in chaos2crate as it does from roctable's own CLI — the file is read
+relative to the crate root either way, just through a different reader.
+
 ## Known limitations
 
-- **`load_text` is disabled, not implemented.** `roctable/lib/extract.js`'s
-  `loadText()` reads the referenced file with Node's `fs.readFileSync`,
-  which doesn't exist in chaos2crate's browser build. Rather than let that
-  throw at build time, the plugin clears `load_text` on any property that
-  has it set (recursively, including inside `expand`ed sub-properties)
-  before extracting, and logs a warning naming which properties were
-  affected. The underlying feature genuinely matters — it's the mechanism
-  the user asked for as "import text" — but needs one of:
-  - an upstream change to `roctable` so `loadText` takes an injectable
-    async reader instead of calling `fs` directly (the cleanest fix, and
-    worth raising against `ptsefton/roctable` — the library is
-    explicitly WIP and the README already invites iteration for exactly
-    this kind of browser-compatibility gap), or
-  - a local fork of just that function reimplemented against
-    `readFileTextFromDirectory`/`readFileBytes` (`chaos2crate/src/fs_helpers.js`),
-    at the cost of drifting from upstream.
-
-  Tracked as a follow-up once the UI work (§6.2) makes `load_text` something
-  a user can actually toggle on, rather than something only reachable by
-  hand-editing the config.
 - **CSV only.** `roctable`'s own roadmap includes Excel, Parquet, and
   SQLite output (see its README's second diagram); this plugin exports CSV
   only, matching `roctable`'s current actual capability (`lib/csv.js`) —
@@ -230,8 +231,10 @@ plugin, the same trade-off `merge`'s mapping builder already accepted.
 1. Implemented as a build plugin in `c2c-plugins`, tapping `crate:built` and
    `output:write` — not an analysis-page plugin.
 2. Selectable through `PLUGINS`, off unless `enableCrate2Tables` is set.
-3. `roctable` installed as a git dependency (`github:ptsefton/roctable`),
-   since it isn't on npm yet.
+3. `roctable` installed as a dependency not yet on npm — a `file:../roctable`
+   sibling checkout while both repos are under active development, to be
+   switched to a `github:ptsefton/roctable` git dependency pinned to a
+   commit once ptsefton/roctable#1 (the injectable file reader) merges.
 4. A build against a folder with no existing config produces
    `crate2tables-config.json` (fully discovered, nothing selected) and no
    CSVs, with a log message explaining why.
@@ -240,18 +243,22 @@ plugin, the same trade-off `merge`'s mapping builder already accepted.
    such type in `crate2tables-output/`.
 6. `outputPaths` declares both, so they're excluded from folder re-scans and
    covered by "delete plugin output before rebuild".
-7. `load_text`, if present in a config, is disabled with a warning rather
-   than crashing the build.
+7. `load_text`, if present in a config, reads through the plugin's injected
+   browser `fileReader` (§"load_text" above) rather than crashing or being
+   silently disabled.
 8. Toggled off, the plugin does nothing — no config write, no CSVs, no
    crate mutation.
 
 ## Implementation status
 
-Phase 1 (this document's §5, `PLUGINS=crate2tables`) is implemented in
-`c2c-plugins/src/crate2tables/index.js`, registered in
-`c2c-plugins/index.js`, with the dependency table entry in
-`c2c-plugins/README.md`. Verified with a real `github:ptsefton/roctable`
-install and a `PLUGINS=crate2tables npm run build` in this repo.
+Phase 1 (this document's §5, `PLUGINS=crate2tables`, including working
+`load_text`) is implemented in `c2c-plugins/src/crate2tables/index.js`,
+registered in `c2c-plugins/index.js`, with the dependency table entry in
+`c2c-plugins/README.md`. Verified with a real local `roctable` checkout
+(`ptsefton/roctable#1`'s `feature/injectable-file-reader` branch), a
+`PLUGINS=crate2tables npm run build` and a `PLUGINS=all npm run build` in
+this repo, and an end-to-end run of both hooks against an in-memory crate
+with a real `load_text` property.
 
 Phase 2 (§6.2 — the in-app type/field/expand/load_text picker) is not
 started. It needs a `main.js`-side UI addition (a new `optionSchema.children[].type`,
