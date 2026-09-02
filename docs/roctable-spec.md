@@ -1,4 +1,4 @@
-# crate2tables plugin spec
+# roctable plugin spec
 
 ## Purpose
 
@@ -25,9 +25,9 @@ left as an unspecified "optional suboptions" list.
 Same reasoning as every other build-time plugin (`SPEC.md` §4.7, §4.7a):
 
 - lives in the sibling `c2c-plugins` checkout, at
-  `c2c-plugins/src/crate2tables/index.js`
+  `c2c-plugins/src/roctable/index.js`
 - registered in that repo's `REGISTRY`, selected via the normal `PLUGINS`
-  env var (`PLUGINS=crate2tables` or the default `all`)
+  env var (`PLUGINS=roctable` or the default `all`)
 - not under `src/analysis-plugins/` — that's the Visualisation page's
   sidebar, a different lifecycle entirely from the crate build pipeline
 
@@ -131,7 +131,7 @@ the merged config's `tables` section is empty, nothing is exported yet — see
 
 Same precedence pattern as `merge` (`c2c-plugins/src/merge/index.js`):
 
-1. an uploaded config, via the option's file picker (`crate2tablesConfigUpload`) — overrides everything
+1. an uploaded config, via the option's file picker (`roctableConfigUpload`) — overrides everything
 2. `_config/roctable/config.json` already in the picked folder (e.g. from a previous build, or hand-edited)
 3. `roctable`'s own `defaultConfig()` (empty `tables`, empty `potential_tables`) if neither exists yet
 
@@ -147,10 +147,11 @@ outputPaths: [
 Both paths follow chaos2crate issue #81's proposed per-plugin directory
 convention (`_config/<slug>/` for standing configuration, `_outputs/<slug>/`
 for disposable generated content), adopted here ahead of it becoming a
-repo-wide standard — `roctable` rather than `crate2tables` as the slug,
-matching the issue's own example. `_config/roctable/config.json` is what
-`Config resolution` above reads/writes; CSVs go in
-`_outputs/roctable/<Type>.csv`, one file per configured table.
+repo-wide standard — `roctable` as the slug, matching the plugin's own name
+(itself named after the library it wraps, per the issue's own example).
+`_config/roctable/config.json` is what `Config resolution` above
+reads/writes; CSVs go in `_outputs/roctable/<Type>.csv`, one file per
+configured table.
 
 **`_config/` and `_backup/` are excluded from "Delete plugin output before
 rebuilding."** `deletePluginOutputs()` (`chaos2crate/src/main.js`) skips any
@@ -163,7 +164,7 @@ generalises the same reasoning §6.1a already established for
 
 ## UI and user flow
 
-- Build option: **"Export RO-Crate tables"** (`enableCrate2Tables`)
+- Build option: **"Export RO-Crate tables"** (`enableRoctable`)
 - Two children: **"Configure tables…"** (an action button, see below) and
   the table-config-JSON upload override.
 
@@ -186,7 +187,7 @@ no build in progress), runs the same discovery pass, and on Save writes
 next real build does that. If the folder has no crate yet, it warns and does
 nothing ("build once first, then configure tables").
 
-**The tree itself** (`c2c-plugins/src/crate2tables/config-tree-ui.js`): one
+**The tree itself** (`c2c-plugins/src/roctable/config-tree-ui.js`): one
 heading per discovered `@type`, a checkbox selecting it as a table (moving
 it between the config's `tables`/`potential_tables`, live) and a disclosure
 toggle unrolling its properties. Each property row is `include` / `expand` /
@@ -217,12 +218,12 @@ that build resolved it), it's "known" and never touched by this rule again.
 **Why this is a nested `type: "action"` child, not a new top-level tile.**
 Each plugin contributes exactly one `optionSchema` entry
 (`composeOptionSchema()`, `src/plugins/index.js`), so "Configure tables…"
-has to live *inside* the `enableCrate2Tables` group, not beside it. The
+has to live *inside* the `enableRoctable` group, not beside it. The
 existing top-level `kind: "action"` tile (`renderOptionGroupTiles`,
 `main.js`) only covered that top-level case; `renderOptions` (the nested-child
 renderer) gained the equivalent as `type: "action"` — `buildActionField`,
 a plain button calling `opt.run({ dirHandle, log })`, the same contract as
-the top-level version. A generic addition, not a `crate2tables`-specific
+the top-level version. A generic addition, not a plugin-specific
 hardcoding like `mappingBuilder`'s (`c2c-plugins/src/merge/index.js:28`) —
 any future plugin needing an on-demand action nested under its own toggle
 can use it the same way.
@@ -231,13 +232,13 @@ can use it the same way.
 
 `roctable/lib/extract.js`'s `loadText()` no longer calls `fs` directly:
 `extractTables(crate, config, { fileReader })` takes an optional
-`fileReader: { readFile(relPath) }` (ptsefton/roctable#1). `bin/roctable.js`
+`fileReader: { readFile(relPath) }` (ptsefton/roctable#2). `bin/roctable.js`
 (the CLI) doesn't pass one, so `extractTables` falls back to
 `lib/io.js`'s `nodeFileReader(crateDir)` — the original `fs`-based
 behaviour, now just the default rather than the only option.
 
 This plugin passes its own `browserFileReader(dirHandle)`
-(`src/crate2tables/index.js`), wrapping chaos2crate's
+(`src/roctable/index.js`), wrapping chaos2crate's
 `readFileTextFromDirectory` (`fs_helpers.js`) — which already returns `null`
 for "not found", exactly what `loadText` expects from a reader. Because
 `readFile` may be an async File System Access call, `extractTables` (and
@@ -263,7 +264,7 @@ relative to the crate root either way, just through a different reader.
 
 1. Implemented as a build plugin in `c2c-plugins`, tapping `crate:built` and
    `output:write` — not an analysis-page plugin.
-2. Selectable through `PLUGINS`, off unless `enableCrate2Tables` is set.
+2. Selectable through `PLUGINS`, off unless `enableRoctable` is set.
 3. `roctable` installed as a dependency not yet on npm — a git dependency
    pinned to a commit (`"roctable": "github:ptsefton/roctable#<sha>"`) now
    that ptsefton/roctable#2 (the injectable file reader) has merged. Bump
@@ -296,7 +297,7 @@ relative to the crate root either way, just through a different reader.
 
 ## Implementation status
 
-Fully implemented in `c2c-plugins/src/crate2tables/` (`index.js`,
+Fully implemented in `c2c-plugins/src/roctable/` (`index.js`,
 `discover.js`, `config-tree-ui.js`), registered in `c2c-plugins/index.js`,
 with the dependency table entry and file-split note in
 `c2c-plugins/README.md`. The one core-side change this needed —

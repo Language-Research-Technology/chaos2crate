@@ -1204,7 +1204,7 @@ function renderOptions(schema, parent, nested = false) {
 // instead of only at the top level. `run(runtime)` is the plugin's own
 // handler; runtime is {dirHandle, log}, read fresh at click time since
 // dirHandle changes with every folder pick. The host has no idea what a
-// given action actually does — e.g. crate2tables' "Configure tables…",
+// given action actually does — e.g. the roctable plugin's "Configure tables…",
 // which opens its own modal via deps.openModal.
 function buildActionField(opt) {
   const wrap = document.createElement("div");
@@ -2080,7 +2080,7 @@ function readOptions() {
   o.mergeUpload = uploads.mergeFile || null;
   o.mergeConfigUpload = uploads.mergeConfigFile || null;
   o.xlsxCrateUpload = uploads.xlsxCrateFile || null;
-  o.crate2tablesConfigUpload = uploads.crate2tablesConfigUpload || null;
+  o.roctableConfigUpload = uploads.roctableConfigUpload || null;
   return o;
 }
 
@@ -2759,7 +2759,7 @@ async function deletePluginOutputs(dirHandle, log) {
     // from scratch — with this setting on by default, that was every build.
     if (path === "ro-crate-metadata.json") continue;
     // _config/ and _backup/ (issue #81's standard per-plugin directories:
-    // _config/<slug>/ for standing configuration like crate2tables' table
+    // _config/<slug>/ for standing configuration like the roctable plugin's table
     // selection, _backup/<slug>/<date>/ for changed-file backups) are
     // persistent by design, not disposable derived output — the same
     // reasoning as the JSON file above, just for a whole namespace instead
