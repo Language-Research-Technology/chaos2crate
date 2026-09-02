@@ -6,7 +6,7 @@
 import {
   buildFileMetadata, buildCrate, addLanguageEntities,
   crateToPreviewHtml, crateToMultiPageHtml, crateToXlsxBytes, crateToJsonString,
-  graphEntityById,
+  graphEntityById, loadCrateFromJson,
 } from "../crate.js";
 import {
   writeFileAtPath, readJsonFromFolder, writeFile, fileExists,
@@ -65,7 +65,7 @@ export function buildDeps() {
   return {
     buildFileMetadata, buildCrate, addLanguageEntities,
     crateToPreviewHtml, crateToMultiPageHtml, crateToXlsxBytes, crateToJsonString,
-    graphEntityById,
+    graphEntityById, loadCrateFromJson,
     writeFileAtPath, readJsonFromFolder, writeFile, fileExists,
     readFileBytes, getFileHandleAtPath, readFileTextFromDirectory, verifyPermission, statFile,
     bustCacheUrl, buildGitHubTreeUrl, fetchGitHubTextFile, listGitHubFolder,
