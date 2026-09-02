@@ -231,10 +231,11 @@ relative to the crate root either way, just through a different reader.
 1. Implemented as a build plugin in `c2c-plugins`, tapping `crate:built` and
    `output:write` — not an analysis-page plugin.
 2. Selectable through `PLUGINS`, off unless `enableCrate2Tables` is set.
-3. `roctable` installed as a dependency not yet on npm — a `file:../roctable`
-   sibling checkout while both repos are under active development, to be
-   switched to a `github:ptsefton/roctable` git dependency pinned to a
-   commit once ptsefton/roctable#1 (the injectable file reader) merges.
+3. `roctable` installed as a dependency not yet on npm — a git dependency
+   pinned to a commit (`"roctable": "github:ptsefton/roctable#<sha>"`) now
+   that ptsefton/roctable#2 (the injectable file reader) has merged. Bump
+   the pin deliberately when picking up a newer commit; don't drop it to an
+   unpinned `github:ptsefton/roctable`.
 4. A build against a folder with no existing config produces
    `crate2tables-config.json` (fully discovered, nothing selected) and no
    CSVs, with a log message explaining why.
