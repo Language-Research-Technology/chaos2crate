@@ -169,8 +169,8 @@ const pluginsTapping = (hook) => PLUGINS.filter((p) => p.hooks && p.hooks[hook])
 
 assert.deepEqual(
   pluginsTapping(HOOKS.CRATE_BUILT),
-  ["xlsx-crate-input", "austlang", "file-format-identify", "ca-data-prep", "chat-export", "merge"],
-  "the spreadsheet crate's entities must land first — AUSTLANG, file-format-identify, transcript processing, and chat export all enrich the crate before merge runs"
+  ["xlsx-crate-input", "austlang", "file-format-identify", "ca-data-prep", "chat-export", "merge", "crate2tables"],
+  "the spreadsheet crate's entities must land first — AUSTLANG, file-format-identify, transcript processing, and chat export all enrich the crate before merge runs, and crate2tables reads the final graph last of all"
 );
 assert.equal(
   INPUT_PLUGINS["ca-data-prep"],
@@ -179,8 +179,8 @@ assert.equal(
 );
 assert.deepEqual(
   pluginsTapping(HOOKS.OUTPUT_WRITE),
-  ["ro-crate-json-output", "ro-crate-xlsx-output", "ro-crate-html-output"],
-  "outputs must be written JSON, then xlsx, then HTML"
+  ["crate2tables", "ro-crate-json-output", "ro-crate-xlsx-output", "ro-crate-html-output"],
+  "crate2tables writes its own tables before the core outputs; outputs must be written JSON, then xlsx, then HTML"
 );
 assert.deepEqual(
   pluginsTapping(HOOKS.CRATE_VALIDATE),

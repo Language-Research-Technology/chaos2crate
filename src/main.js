@@ -2057,6 +2057,7 @@ function readOptions() {
   o.mergeUpload = uploads.mergeFile || null;
   o.mergeConfigUpload = uploads.mergeConfigFile || null;
   o.xlsxCrateUpload = uploads.xlsxCrateFile || null;
+  o.crate2tablesConfigUpload = uploads.crate2tablesConfigUpload || null;
   return o;
 }
 
@@ -2726,6 +2727,14 @@ async function walkDirectory(handle, prefix = "") {
 async function deletePluginOutputs(dirHandle, log) {
   let removedCount = 0;
   for (const { path } of PLUGIN_OUTPUT_PATHS) {
+    // ro-crate-metadata.json is declared here because ro-crate-json-output
+    // has its own outputPaths entry for it, but it's the one output nothing
+    // gates — it's rewritten every build regardless of any option, so
+    // deleting it first achieves nothing except destroying what generic-input
+    // needs to reconcile against (SPEC.md §6.1a). Without this exclusion, a
+    // build against an existing crate would silently fall back to rebuilding
+    // from scratch — with this setting on by default, that was every build.
+    if (path === "ro-crate-metadata.json") continue;
     if (await removeEntryAtPath(dirHandle, path)) {
       removedCount += 1;
       log(`Deleted previous ${path}.`, "muted");
