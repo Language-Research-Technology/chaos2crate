@@ -2057,6 +2057,7 @@ function readOptions() {
   o.mergeUpload = uploads.mergeFile || null;
   o.mergeConfigUpload = uploads.mergeConfigFile || null;
   o.xlsxCrateUpload = uploads.xlsxCrateFile || null;
+  o.crate2tablesConfigUpload = uploads.crate2tablesConfigUpload || null;
   return o;
 }
 
