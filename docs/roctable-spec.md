@@ -193,13 +193,34 @@ it between the config's `tables`/`potential_tables`, live) and a disclosure
 toggle unrolling its properties. Each property row is `include` / `expand` /
 `load_text` / a `join` select (enabled only once `load_text` is checked). An
 expanded property unrolls further to its own one-hop sub-properties
-(`discoverExpandedProperties`'s nested `properties` map) — before that map
-exists (a type checked `expand` for the first time, not yet round-tripped
-through a discovery pass), it shows a hint instead of an empty list, since
-`roctable` only populates that map from an actual crate inspection.
-Cancel/dismiss resolve `null`; Save resolves the edited config as-is —
-neither the tree UI nor `index.js` re-derives it from DOM state, the
-checkboxes mutate a working copy of the config directly.
+(`discoverExpandedProperties`'s nested `properties` map), in one of three
+states depending on that map: absent (never discovered yet — "appears after
+the next build re-discovers this expansion"), present but empty (discovery
+ran and found no `@id`-reference values for this property at all — a plain
+text value, e.g. a bare author name, can never expand into anything no
+matter how many times it's rediscovered — "no reference values found …
+nothing to expand"), or populated (the actual sub-property checkboxes).
+Collapsing the first two into one message would misreport a data fact as a
+timing issue. Cancel/dismiss resolve `null`; Save resolves the edited config
+as-is — neither the tree UI nor `index.js` re-derives it from DOM state, the
+checkboxes mutate a working copy of the config directly. The modal itself
+overrides the host's shared `.modal` width (420px, sized for a short
+confirmation) via one injected `<style>` rule scoped to its own class —
+wide enough for four controls per property row without wrapping badly.
+
+**`discoverExpandedProperties` only walks `config.tables` — `discoverConfig`
+runs it against `potential_tables` too.** roctable's own function (checked
+against its actual source) silently skips any type still sitting in
+`potential_tables`, so checking `expand` on a property before ticking its
+type as a selected table used to mean that property's sub-properties would
+never be discovered, no matter how many times a build ran — indistinguishable
+from a genuine bug from the person configuring it. `discover.js`'s
+`discoverExpandedPropertiesForAllTables` runs the same trusted function
+twice, with the two buckets swapped for the second pass, rather than
+reimplementing its crate-walking logic — verified against a real F2F
+`RepositoryObject`, still unselected, with `contentLocation` (a genuine
+`Place` reference) checked for expansion: sub-properties (`address`,
+`@label`, `geo`) now populate on the very next rebuild.
 
 **`ldac:mainText` defaults to loaded, falling back to `indexableText`.**
 `discover.js`'s `discoverConfig()` — the one function both the build-time
