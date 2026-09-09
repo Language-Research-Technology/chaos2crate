@@ -212,6 +212,82 @@ function addFileEntities(crate, filesWithMeta, fileProperties = [], opts = {}) {
   });
 }
 
+// Reconciliation path for a folder that already has a crate (SPEC.md §6.1a):
+// `crate` was loaded from the existing ro-crate-metadata.json rather than
+// built empty, so every entity it already describes — RepositoryObjects,
+// People, Places, transcripts, whatever a curator or another tool put there
+// — is already present and is left completely alone. This function's only
+// job is the delta: add a File entity for a physical file the graph doesn't
+// know about yet, and warn (never delete) about a File entity whose file no
+// longer exists in the folder. It replaces addFolderEntities+addFileEntities
+// for this case rather than running alongside them — inventing
+// RepositoryObject/RepositoryCollection containers the way a from-scratch
+// build does would compete with whatever structure the existing crate
+// already has.
+function reconcileFileEntities(crate, filesWithMeta, fileProperties, log) {
+  const blankKeys = fileProperties.map((fp) => fp.key).filter((k) => k !== "custom:possibleDuplicate");
+  const seenIds = new Set();
+  let added = 0;
+
+  filesWithMeta.forEach((file) => {
+    seenIds.add(file.id);
+    if (crate.getEntity(file.id)) return; // already represented — keep it exactly as it is, don't touch it
+
+    const stubs = {};
+    for (const key of blankKeys) stubs[key] = "";
+    crate.addEntity({
+      "@id": file.id, "@type": "File", name: file.fileName, description: "", datePublished: "",
+      ...stubs, contentLocation: "",
+    });
+    added++;
+
+    // Attach it wherever the existing graph already has a container for
+    // this top-level folder; if none matches (the common case — a curated
+    // crate's ids rarely follow the folder-name convention filesWithMeta
+    // guesses), fall back to the root dataset with a stronger warning, since
+    // that's the only place guaranteed to exist.
+    const parent = crate.getEntity(file.isPartOfId);
+    if (parent) {
+      crate.addValues(parent, "hasPart", { "@id": file.id }, { duplicate: false });
+      log(`New file added: ${file.id} (attached to existing "${file.isPartOfName}").`, "warn");
+    } else {
+      crate.addValues(crate.rootDataset, "hasPart", { "@id": file.id }, { duplicate: false });
+      log(`New file added: ${file.id} — no existing entity matched its folder ("${file.isPartOfName}"); attached to the root dataset. Give it a proper home.`, "warn");
+    }
+  });
+
+  let missing = 0;
+  crate.graph.forEach((entity) => {
+    const types = Array.isArray(entity?.["@type"]) ? entity["@type"] : [entity?.["@type"]];
+    const id = entity?.["@id"];
+    if (!types.includes("File") || typeof id !== "string" || seenIds.has(id)) return;
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(id)) return; // an absolute URL is an external reference, not a folder-relative file
+    missing++;
+    log(`File referenced in the crate is missing from the folder: ${id}`, "warn");
+  });
+
+  log(
+    `Reconciled against the existing crate: ${filesWithMeta.length} file(s) scanned, ${added} new, ${missing} missing.`,
+    added || missing ? "warn" : "muted",
+  );
+}
+
+// Adds a context mapping only if an equivalent one (same key(s)/value(s)) isn't
+// already present. crate.addContext() dedupes an object entry by reference,
+// not content, so calling it with a fresh `{ ldac: "..." }` literal on every
+// build — the normal call pattern here — would push a content-identical but
+// reference-distinct duplicate into @context every single time once a crate
+// carries a previous build's own output forward (reconcileFileEntities'
+// whole point). This is what keeps that idempotent instead.
+function ensureContext(crate, mapping) {
+  const ctx = crate.getJson()["@context"];
+  const already = Array.isArray(ctx) && ctx.some((c) => (
+    c && typeof c === "object" && !Array.isArray(c)
+    && Object.entries(mapping).every(([k, v]) => c[k] === v)
+  ));
+  if (!already) crate.addContext(mapping);
+}
+
 // Exported for both addLanguageEntities (below) and the merge plugin's
 // mergeXlsxIntoCrate (src/plugins/merge/xlsx.js), which uses the same
 // entity-lookup + direct-assignment idiom to mutate already-created entities.
@@ -282,13 +358,24 @@ export function loadCrateFromJson(json) {
 }
 
 /* ---------- top-level: build the ROCrate ---------- */
+// opts.existingJson (SPEC.md §6.1a): the folder's own ro-crate-metadata.json,
+// already parsed, when one exists. Its presence is what decides whether this
+// is a from-scratch build or a reconciliation — everything else about the
+// call is unchanged either way, since the persist-and-reconcile behaviour is
+// the default now, not an opt-in.
 export function buildCrate(filesWithMeta, config, log = () => {}, opts = {}) {
-  const crate = new ROCrate({ array: true, link: true });
-  crate.addContext({ ldac: "https://w3id.org/ldac/terms#" });
-  crate.addContext({ pcdm: "http://pcdm.org/models#" });
-  crate.addContext({ custom: "arcp://name,custom/terms#" });
-  crate.addContext({ AUSTLANG: "https://collection.aiatsis.gov.au/austlang/language/" });
+  const crate = opts.existingJson ? loadCrateFromJson(opts.existingJson) : new ROCrate({ array: true, link: true });
+  ensureContext(crate, { ldac: "https://w3id.org/ldac/terms#" });
+  ensureContext(crate, { pcdm: "http://pcdm.org/models#" });
+  ensureContext(crate, { custom: "arcp://name,custom/terms#" });
+  ensureContext(crate, { AUSTLANG: "https://collection.aiatsis.gov.au/austlang/language/" });
 
+  // Root dataset fields from Describe/the profile fill in over whatever the
+  // existing crate already had — the same "explicit answer wins" rule
+  // xlsx-crate-input's own root-merge follows — but anything config.rootDataset
+  // doesn't mention (an existing conformsTo, datePublished, license, ...)
+  // is simply never touched, since this is Object.assign onto the entity
+  // loadCrateFromJson already populated, not a blank one.
   Object.assign(crate.rootDataset, config.rootDataset);
   if (typeof crate.rootDataset["@id"] === "string" && crate.rootDataset["@id"].trim()) {
     crate.descriptor.about = { "@id": crate.rootDataset["@id"] };
@@ -300,8 +387,12 @@ export function buildCrate(filesWithMeta, config, log = () => {}, opts = {}) {
 
   const fileProperties = config.fileProperties || [];
   for (const fp of fileProperties) crate.addEntity(fp.definition);
-  addFolderEntities(crate, filesWithMeta, opts);
-  addFileEntities(crate, filesWithMeta, fileProperties, opts);
+  if (opts.existingJson) {
+    reconcileFileEntities(crate, filesWithMeta, fileProperties, log);
+  } else {
+    addFolderEntities(crate, filesWithMeta, opts);
+    addFileEntities(crate, filesWithMeta, fileProperties, opts);
+  }
   rewriteHashIdsForExport(crate);
   return crate;
 }
