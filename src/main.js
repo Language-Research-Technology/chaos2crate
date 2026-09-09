@@ -1194,8 +1194,31 @@ function renderOptions(schema, parent, nested = false) {
     if (opt.type === "text") { parent.appendChild(buildTextField(opt, nested)); continue; }
     if (opt.type === "mappingBuilder") { parent.appendChild(buildMappingBuilderField(opt, nested)); continue; }
     if (opt.type === "collectionLabelsBuilder") { parent.appendChild(buildCollectionLabelsField(opt, nested)); continue; }
+    if (opt.type === "action") { parent.appendChild(buildActionField(opt)); continue; }
     parent.appendChild(buildCheckboxField(opt, nested));
   }
+}
+
+// A nested action button — the same idea as a top-level `kind: "action"`
+// tile (renderOptionGroupTiles), just usable inside a group's own children
+// instead of only at the top level. `run(runtime)` is the plugin's own
+// handler; runtime is {dirHandle, log}, read fresh at click time since
+// dirHandle changes with every folder pick. The host has no idea what a
+// given action actually does — e.g. the roctable plugin's "Configure tables…",
+// which opens its own modal via deps.openModal.
+function buildActionField(opt) {
+  const wrap = document.createElement("div");
+  wrap.className = "field";
+  wrap.id = "field_opt_" + opt.key;
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "secondary";
+  btn.id = "opt_" + opt.key;
+  btn.textContent = opt.label;
+  btn.addEventListener("click", () => opt.run({ dirHandle, log }));
+  wrap.appendChild(btn);
+  if (opt.hint) wrap.appendChild(hintEl(opt.hint));
+  return wrap;
 }
 
 function buildCheckboxField(opt, mode) {
@@ -2057,7 +2080,7 @@ function readOptions() {
   o.mergeUpload = uploads.mergeFile || null;
   o.mergeConfigUpload = uploads.mergeConfigFile || null;
   o.xlsxCrateUpload = uploads.xlsxCrateFile || null;
-  o.crate2tablesConfigUpload = uploads.crate2tablesConfigUpload || null;
+  o.roctableConfigUpload = uploads.roctableConfigUpload || null;
   return o;
 }
 
@@ -2735,6 +2758,16 @@ async function deletePluginOutputs(dirHandle, log) {
     // build against an existing crate would silently fall back to rebuilding
     // from scratch — with this setting on by default, that was every build.
     if (path === "ro-crate-metadata.json") continue;
+    // _config/ and _backup/ (issue #81's standard per-plugin directories:
+    // _config/<slug>/ for standing configuration like the roctable plugin's table
+    // selection, _backup/<slug>/<date>/ for changed-file backups) are
+    // persistent by design, not disposable derived output — the same
+    // reasoning as the JSON file above, just for a whole namespace instead
+    // of one path, since more than one plugin can use either. Only
+    // _outputs/ (generated content a user may not want to keep) is what
+    // this setting is actually for.
+    const topLevel = path.split("/")[0];
+    if (topLevel === "_config" || topLevel === "_backup") continue;
     if (await removeEntryAtPath(dirHandle, path)) {
       removedCount += 1;
       log(`Deleted previous ${path}.`, "muted");
