@@ -101,7 +101,30 @@ export default defineConfig({
     }),
   ],
   optimizeDeps: {
-    include: ["ro-crate", "ro-crate-excel/lib/workbook.js", "ro-crate-static-site", "exceljs", "nunjucks"],
+    include: [
+      "ro-crate",
+      "ro-crate-excel/lib/workbook.js",
+      "ro-crate-static-site",
+      "exceljs",
+      "nunjucks",
+      // mammoth is a CJS package reached only through c2c-plugins (below),
+      // which is excluded from optimization — without this, Vite never
+      // runs its CJS->ESM interop on mammoth, so `import mammoth from
+      // "mammoth"` fails at runtime with "does not provide an export named
+      // 'default'". The "linked-pkg > dep" form re-includes it despite the
+      // parent being excluded.
+      "c2c-plugins > mammoth",
+    ],
+    // c2c-plugins' file-format-identify module uses Vite-only `?raw`/`?url`
+    // import suffixes (see wasm-loader.js) to load its vendored Go/WASM
+    // glue. With preserveSymlinks above making c2c-plugins look like an
+    // ordinary node_modules package, Vite's esbuild-based dependency
+    // optimizer tries to pre-bundle it and chokes on those suffixes
+    // (wasm_exec.js is a plain script with no exports, so esbuild sees
+    // `?raw` as a normal JS import and fails with "no matching export").
+    // Excluding it keeps its modules on Vite's own transform pipeline,
+    // which understands `?raw`/`?url` correctly.
+    exclude: ["c2c-plugins"],
   },
   build: {
     target: "es2020",
