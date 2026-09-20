@@ -10,6 +10,15 @@
 // ro-crate-excel spreadsheet (see xlsx-crate-input) carries this as a
 // custom:publish column, typically on the @type=File sheet rather than
 // RepositoryObject/Collection.
+//
+// Fixtures deliberately mirror buildCrate()'s real linking convention
+// (src/crate.js): the root dataset and every RepositoryCollection link to
+// their members via pcdm:hasMember, not hasPart — only a RepositoryObject
+// uses hasPart, for its own files. An earlier version of this test used
+// hasPart everywhere, which passed against a bug where the filter only
+// walked hasPart/hasMember and never pcdm:hasMember — so a real crate's
+// root (pcdm:hasMember only) always resolved to "kept 0 of 0" while this
+// test stayed green. Keep these fixtures shaped like the real crate.
 import assert from "node:assert/strict";
 import { ROCrate } from "ro-crate";
 import { filterCrateToPublished } from "c2c-plugins/src/ro-crate-html-output/index.js";
@@ -18,11 +27,11 @@ function buildTestCrate() {
   const crate = new ROCrate({ array: true, link: true });
   crate.rootDataset["@id"] = "./";
   crate.rootDataset["@type"] = ["Dataset"];
-  crate.addValues(crate.rootDataset, "hasPart", [{ "@id": "#collectionA" }, { "@id": "#collectionB" }, { "@id": "#collectionC" }]);
+  crate.addValues(crate.rootDataset, "pcdm:hasMember", [{ "@id": "#collectionA" }, { "@id": "#collectionB" }, { "@id": "#collectionC" }]);
 
   crate.addEntity({
     "@id": "#collectionA", "@type": "RepositoryCollection", name: "Collection A", "custom:publish": true,
-    hasPart: [{ "@id": "#objectA1" }, { "@id": "#objectA2" }],
+    "pcdm:hasMember": [{ "@id": "#objectA1" }, { "@id": "#objectA2" }],
   });
   crate.addEntity({ "@id": "#objectA1", "@type": "RepositoryObject", name: "Object A1", hasPart: [{ "@id": "fileA1.txt" }] });
   crate.addEntity({ "@id": "fileA1.txt", "@type": "File", name: "fileA1.txt" });
@@ -32,7 +41,7 @@ function buildTestCrate() {
 
   crate.addEntity({
     "@id": "#collectionB", "@type": "RepositoryCollection", name: "Collection B",
-    hasPart: [{ "@id": "#objectB1" }, { "@id": "#objectB2" }],
+    "pcdm:hasMember": [{ "@id": "#objectB1" }, { "@id": "#objectB2" }],
   });
   // custom:publish:true on an object overrides its (unpublished) collection.
   crate.addEntity({ "@id": "#objectB1", "@type": "RepositoryObject", name: "Object B1", "custom:publish": true, hasPart: [{ "@id": "fileB1.txt" }] });
@@ -45,7 +54,7 @@ function buildTestCrate() {
   // so an unpublished object/collection can still have one published file.
   crate.addEntity({
     "@id": "#collectionC", "@type": "RepositoryCollection", name: "Collection C",
-    hasPart: [{ "@id": "#objectC1" }],
+    "pcdm:hasMember": [{ "@id": "#objectC1" }],
   });
   crate.addEntity({ "@id": "#objectC1", "@type": "RepositoryObject", name: "Object C1", hasPart: [{ "@id": "fileC1.txt" }, { "@id": "fileC2.txt" }] });
   crate.addEntity({ "@id": "fileC1.txt", "@type": "File", name: "fileC1.txt", "custom:publish": true });
@@ -65,7 +74,7 @@ function idsOf(crate) {
   const ids = idsOf(crate);
 
   assert.ok(ids.has("./"), "root dataset is never removed");
-  assert.ok(ids.has("#collectionA") && ids.has("#objectA1") && ids.has("fileA1.txt"), "collection A's plain object cascades from the collection's custom:publish:true");
+  assert.ok(ids.has("#collectionA") && ids.has("#objectA1") && ids.has("fileA1.txt"), "collection A's plain object cascades from the collection's custom:publish:true, via pcdm:hasMember");
   assert.ok(!ids.has("#objectA2") && !ids.has("fileA2.txt"), "an object's own custom:publish:false overrides an inherited custom:publish:true");
 
   assert.ok(ids.has("#collectionB"), "collection B survives as a structural shell because it has a published descendant");
@@ -77,11 +86,11 @@ function idsOf(crate) {
   assert.ok(!ids.has("fileC2.txt"), "its unflagged sibling file, under the same unpublished object, is excluded");
 
   const collectionA = crate.getEntity("#collectionA");
-  assert.deepEqual(collectionA.hasPart.map((p) => p["@id"]), ["#objectA1"], "the removed sibling's hasPart ref is cleaned up, not left dangling");
+  assert.deepEqual(collectionA["pcdm:hasMember"].map((p) => p["@id"]), ["#objectA1"], "the removed sibling's pcdm:hasMember ref is cleaned up, not left dangling");
   const collectionB = crate.getEntity("#collectionB");
-  assert.deepEqual(collectionB.hasPart.map((p) => p["@id"]), ["#objectB1"], "same cleanup on the shell collection's hasPart");
+  assert.deepEqual(collectionB["pcdm:hasMember"].map((p) => p["@id"]), ["#objectB1"], "same cleanup on the shell collection's pcdm:hasMember");
   const objectC1 = crate.getEntity("#objectC1");
-  assert.deepEqual(objectC1.hasPart.map((p) => p["@id"]), ["fileC1.txt"], "same cleanup at file level under the shell object");
+  assert.deepEqual(objectC1.hasPart.map((p) => p["@id"]), ["fileC1.txt"], "same cleanup at file level under the shell object's hasPart");
 
   assert.ok(!seen.some(([level]) => level === "warn"), "no warning is logged when some entities do carry a custom:publish flag");
 }
@@ -93,16 +102,17 @@ function idsOf(crate) {
   const crate = new ROCrate({ array: true, link: true });
   crate.rootDataset["@id"] = "./";
   crate.rootDataset["@type"] = ["Dataset"];
-  crate.addValues(crate.rootDataset, "hasPart", [{ "@id": "#collectionA" }]);
-  crate.addEntity({ "@id": "#collectionA", "@type": "RepositoryCollection", name: "Collection A", hasPart: [{ "@id": "fileA1.txt" }] });
+  crate.addValues(crate.rootDataset, "pcdm:hasMember", [{ "@id": "#collectionA" }]);
+  crate.addEntity({ "@id": "#collectionA", "@type": "RepositoryCollection", name: "Collection A", "pcdm:hasMember": [{ "@id": "#objectA1" }] });
+  crate.addEntity({ "@id": "#objectA1", "@type": "RepositoryObject", name: "Object A1", hasPart: [{ "@id": "fileA1.txt" }] });
   crate.addEntity({ "@id": "fileA1.txt", "@type": "File", name: "fileA1.txt" });
 
   const seen = [];
   filterCrateToPublished(crate, (msg, level) => seen.push([level, msg]));
   const ids = idsOf(crate);
 
-  assert.ok(!ids.has("#collectionA") && !ids.has("fileA1.txt"), "nothing is published, so no content entity remains");
+  assert.ok(!ids.has("#collectionA") && !ids.has("#objectA1") && !ids.has("fileA1.txt"), "nothing is published, so no content entity remains");
   assert.ok(seen.some(([level, msg]) => level === "warn" && /no collection\/object\/file/.test(msg)), "warns that nothing was marked custom:publish:true");
 }
 
-console.log("test-publish-filter: all tests passed (cascade, individual override, shell survival at object and file grain, dangling-ref cleanup, empty-subset warning)");
+console.log("test-publish-filter: all tests passed (cascade via pcdm:hasMember, individual override, shell survival at object and file grain, dangling-ref cleanup, empty-subset warning)");
