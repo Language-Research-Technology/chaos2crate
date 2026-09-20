@@ -16,6 +16,8 @@ const assetMap = new Map([
   ["files/images/magpie.jpg", "blob:http://localhost/magpie"],
   ["files/audio/calls/magpie.mp3", "blob:http://localhost/call"],
   ["style.css", "blob:http://localhost/style"],
+  ["files/115D#J~Y.PDF", "blob:http://localhost/hash-pdf"],
+  ["sprite.svg", "blob:http://localhost/sprite"],
 ]);
 
 /* ---------- what counts as ours to rewrite ---------- */
@@ -44,6 +46,10 @@ assert.equal(mapAssetUrl("files/images/magpie.jpg?v=2", assetMap), "blob:http://
 assert.equal(mapAssetUrl("https://example.com/x.jpg", assetMap), null, "absolute URLs are left alone");
 assert.equal(mapAssetUrl("files/images/nope.jpg", assetMap), null, "a file the crate doesn't have is left alone");
 assert.equal(mapAssetUrl("", assetMap), null);
+assert.equal(mapAssetUrl("files/115D#J~Y.PDF", assetMap), "blob:http://localhost/hash-pdf",
+  "a literal '#' in the crate's own filename must not be mistaken for a fragment delimiter");
+assert.equal(mapAssetUrl("sprite.svg#icon-name", assetMap), "blob:http://localhost/sprite#icon-name",
+  "a genuine fragment (e.g. an SVG sprite reference) still works when the literal path isn't a real asset");
 
 /* ---------- CSS ---------- */
 

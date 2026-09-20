@@ -38,6 +38,17 @@ export function normalizeRelativePath(value) {
 // rewrite (absolute, empty, or a file the crate doesn't contain).
 export function mapAssetUrl(raw, assetMap) {
   if (!raw || isAbsoluteLikeUrl(raw)) return null;
+  // Crate filenames can themselves contain '#' or '?' (e.g. "115D#J~Y.PDF"),
+  // so try the whole reference as a literal path before assuming everything
+  // past the first '#'/'?' is a fragment or query string to strip. Only fall
+  // back to splitting when the literal path isn't a real asset — that keeps
+  // genuine fragment references (e.g. an SVG sprite's "sprite.svg#icon")
+  // working.
+  const literalKey = normalizeRelativePath(raw);
+  if (literalKey) {
+    const literalMapped = assetMap.get(literalKey) || assetMap.get(encodeURI(literalKey));
+    if (literalMapped) return literalMapped;
+  }
   const { base, suffix } = splitUrlParts(raw);
   const key = normalizeRelativePath(base);
   if (!key) return null;
