@@ -3295,7 +3295,14 @@ function rewritePageAssets(html, assetMap) {
     for (const attr of ["src", "href"]) {
       const raw = el.getAttribute(attr);
       if (!raw || isAbsoluteLikeUrl(raw)) continue;
-      const key = normalizeRelativePath(raw.split(/[?#]/)[0]);
+      // A crate page's own filename can contain '#' or '?' (see
+      // preview_assets.js's mapAssetUrl), so check the literal path first —
+      // only fall back to stripping at the first '#'/'?' when that literal
+      // path isn't itself an .html reference.
+      const literalKey = normalizeRelativePath(raw);
+      const key = literalKey.toLowerCase().endsWith(".html")
+        ? literalKey
+        : normalizeRelativePath(raw.split(/[?#]/)[0]);
       if (!key) continue;
       if (key.toLowerCase().endsWith(".html")) {
         el.setAttribute("data-r2c-page", key);
